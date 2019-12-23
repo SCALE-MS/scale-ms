@@ -8,3 +8,5 @@ method.
 Graphs and adaptive logic are communicated to the execution middleware,
 which manages task execution to satisfy the data dependencies for the results
 requested by the client script.
+
+.. include:: srs.rst

@@ -1,0 +1,41 @@
+@startuml
+rectangle Client {
+package Application as App1
+package Application as App2
+
+package {
+component API
+component "Workflow engine"
+}
+
+package {
+component "Workflow manager"
+component "Reseource manager"
+component "Communication manager"
+}
+}
+
+rectangle "Target resources" {
+component "Data stager"
+component "Task scheduler"
+component "Task placer"
+
+rectangle Node {
+
+rectangle Worker {
+component "placer"
+component "launcher" as functionlauncher
+frame function as function1
+frame function as function2
+frame function as function3
+}
+
+component launcher as worklauncher
+entity Task as Task1
+entity Task as Task2
+
+}
+
+}
+
+@enduml

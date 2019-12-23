@@ -1,0 +1,35 @@
+@startuml
+
+rectangle Client {
+:Application: as App1
+:Application: as App2
+:API:
+:Workflow engine:
+:Workflow manager:
+:Reseource manager:
+:Communication manager:
+
+}
+
+rectangle "Target resources" {
+:Data stager:
+:Task scheduler:
+:Task placer:
+
+rectangle Node {
+
+rectangle Worker {
+:placer:
+:launcher: as functionlauncher
+:function:
+}
+
+:launcher: as worklauncher
+:Task: as Task1
+:Task: as Task2
+
+}
+
+}
+
+@enduml

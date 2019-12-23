@@ -1,0 +1,20 @@
+@startuml
+
+:Abstract work graph: -> (Deserialize work)
+:Task manager: <|-- :Executor:
+(Deserialize work) - :Task manager:
+:Task manager: -- (Generate task)
+:Executor: -- (Execute task)
+:Executor: -- (Generate task)
+:Operation package: - (Execute task)
+:Operation package: - (Publish data)
+(Generate task) ..> (Evaluate resources): <<include>>
+(Generate task) ..> (Evaluate dependencies): <<include>>
+(Generate task) ..> (Control compute and input resources): <<include>>
+(Execute task) ..> (Control compute and input resources): <<include>>
+(Evaluate dependencies) ..> (Place data): <<include>>
+(Publish data) ..> (Place data): <<include>>
+(Publish data) -> (Generate task)
+:Managed data: - (Place data)
+
+@enduml

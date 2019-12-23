@@ -1,0 +1,19 @@
+@startuml
+
+:Application User: <<Human>>
+:Application User: --> (Interact)
+:Method Application: --|> :Data flow script:
+(Interact) -- :Method Application:
+:Data flow script: -- (Prepare work graph)
+:Data flow script: -- (Dispatch)
+:Data flow script: -- (Retrieve results)
+(Dispatch) -- :Client API implementation:
+(Retrieve results) -- :Client API implementation:
+:Operation package: <<Python module>>
+(Express parameters) -- :Operation package:
+(Interact) ..> (Prepare work graph): <<includes>>
+(Interact) ..> (Retrieve results): <<includes>>
+(Interact) ..> (Dispatch): <<includes>>
+(Prepare work graph) ..> (Express parameters): <<include>>
+
+@enduml

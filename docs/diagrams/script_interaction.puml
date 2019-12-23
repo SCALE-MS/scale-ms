@@ -1,0 +1,40 @@
+@startuml
+:Abstract work graph:
+:Managed data:
+:Client API implementation: <|-- :Task manager:
+
+:Operation package:
+
+rectangle "user environment" {
+:Data flow script: -- (Prepare work graph)
+:Data flow script: -- (Dispatch)
+:Data flow script: -- (Retrieve results)
+:Operation package: - (Express parameters)
+(Retrieve results) - :Client API implementation:
+(Prepare work graph) - :Client API implementation:
+(Dispatch) - :Client API implementation:
+(Serialize work) -- :Abstract work graph:
+(Place data) - :Managed data:
+(Prepare work graph) ..> (Express parameters): <<include>>
+(Prepare work graph) ..> (Place data): <<include>>
+(Dispatch) ..> (Serialize work): <<include>>
+(Retrieve results) ..> (Place data): <<include>>
+}
+
+:Task manager: -- (Generate task)
+:Task manager: - (Evaluate dependencies)
+:Task manager: -- (Evaluate resources)
+
+rectangle "execution environment" {
+:Task manager: <|-- :Executor:
+:Executor: -- (Execute task)
+(Execute task) - :Operation package:
+:Operation package: -- (Publish data)
+:Abstract work graph: -- (Deserialize work)
+(Place data) as (Place execution data)
+(Publish data) ..> (Place execution data): <<include>>
+(Place execution data) - :Managed data:
+}
+
+(Generate task) ..> (Deserialize work): <<include>>
+@enduml

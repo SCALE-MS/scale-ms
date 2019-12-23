@@ -6,10 +6,10 @@ Design documentaiton, API, data interchange, protocol specifications,
 and reference implementation
 for data flow driven molecular simulation management and analysis.
 
-.. ..  toctree::
+..  toctree::
     :maxdepth: 2
 
-..    developer
+    developer
 
 ..  samples
     srs

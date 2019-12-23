@@ -16,4 +16,4 @@ for data flow driven molecular simulation management and analysis.
     workspec_schema_0_2
     gmxapi
 
-These document drafts are maintained at https://github.com/SCALE-MS/scale-ms/
+These document drafts are maintained at https://github.com/eirrgang/gmxapi_graph_0_2

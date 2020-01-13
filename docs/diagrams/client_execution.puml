@@ -1,0 +1,172 @@
+@startuml
+participant "Higher level framework" as framework
+participant "Worker process" as worker
+
+box "myplugin" Operation package
+    participant "operation factory" as training_restraint_factory
+    participant "resource adapters" as training_restraint_resources
+    participant "operation implementation" as training_restraint_function
+end box
+
+box "brer_tools" Operation package
+    participant "operation factory" as training_analyzer_factory
+    participant "resource adapters" as training_analyzer_resources
+    participant "operation implementation" as training_analyzer_function
+end box
+
+box "gmxapi" package
+    participant "mdrun factory" as mdrun_factory
+    participant "modify_input factory" as modify_input_factory
+    participant "mdrun resource adapters" as mdrun_resources
+    participant "modify_input resource adapters" as modify_input_resources
+    participant "modify_input implementation" as modify_input_function
+    participant "mdrun implementation" as mdrun_function
+end box
+
+--> framework: static data resources available
+   note over framework #FFFFFF
+   my_dict_params[...] =
+   b10c0d301eac482985406880bf9e14a8ddd0500ff6974cad66bfaa609ac9fb1a: scalems.AssociativeArray
+   1d221ba8495ac81a228999b3e4b4d6af10993f91595bc3cfd968cde856caeb84: scalems.AssociativeArray
+    ...
+   536785de733f7b2284e0f2df6fa521e8ac88e39dfdef377dafaa8ce1f1952680: scalems.AssociativeArray
+   endnote
+
+   framework --> worker ++: provision worker
+
+   rnote over framework #FFFFFF
+   536785de733f7b2284e0f2df6fa521e8ac88e39dfdef377dafaa8ce1f1952680: scalems.AssociativeArray
+   endrnote
+
+   framework -> worker: place data
+
+--> framework: work containing first iteration
+
+    rnote over framework #FFFFFF
+    "e3344773f37fe23ef6b9ecae69eb66760285ba84bfa37d8a9e8060522ef9933e":
+    {
+        "operation": ["myplugin", "training_restraint"],
+        "input": { "params": [
+                "b10c0d301eac482985406880bf9e14a8ddd0500ff6974cad66bfaa609ac9fb1a",
+                "1d221ba8495ac81a228999b3e4b4d6af10993f91595bc3cfd968cde856caeb84",
+                ...
+                "536785de733f7b2284e0f2df6fa521e8ac88e39dfdef377dafaa8ce1f1952680"
+            ]
+        },
+        "output": { "alpha": "meta": { "resource": {
+                        "type": "scalems.Float64",
+                        "shape": [10] }}},
+        "interface": {
+            "mm_potential": "meta": { "resource": {
+                        "type": "gmxapi.RestraintPotential",
+                        "shape": [10] }}}
+    },
+    "2f1112b962e552bffee45a295e1a356b5f1d06c8b493110afef27cd61b148594":
+    {
+        "operation": ["brer_tools", "training_analyzer"],
+        "input": {
+            "params": "e3344773f37fe23ef6b9ecae69eb66760285ba84bfa37d8a9e8060522ef9933e.output.alpha"},
+        "output": { "meta": { "resource": {
+                    "type": "scalems.Boolean",
+                    "shape": [1] }}}
+    },
+    "aea026def4dfb9d63f6a19dc2bad2beec228fa66de5cf04160e430c75ced0224":
+    {
+        "operation": ["gmxapi", "mdrun"],
+        "input": {
+            "simulation_state": ...,
+            "molecular_system": ...,
+            "simulation_parameters": ...,
+            "potential": e3344773f37fe23ef6b9ecae69eb66760285ba84bfa37d8a9e8060522ef9933e.interface.mm_potential
+            },
+        "output": { "alpha": "meta": { "resource": {
+                    "type": "scalems.Float64",
+                    "shape": [10] }}}
+    },
+    "125aa6c54b2e7f5d082c859c290360e765e843be607bc8fcec48c6a724885e39":
+    {
+        "operation": ["gmxapi", "modify_input"],
+        "input": {
+            "simulation_state": ...,
+            "molecular_system": ...,
+            "simulation_parameters": ...
+        },
+        "output": {
+            "simulation_state": ...,
+            "molecular_system": ...,
+            "simulation_parameters": ...
+        },
+    },
+    "4c7ba9de40626628dc871679e048dbf80165b19a0416a5ac53b22a2d5390cb46":
+    {
+        "operation": ["scalems", "logical_not"],
+        "input": "2f1112b962e552bffee45a295e1a356b5f1d06c8b493110afef27cd61b148594.output",
+        "output": { "meta": { "resource": {
+                    "type": "scalems.Boolean",
+                    "shape": [1] }}}
+    },
+    endrnote
+
+
+   framework -> worker: "modified_input_1[9]" node
+   note right of worker
+               framework will look for implementation
+               in `gmxapi` Python module.
+   end note
+                worker -> modify_input_factory: resource_builder()
+                          modify_input_factory -> modify_input_resources ++
+                                     modify_input_resources --> worker
+
+   framework -> worker: "training_potential_1[9]" node
+
+   note right of worker
+               framework will look for implementation
+               in `myplugin` Python module.
+   end note
+                worker -> training_restraint_factory: resource_builder()
+                          training_restraint_factory -> training_restraint_resources ++
+                                     training_restraint_resources --> worker
+
+   framework -> worker: "md_1[9]" node
+   note right of worker
+               framework will look for implementation
+               in `gmxapi` Python module.
+   end note
+                worker -> mdrun_factory: resource_builder()
+                          mdrun_factory -> mdrun_resources ++
+                                     mdrun_resources --> worker
+
+   framework -> worker: "is_converged_1[9]" node
+   note right of worker
+               framework will look for implementation
+               in `brer_tools` Python module.
+   end note
+                worker -> training_analyzer_factory: resource_builder()
+                          training_analyzer_factory -> training_analyzer_resources ++
+                                     training_analyzer_resources --> worker
+
+   framework -> worker: "logical_not_1[9]" node
+
+   note right of worker
+               framework recognizes that implementation is internal.
+   end note
+                worker -> factory: resource_builder()
+                          factory -> resources ++
+                                     resources --> worker
+
+worker -> factory: execute(resources)
+          factory -> function ++
+                     function -> function: compute
+                     function -> resources: publish
+                     function --> worker --: success
+
+alt publisher is container
+    resources --> worker: results
+                  worker --> framework: results
+else publisher is functor
+    resources --> worker: intermediate results
+    resources --> framework: workflow results
+end alt
+
+worker -> resources !!: release references
+@enduml

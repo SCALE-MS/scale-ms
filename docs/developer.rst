@@ -12,3 +12,4 @@ Developer Documents
     executor
     operations
     specifications
+    testing

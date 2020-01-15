@@ -27,3 +27,9 @@ Acceptance tests
     as possible about experimental features or use cases, but that would require
     either packaging the tests in some way or at least manipulating the
     PYTHONPATH and making them ``import``-able.
+
+Supporting code
+===============
+
+.. automodule:: serialization
+    :members:

@@ -9,6 +9,7 @@ import typing
 # though we might want to guarantee that a UID is exactly 32 bytes. TBD...
 
 class Fingerprint(object):
+    """Convert Operation instance details to a unique identifier."""
     import hashlib as _hashlib
 
     def __init__(self, *,
@@ -48,6 +49,14 @@ class Fingerprint(object):
         return id_string
 
     def uid(self) -> bytes:
+        """Get a 256-bit identifier.
+
+        Returns:
+            32-byte sequence.
+
+        Conventional string formatting (text-encoded hexadecimal) is obtained
+        with the ``hex()`` method of the returned value.
+        """
         id_string = self.compact_json()
         id_bytes = id_string.encode('utf-8')
         id_hash = Fingerprint._hashlib.sha256(id_bytes)
@@ -68,6 +77,15 @@ def _random_uid():
 
 
 class OperationIdentifier(tuple):
+    """Python structure to identify an API Operation implementation.
+
+    Operations are identified with a nested scope. The OperationIdentifier
+    is a sequence of identifiers such that the operation_name() is the final
+    element, and the preceding subsequence comprises the namespace().
+
+    Conventional string representation of the entire identifier uses a period
+    (``.``) delimiter.
+    """
     def namespace(self):
         return tuple(self[0:-2])
 

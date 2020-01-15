@@ -103,7 +103,7 @@ class Integer64(object):
     # Note that the built-in Python array module only provides 1-dimensional arrays.
     from numpy import array as _array
 
-    operation = OperationIdentifier(['gmxapi', 'Integer64'])
+    operation = OperationIdentifier(['scalems', 'Integer64'])
 
     def __init__(self, data):
         # Note: numpy may be too forgiving regarding source data and we may want extra sanitization.
@@ -136,7 +136,8 @@ class Integer64(object):
         return cls(data)
 
     def fingerprint(self):
-        return Fingerprint(operation=['gmxapi', 'Integer64'], input={'data': self.data.tolist()})
+        # TODO: Specify fingerprint API features to support externally implemented fingerprinting of binary data.
+        return Fingerprint(operation=['scalems', 'Integer64'], input={'data': self.data.tolist()})
 
 # TODO: Probably want a generic SerializedOperation named type or abstract handling
 #  for the various ways const nodes could be passed.

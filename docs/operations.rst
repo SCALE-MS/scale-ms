@@ -95,6 +95,8 @@ Framework and object model
 
 .. Explain how operations are structured and implemented.
 
+.. uml:: diagrams/operation_factory.puml
+
 The basic protocol for obtaining a handle to an operation node allows
 dispatching logic to dispatch or compose a Director to translate client input
 and operation details to a context-dependent node Builder. The protocol does
@@ -104,12 +106,17 @@ managed by the context, a handle to a function object that has already executed,
 or something more exotic, like an adapter that maps a Future interface to a
 Builder for a callable task.
 
-.. uml:: diagrams/operation_factory.puml
+Compare the details of an operation handle generated in a client context for
+deferred-execution work with the run time concrete node.
+
+.. uml:: diagrams/operation_graph_sequence.puml
+
+.. uml:: diagrams/operation_launch_sequence.puml
 
 Runtime
 =======
 
-How are operations actually executed?
+.. How are operations actually executed?
 
 Data flow, checkpoint, and resumption
 ----------------------------------------

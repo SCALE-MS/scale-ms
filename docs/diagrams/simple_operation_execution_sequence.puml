@@ -1,0 +1,53 @@
+@startuml
+participant "Higher level framework" as framework
+participant "Worker process" as worker
+
+box "hello" Operation package
+    participant "operation factory" as factory
+    participant "resource adapters" as resources
+    participant "operation implementation" as function
+end box
+
+   framework --> worker ++: provision worker
+--> framework: work containing "hello world"
+
+    rnote over framework #FFFFFF
+    {
+    "operation": ["hello", "hello_world"],
+    "input": {},
+    "output": {
+        "meta": {
+            "resource": {
+                "type": "scalems.String",
+                "shape": [1]
+                },
+            },
+        },
+    }
+    endrnote
+
+   framework -> worker: "hello world" node
+   note right of worker
+               framework will look for implementation
+               in `hello` Python module.
+   end note
+                worker -> factory: resource_builder()
+                          factory -> resources ++
+                                     resources --> worker
+
+worker -> factory: execute(resources)
+          factory -> function ++
+                     function -> function: compute
+                     function -> resources: publish
+                     function --> worker --: success
+
+alt publisher is container
+    resources --> worker: results
+                  worker --> framework: results
+else publisher is functor
+    resources --> worker: intermediate results
+    resources --> framework: workflow results
+end alt
+
+worker -> resources !!: release references
+@enduml

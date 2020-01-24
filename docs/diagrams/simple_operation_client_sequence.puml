@@ -1,0 +1,58 @@
+@startuml
+actor script
+participant "Python interpreter" as py
+
+box "Operation package"
+participant "factory" as factory
+end box
+
+box "SCALE_MS package"
+participant Context as scalems
+end box
+
+
+alt SCALE-MS dependency
+
+script -> py: import hello
+script -> py: my_op = hello.hello_world()
+py -> factory
+factory -> scalems: get_context
+factory -> scalems: add_node
+scalems -> handle
+factory --> py: handle
+
+else SCALE-MS compatibility without dependency
+
+script -> py: import hello
+script -> py: import scalems
+script -> py: context = scalems.get_context(...)
+py -> scalems: configure
+script -> py: my_op = hello.hello_world(context=context)
+py -> factory
+factory -> scalems: add_node
+scalems -> handle
+factory --> py: handle
+end
+
+script -> py: my_result = my_op.output.result()
+py -> handle: output
+handle -> scalems: node output proxy
+py -> scalems: output.result()
+
+    rnote right of scalems #FFFFFF
+    {
+    "operation": ["hello", "hello_world"],
+    "input": {},
+    "output": {
+        "meta": {
+            "resource": {
+                "type": "scalems.String",
+                "shape": [1]
+                },
+            },
+        },
+    }
+    endrnote
+scalems -> scalems: dispatch work
+scalems --> py: reference to Python string "hello world"
+@enduml

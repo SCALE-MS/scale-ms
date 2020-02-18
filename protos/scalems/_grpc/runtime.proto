@@ -1,0 +1,112 @@
+// Simple RPC service for dispatching execution of tasks.
+//
+// To generate code, run protoc with the gRPC plugin to generate messages and gRPC stubs.
+// Note that the structure of generated code is determined from the relative paths
+// used in the `protoc` command. The structure in $REPO/protos mirrors the
+// structure of the generated code and embedded ``import`` statements. Generate
+// code from the base of the repository as follows.
+//
+// In Python::
+//
+//    from grpc_tools import protoc
+//
+//    protoc.main((
+//        '',
+//        '-Iprotos',
+//        '--python_out=.',
+//        '--grpc_python_out=.',
+//        'protos/scalems/_grpc/runtime.proto',
+//    ))
+//
+// From the command line::
+//
+//    python -m grpc_tools.protoc \
+//      --proto_path=protos \
+//      --python_out=. \
+//      --grpc_python_out=. \
+//      protos/scalems/_grpc/runtime.proto
+//
+
+syntax = "proto3";
+
+package scalems_runtime;
+
+// We can use nested types...
+//message Reference {}
+
+// Nodes describe an operation or data source in a work graph.
+message Node {
+    // Globally unique identifier for the node. A 32-byte SHA-256 digest.
+    bytes uuid = 1;
+    // TODO: Flesh out the structure and nested types in a Node.
+    // operation (sequence of strings)
+    // input (nested structure)
+    // output (nested structure)
+}
+
+// Describe the ensemble in which to participate.
+message Ensemble {
+    // The number of members in the ensemble.
+    int32 size = 1;
+    // The member identifier for the targeted worker.
+    int32 member_id = 2;
+    // An identifier for the ensemble scope to support debugging and data tagging.
+    bytes ensemble_identifier = 3;
+
+    // Details asserting the initial ensemble subgraph execution state.
+    //bytes ensemble_state = 4;
+}
+
+// Defined instructions
+enum InstructionEnum {
+    // Place a node.
+    PLACE = 0;
+    // Subscribe to a node or results.
+    SUBSCRIBE = 1;
+    // Cancel an operation (remove a node).
+    CANCEL = 2;
+    // Set the ensemble scope for the worker.
+    ENTER_ENSEMBLE = 3;
+    // Leave the current ensemble scope.
+    EXIT_ENSEMBLE = 4;
+}
+
+// Command messages allow execution of operation nodes to be launched or canceled
+message Command {
+    // Command message
+    InstructionEnum instruction = 1;
+
+    // Command arguments or payload, if any.
+    oneof payload {
+        // Attached node, if any.
+        Node node = 2;
+        // Ensemble specification.
+        Ensemble ensemble = 16;
+    }
+}
+
+// WorkerNote messages allow the worker to provide results or ask for resources.
+message WorkerNote {
+    // Worker message types
+    enum Note {
+        PUBLISH = 0;
+    }
+    // Response message
+    Note note = 1;
+
+    // Message contents, if any.
+    oneof payload {
+        // Attached node, if any.
+        Node node = 2;
+    }
+}
+
+
+// Interface exported by the server.
+service Worker {
+  // A bidirectional streaming RPC.
+  //
+  // Accepts a stream of Commands that direct worker execution,
+  // while receiving updated graph state or other messages.
+  rpc Update(stream Command) returns (stream WorkerNote) {}
+}

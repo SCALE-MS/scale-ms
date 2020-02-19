@@ -9,13 +9,12 @@ import logging
 
 import grpc
 
-from scalems.worker import Worker
-from scalems._grpc.runtime_pb2_grpc import add_WorkerServicer_to_server
+from scalems.worker import set_up_server
 
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=1))
-    add_WorkerServicer_to_server(Worker(), server)
+    set_up_server(server)
     server.add_insecure_port('[::]:50051')
     server.start()
     server.wait_for_termination()

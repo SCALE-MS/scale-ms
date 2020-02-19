@@ -29,7 +29,7 @@
 
 syntax = "proto3";
 
-package scalems_runtime;
+package scalems.runtime;
 
 // We can use nested types...
 //message Reference {}
@@ -63,8 +63,6 @@ enum InstructionEnum {
     PLACE = 0;
     // Subscribe to a node or results.
     SUBSCRIBE = 1;
-    // Cancel an operation (remove a node).
-    CANCEL = 2;
     // Set the ensemble scope for the worker.
     ENTER_ENSEMBLE = 3;
     // Leave the current ensemble scope.
@@ -89,7 +87,10 @@ message Command {
 message WorkerNote {
     // Worker message types
     enum Note {
+        // payload contains a node to publish.
         PUBLISH = 0;
+        // payload contains a google.longrunning.Operation
+        RESOURCE_NAME = 1;
     }
     // Response message
     Note note = 1;
@@ -98,6 +99,8 @@ message WorkerNote {
     oneof payload {
         // Attached node, if any.
         Node node = 2;
+        // A named resource, retrievable with additional queries.
+        string name = 3;
     }
 }
 
@@ -106,7 +109,11 @@ message WorkerNote {
 service Worker {
   // A bidirectional streaming RPC.
   //
-  // Accepts a stream of Commands that direct worker execution,
+  // Accepts a stream of Command messages that direct worker execution,
   // while receiving updated graph state or other messages.
+  //
+  // Returns:
+  //     WorkerNote stream
+  //
   rpc Update(stream Command) returns (stream WorkerNote) {}
 }

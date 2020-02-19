@@ -15,7 +15,7 @@ class WorkerStub(object):
       channel: A grpc.Channel.
     """
     self.Update = channel.stream_stream(
-        '/scalems_runtime.Worker/Update',
+        '/scalems.runtime.Worker/Update',
         request_serializer=scalems_dot___grpc_dot_runtime__pb2.Command.SerializeToString,
         response_deserializer=scalems_dot___grpc_dot_runtime__pb2.WorkerNote.FromString,
         )
@@ -28,8 +28,12 @@ class WorkerServicer(object):
   def Update(self, request_iterator, context):
     """A bidirectional streaming RPC.
 
-    Accepts a stream of Commands that direct worker execution,
+    Accepts a stream of Command messages that direct worker execution,
     while receiving updated graph state or other messages.
+
+    Returns:
+    WorkerNote stream
+
     """
     context.set_code(grpc.StatusCode.UNIMPLEMENTED)
     context.set_details('Method not implemented!')
@@ -45,5 +49,5 @@ def add_WorkerServicer_to_server(servicer, server):
       ),
   }
   generic_handler = grpc.method_handlers_generic_handler(
-      'scalems_runtime.Worker', rpc_method_handlers)
+      'scalems.runtime.Worker', rpc_method_handlers)
   server.add_generic_rpc_handlers((generic_handler,))

@@ -26,16 +26,19 @@ Usage:
 import grpc
 
 from scalems._grpc.runtime_pb2_grpc import WorkerStub
-from scalems._grpc.runtime_pb2 import Command, InstructionEnum
+from scalems._grpc.runtime_pb2 import Command, InstructionEnum, WorkerNote
 
 def test_connection():
+    dummy_id = ('a'*32).encode('utf-8')  # type: bytes
+
     def generate_messages():
         command_message = Command(instruction=InstructionEnum.PLACE)
-        command_message.node.uuid = ('a'*32).encode('utf-8')
+        command_message.node.uuid = dummy_id
         yield command_message
 
     with grpc.insecure_channel('localhost:50051') as channel:
         stub = WorkerStub(channel)
         response = stub.Update(generate_messages())
         for note in response:
-            print("Client received: " + note.node.uuid.hex())
+            assert note.note == WorkerNote.Note.RESOURCE_NAME
+            assert note.name == dummy_id.hex()

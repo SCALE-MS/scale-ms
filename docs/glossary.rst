@@ -15,63 +15,111 @@ This document assumes the following definitions of potentially overloaded key wo
         interval.
 
     work
+    graph
+    work graph
         A task or tasks, packaged for dispatching and execution.
+
+        Work is described as a directed acyclic graph (DAG) of data flow (edges)
+        and operations on the data (nodes).
+        Work represents the computational products
+        requested by a client, but may be an abstraction for lower level tasks,
+        and the exact work load may not be determined until run time.
 
     worker
         The unit of allocation of runtime computing resources. Should not be
         relevant to the user, but may figure into the implementation details of
         task dispatching.
 
-    graph
-    work graph
-        A directed acyclic graph of operation nodes connected by data flow edges.
+        A process (or group of processes) managed by the framework and able to
+        execute SCALE-MS work as directed by an :doc:`executor <executor>`.
+
+        Workers are configured and launched through the `CPI`. Data and requests
+        for data are provided to the worker by its client. The worker is able
+        to publish both final results and intermediate results for the work it
+        is executing. More generally, the worker publishes updates to the work
+        graph, which include state updates for existing graph nodes as well as
+        new nodes. New nodes are necessary to hold static data, to describe
+        operations dispatched in support of higher level operations, or to
+        extend the work graph (such as in support of adaptive work flows).
+
+        A worker may be launched to perform a single task, to perform a sequence
+        of tasks, or to participate in an :term:`ensemble`.
+
+    edge
+        A graph edge represents a (data) dependency between operations.
+
+    ensemble
+        An ensemble (as used here) is a concept for grouping related work.
+        Defining an ensemble can allow high level work to be defined more
+        conveniently while allowing more efficient management of task and data
+        placement.
+        Ensemble operations (such as scatter, gather, broadcast, and
+        reduce), may be optimized within a single ensemble execution session.
+
+        The run time characteristics of an ensemble include the supported data
+        flow topology and the computing resources to allocate for ensemble
+        workers. When an ensemble scope is entered, the framework may collect
+        or launch new workers to support the ensemble work. Workers may continue
+        to receive additional tasks and data until the ensemble scope changes.
+        The scope of the ensemble session is thus also constrained by the
+        appropriateness of the allocated ensemble worker pool for the available
+        work.
+
+    framework
+        SCALE-MS is a set of specifications, support packages, and software
+        collaborations that provide a framework in which software tools are
+        executed. The term "framework" is used to refer abstractly to the
+        SCALE-MS software stack and to the facilities it coordinates,
+        particularly in documentation contexts where it is appropriate to avoid
+        details of software packaging or implementation.
+
+    run time
+        .. todo:: Define the scope to be conveyed by the noun "run time".
+
+    CPI
+        .. todo:: Define CPI.
 
     graph state
-        The aggregation of state for nodes and edges, constrained by directed
+        The aggregation of state for operations (nodes) and data (edges),
+        constrained by directed
         acyclic data flow topology. Granularity is not yet fully determined, but
         state must account for completed and incomplete operations, and allow
         distinction between idle and currently executing nodes.
 
-These two terms are borrowed from TensorFlow:
-
-.. glossary::
-
-    Context
-      Abstraction for the entity that maps work to a computing environment.
-
-    Session
-      Abstraction for the entity representing work that is executing on resources
-      allocated by an instance of a Context implementation.
-
-The above terms roughly map to terms like *Executor* and *Task* in other frameworks.
-Distinctions relate to the lifetime of the :term:`Context` instance, and the fact that
-it owns both the work specification (including operation and data handles)
-and the computing resources.
-The :term:`Context` instance owns resources (on behalf of the client) that may
-otherwise be owned directly by the client, and so its lifetime must span all
-references to resources, operation handles, and data futures.
-
-.. glossary::
+    function
+    operation implementation
+        A well defined computational element or data transformation that can be used
+        to add computational work to a graph managed by a Context. Inputs
+        are strongly specified, and behavior for a given set of inputs is deterministic
+        (within numerical stability). Outputs may not be well specified
+        until inputs are bound (*e.g.* until an instance is created).
 
     operation
-        A well defined computational element or data transformation that can be used
-        to add computational work to a graph managed by a Context. Operation inputs
-        are strongly specified, and behavior for a given set of inputs is deterministic
-        (within numerical stability). Operation outputs may not be well specified
-        until inputs are bound.
-
     operation instance
-    operation reference
-    operation handle
-    element
-    node
-        A node in a work graph. Previously described as *WorkElement*.
+        A node in a work graph. Previously described as *WorkElement* or *node*.
 
-    operation factory
-    operation helper
+        Data sources and specific instances of operations are represented as
+        nodes in a work graph.
+
+        Identity: A node is the uniquely identifiable representation of a
+        :term:`function` instance, defined in terms of the inputs and
+        specified behavior.
+
+        Corollary: the definition of an operation (a node) is immutable once added to the graph.
+
+        Finer points:
+
+        * The outputs of an operation may be accessed and subscribed to at any time.
+        * Internally, operations may be stateful. They have metadata associated with
+          their degree of completion and, potentially, with references to other
+          resources to describe intermediate or final results.
+
+    command
+        Places one or more operations into the work graph.
         The syntax of UI-level functions that instantiate operations is specified by
         the API, but can extend the syntax implied by the serialized representation
-        of a node for flexibility and user-friendliness.
+        of a node for flexibility and user-friendliness. May be a *factory* for
+        an operation implementation.
 
     port
         Generic term for a named source, sink, resource, or binding hook on a node.
@@ -92,6 +140,26 @@ references to resources, operation handles, and data futures.
         and the binding mechanism by which MD extension code can be attached to an
         *MD* operation as a plugin. The nature of a resource is indicated by the
         namespace of its *port* in the work record.
+
+    Context
+      Abstraction for the entity that maps work to a computing environment.
+      Instances may be long-lived and participate in owning/managing work and
+      data references.
+
+    Session
+      Abstraction for the entity representing work that is executing on resources
+      allocated by an instance of a Context implementation. The Session is the
+      scoped active state of a Context while computing resources are held.
+
+.. topic:: *Context* and *Session*
+
+    roughly map to terms like *Executor* and *Task* in some other frameworks.
+    Distinctions relate to the lifetime of the :term:`Context` instance, and the fact that
+    it owns both the work specification (including operation and data handles)
+    and the computing resources.
+    The :term:`Context` instance owns resources (on behalf of the client) that may
+    otherwise be owned directly by the client, and so its lifetime must span all
+    references to resources, operation handles, and data futures.
 
 .. glossary::
 
@@ -122,78 +190,6 @@ references to resources, operation handles, and data futures.
         binding to a mutable resource (with details beyond the scope of the API)
         owned by another operation whose state and action is well characterized
         for the segment.
-
-
-.. glossary::
-
-    edge
-        A graph edge represents a (data) dependency between operations.
-
-    ensemble
-        An ensemble (as used here) is a concept for grouping related work.
-        Defining an ensemble can allow high level work to be defined more
-        conveniently while allowing more efficient management of task and data
-        placement.
-        Ensemble operations (such as scatter, gather, broadcast, and
-        reduce), may be optimized within a single ensemble execution session.
-
-        The run time characteristics of an ensemble include the supported data
-        flow topology and the computing resources to allocate for ensemble
-        workers. When an ensemble scope is entered, the framework may collect
-        or launch new workers to support the ensemble work. Workers may continue
-        to receive additional tasks and data until the ensemble scope changes.
-        The scope of the ensemble session is thus also constrained by the
-        appropriateness of the allocated ensemble worker pool for the available
-        work.
-
-    framework
-        SCALE-MS is a set of specifications, support packages, and software
-        collaborations that provide a framework in which software tools are
-        executed. The term "framework" is used to refer abstractly to the
-        SCALE-MS software stack and to the facilities it coordinates,
-        particularly in documentation contexts where it is appropriate to avoid
-        details of software packaging or implementation.
-
-    graph
-        Work is described as a directed acyclic graph (DAG) of data flow (edges)
-        and operations on the data (nodes).
-
-    node
-        Data sources and specific instances of operations are represented as
-        nodes in a work graph.
-
-        Identity: A node is the uniquely identifiable representation of an
-        operation instance, defined in terms of the inputs and
-        the work they will perform.
-
-        Corollary: the definition of a node is immutable once added to the graph.
-
-        Finer points:
-
-        * The outputs of a node may be accessed and subscribed to at any time.
-        * Internally, nodes may be stateful. They have metadata associated with
-          their degree of completion and, potentially, with references to other
-          nodes to describe intermediate or final results.
-
-    run time
-        .. todo:: Define the scope to be conveyed by the noun "run time".
-
-    worker
-        A process (or group of processes) managed by the framework and able to
-        execute SCALE-MS work as directed by an :doc:`executor <executor>`.
-
-        Workers are configured and launched through the `CPI`. Data and requests
-        for data are provided to the worker by its client. The worker is able
-        to publish both final results and intermediate results for the work it
-        is executing. More generally, the worker publishes updates to the work
-        graph, which include state updates for existing graph nodes as well as
-        new nodes. New nodes are necessary to hold static data, to describe
-        operations dispatched in support of higher level operations, or to
-        extend the work graph (such as in support of adaptive work flows).
-
-        A worker may be launched to perform a single task, to perform a sequence
-        of tasks, or to participate in an :term:`ensemble`.
-
 
 .. _user classification:
 

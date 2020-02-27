@@ -8,6 +8,119 @@ This document assumes the following definitions of potentially overloaded key wo
 
 .. glossary::
 
+    command
+        Places one or more operations into the work graph.
+        The syntax of UI-level functions that instantiate operations is specified by
+        the API, but can extend the syntax implied by the serialized representation
+        of a node for flexibility and user-friendliness. May be a *factory* for
+        an operation implementation.
+
+    edge
+        A graph edge represents a (data) dependency between operations.
+
+    ensemble
+        An ensemble (as used here) is a concept for grouping related work.
+        Defining an ensemble can allow high level work to be defined more
+        conveniently while allowing more efficient management of task and data
+        placement.
+        Ensemble operations (such as scatter, gather, broadcast, and
+        reduce), may be optimized within a single ensemble execution session.
+
+        The run time characteristics of an ensemble include the supported data
+        flow topology and the computing resources to allocate for ensemble
+        workers. When an ensemble scope is entered, the framework may collect
+        or launch new workers to support the ensemble work. Workers may continue
+        to receive additional tasks and data until the ensemble scope changes.
+        The scope of the ensemble session is thus also constrained by the
+        appropriateness of the allocated ensemble worker pool for the available
+        work.
+
+    framework
+        SCALE-MS is a set of specifications, support packages, and software
+        collaborations that provide a framework in which software tools are
+        executed. The term "framework" is used to refer abstractly to the
+        SCALE-MS software stack and to the facilities it coordinates,
+        particularly in documentation contexts where it is appropriate to avoid
+        details of software packaging or implementation.
+
+    function
+    operation implementation
+        A well defined computational element or data transformation that can be used
+        to add computational work to a graph managed by a Context. Inputs
+        are strongly specified, and behavior for a given set of inputs is deterministic
+        (within numerical stability). Outputs may not be well specified
+        until inputs are bound (*e.g.* until an instance is created).
+
+    graph state
+        The aggregation of state for operations (nodes) and data (edges),
+        constrained by directed
+        acyclic data flow topology. Granularity is not yet fully determined, but
+        state must account for completed and incomplete operations, and allow
+        distinction between idle and currently executing nodes.
+
+    operation
+    operation instance
+        A node in a work graph. Previously described as *WorkElement* or *node*.
+
+        Data sources and specific instances of operations are represented as
+        nodes in a work graph.
+
+        Identity: A node is the uniquely identifiable representation of a
+        :term:`function` instance, defined in terms of the inputs and
+        specified behavior.
+
+        Corollary: the definition of an operation (a node) is immutable once added to the graph.
+
+        Finer points:
+
+        * The outputs of an operation may be accessed and subscribed to at any time.
+        * Internally, operations may be stateful. They have metadata associated with
+          their degree of completion and, potentially, with references to other
+          resources to describe intermediate or final results.
+
+    port
+        Generic term for a named source, sink, resource, or binding hook on a node.
+
+    resource
+        Describes an API hook for an interaction mediated by a Context. Data flow
+        is described as *immutable* resources (generally produced as Operation outputs)
+        that can be consumed by binding to Operation inputs or by extracting as *results*
+        from the API. Some interactions cannot be represented in terms of producers
+        and subscribers of immutable data events: *Mutable* resources cannot be
+        managed by the Context as data events and require different work scheduling
+        policies that either (a) allows arbitrary (unscheduled) call-back through the API framework,
+        (b) dispatch the mutable resource collaboration to another Context, or (c)
+        allow operations to bind and interact with an interface not specified by the
+        API or not known to the responsible Context implementation. Examples include
+        the Context-provided *ensemble_reduce* functionality, the ensemble simulation
+        signaling facility (by which extension code can terminate a simulation early),
+        and the binding mechanism by which MD extension code can be attached to an
+        *MD* operation as a plugin. The nature of a resource is indicated by the
+        namespace of its *port* in the work record.
+
+    run time
+        .. todo:: Define the scope to be conveyed by the noun "run time".
+
+    simulation segment
+    trajectory segment
+        A sequence of molecular simulation iterations or frames produced
+        deterministically (within numerical limits) under well-determined
+        parameters. For the purposes of discussing checkpoint intervals or the
+        minimum amount of work executed between API calls, it is useful to
+        distinguish between full simulation trajectories and the irreducible
+        unit of work supported by a simulation library. In the simplest API use
+        cases, a simulation library does not interact with the API during
+        production of a simulation segment, and allows for reinitialization
+        between simulation segments. This allows for unambiguous labeling of the
+        artifacts of a segment. Optimizations may focus on reducing overhead
+        between successive simulation segments (minimizing reinitialization).
+        Extensions may introduce abstractions for well-characterized non-constant
+        parameters, such as time-varying lambda values, though such abstractions
+        are not required in the API since the effect can be achieved through
+        binding to a mutable resource (with details beyond the scope of the API)
+        owned by another operation whose state and action is well characterized
+        for the segment.
+
     task
         The smallest divisible unit of work representable within the API.
         Generally an :term:`operation` or a portion of an operation that has
@@ -45,101 +158,8 @@ This document assumes the following definitions of potentially overloaded key wo
         A worker may be launched to perform a single task, to perform a sequence
         of tasks, or to participate in an :term:`ensemble`.
 
-    edge
-        A graph edge represents a (data) dependency between operations.
-
-    ensemble
-        An ensemble (as used here) is a concept for grouping related work.
-        Defining an ensemble can allow high level work to be defined more
-        conveniently while allowing more efficient management of task and data
-        placement.
-        Ensemble operations (such as scatter, gather, broadcast, and
-        reduce), may be optimized within a single ensemble execution session.
-
-        The run time characteristics of an ensemble include the supported data
-        flow topology and the computing resources to allocate for ensemble
-        workers. When an ensemble scope is entered, the framework may collect
-        or launch new workers to support the ensemble work. Workers may continue
-        to receive additional tasks and data until the ensemble scope changes.
-        The scope of the ensemble session is thus also constrained by the
-        appropriateness of the allocated ensemble worker pool for the available
-        work.
-
-    framework
-        SCALE-MS is a set of specifications, support packages, and software
-        collaborations that provide a framework in which software tools are
-        executed. The term "framework" is used to refer abstractly to the
-        SCALE-MS software stack and to the facilities it coordinates,
-        particularly in documentation contexts where it is appropriate to avoid
-        details of software packaging or implementation.
-
-    run time
-        .. todo:: Define the scope to be conveyed by the noun "run time".
-
     CPI
         .. todo:: Define CPI.
-
-    graph state
-        The aggregation of state for operations (nodes) and data (edges),
-        constrained by directed
-        acyclic data flow topology. Granularity is not yet fully determined, but
-        state must account for completed and incomplete operations, and allow
-        distinction between idle and currently executing nodes.
-
-    function
-    operation implementation
-        A well defined computational element or data transformation that can be used
-        to add computational work to a graph managed by a Context. Inputs
-        are strongly specified, and behavior for a given set of inputs is deterministic
-        (within numerical stability). Outputs may not be well specified
-        until inputs are bound (*e.g.* until an instance is created).
-
-    operation
-    operation instance
-        A node in a work graph. Previously described as *WorkElement* or *node*.
-
-        Data sources and specific instances of operations are represented as
-        nodes in a work graph.
-
-        Identity: A node is the uniquely identifiable representation of a
-        :term:`function` instance, defined in terms of the inputs and
-        specified behavior.
-
-        Corollary: the definition of an operation (a node) is immutable once added to the graph.
-
-        Finer points:
-
-        * The outputs of an operation may be accessed and subscribed to at any time.
-        * Internally, operations may be stateful. They have metadata associated with
-          their degree of completion and, potentially, with references to other
-          resources to describe intermediate or final results.
-
-    command
-        Places one or more operations into the work graph.
-        The syntax of UI-level functions that instantiate operations is specified by
-        the API, but can extend the syntax implied by the serialized representation
-        of a node for flexibility and user-friendliness. May be a *factory* for
-        an operation implementation.
-
-    port
-        Generic term for a named source, sink, resource, or binding hook on a node.
-
-    resource
-        Describes an API hook for an interaction mediated by a Context. Data flow
-        is described as *immutable* resources (generally produced as Operation outputs)
-        that can be consumed by binding to Operation inputs or by extracting as *results*
-        from the API. Some interactions cannot be represented in terms of producers
-        and subscribers of immutable data events: *Mutable* resources cannot be
-        managed by the Context as data events and require different work scheduling
-        policies that either (a) allows arbitrary (unscheduled) call-back through the API framework,
-        (b) dispatch the mutable resource collaboration to another Context, or (c)
-        allow operations to bind and interact with an interface not specified by the
-        API or not known to the responsible Context implementation. Examples include
-        the Context-provided *ensemble_reduce* functionality, the ensemble simulation
-        signaling facility (by which extension code can terminate a simulation early),
-        and the binding mechanism by which MD extension code can be attached to an
-        *MD* operation as a plugin. The nature of a resource is indicated by the
-        namespace of its *port* in the work record.
 
     Context
       Abstraction for the entity that maps work to a computing environment.
@@ -170,26 +190,6 @@ This document assumes the following definitions of potentially overloaded key wo
         has been generated due to adaptations in the work flow. It may also
         apply to tasks that may be scheduled opportunistically, or simply to
         the change of state when a task's input dependencies have been met.
-
-    simulation segment
-    trajectory segment
-        A sequence of molecular simulation iterations or frames produced
-        deterministically (within numerical limits) under well-determined
-        parameters. For the purposes of discussing checkpoint intervals or the
-        minimum amount of work executed between API calls, it is useful to
-        distinguish between full simulation trajectories and the irreducible
-        unit of work supported by a simulation library. In the simplest API use
-        cases, a simulation library does not interact with the API during
-        production of a simulation segment, and allows for reinitialization
-        between simulation segments. This allows for unambiguous labeling of the
-        artifacts of a segment. Optimizations may focus on reducing overhead
-        between successive simulation segments (minimizing reinitialization).
-        Extensions may introduce abstractions for well-characterized non-constant
-        parameters, such as time-varying lambda values, though such abstractions
-        are not required in the API since the effect can be achieved through
-        binding to a mutable resource (with details beyond the scope of the API)
-        owned by another operation whose state and action is well characterized
-        for the segment.
 
 .. _user classification:
 

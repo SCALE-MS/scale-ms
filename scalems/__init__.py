@@ -6,6 +6,7 @@ for molecular science computational research protocols.
 Refer to https://scale-ms.readthedocs.io/ for complete documentation.
 """
 
+
 def commandline_operation(executable=None,
                           arguments=(),
                           input_files: dict = None,
@@ -23,6 +24,7 @@ def commandline_operation(executable=None,
 
     Output:
         The output node of the resulting operation handle contains
+        
         * ``file``: the mapping of CLI flags to filename strings resulting from the ``output_files`` kwarg
         * ``erroroutput``: A string of error output (if any) if the process failed.
         * ``returncode``: return code of the subprocess.
@@ -43,6 +45,7 @@ def commandline_operation(executable=None,
     # Generate a chain of operations to process the named key word arguments and handle
     # input/output data dependencies.
     raise NotImplementedError()
+
 
 def function_wrapper(output: dict = None):
     # Suppress warnings in the example code.
@@ -75,6 +78,7 @@ def function_wrapper(output: dict = None):
     """
     raise NotImplementedError()
 
+
 def subgraph(variables=None):
     """Allow operations to be configured in a sub-context.
 
@@ -91,7 +95,7 @@ def subgraph(variables=None):
     When the object is run, operations bound to the variables are ``reset`` and
     run to update the variables.
 
-    Example:
+    Example::
 
         @scalems.function_wrapper(output={'data': float})
         def add_float(a: float, b: float) -> float:
@@ -117,9 +121,11 @@ def subgraph(variables=None):
     """
     raise NotImplementedError()
 
+
 def logical_not(value):
     """Negate boolean inputs."""
     raise NotImplementedError()
+
 
 def logical_and(iterable):
     """Produce a boolean value resulting from the logical AND of the elements of the input.
@@ -130,6 +136,7 @@ def logical_and(iterable):
     until all inputs have been resolved.
     """
     raise NotImplementedError()
+
 
 def while_loop(*, function, condition, max_iteration=10, **kwargs):
     """Generate and run a chain of operations such that condition evaluates True.
@@ -144,7 +151,7 @@ def while_loop(*, function, condition, max_iteration=10, **kwargs):
     TODO: Allow external access to intermediate results / iterations?
 
     Arguments:
-        function: a callable that produces an instance of an operation when called (with **kwargs, if provided).
+        function: a callable that produces an instance of an operation when called (with ``**kwargs``, if provided).
         condition: a call-back that returns a boolean when provided an operation instance.
         max_iteration: execute the loop no more than this many times (default 10)
 
@@ -166,6 +173,7 @@ def while_loop(*, function, condition, max_iteration=10, **kwargs):
     """
     raise NotImplementedError()
 
+
 def desequence(iterable):
     """Remove sequencing from an iterable.
 
@@ -179,6 +187,7 @@ def desequence(iterable):
     """
     raise NotImplementedError()
 
+
 def resequence(keys, collection):
     """Set the order of a collection.
 
@@ -189,6 +198,7 @@ def resequence(keys, collection):
     for applying a sequence from one part of a work flow to data that has been
     processed asynchronously.
     """
+
 
 def gather(iterable):
     """Convert an iterable or decomposable collection to a complete collection.
@@ -214,6 +224,7 @@ def gather(iterable):
     """
     raise NotImplementedError()
 
+
 def scatter(iterable, axis=1):
     """Explicitly decompose data.
 
@@ -226,6 +237,7 @@ def scatter(iterable, axis=1):
     of function inputs or minimize implicit broadcast, scatter, and gather behavior.
     Otherwise, we will need to disambiguate decomposition.
     """
+
 
 def reduce(function, iterable):
     """Repeatedly apply a function.
@@ -242,9 +254,11 @@ def reduce(function, iterable):
     """
     raise NotImplementedError()
 
+
 def extend_sequence(sequence_a, sequence_b):
     """Combine sequential data into a new sequence."""
     raise NotImplementedError()
+
 
 def map(function, iterable, shape=None):
     """Generate a collection of operations by iteration.
@@ -257,6 +271,7 @@ def map(function, iterable, shape=None):
     """
     raise NotImplementedError()
 
+
 def poll():
     """Inspect the execution status of an operation.
 
@@ -267,6 +282,7 @@ def poll():
     asynchronous adaptability.
     """
     raise NotImplementedError()
+
 
 def cli(command: 'Sequence', shell: bool, output: 'OutputCollectionDescription'):
     """Execute a command line program in a subprocess.

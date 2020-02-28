@@ -106,8 +106,6 @@ Establish and manipulate data flow topology.
 
 .. autofunction:: resequence
 
-.. autofunction:: sequence
-
 Helpers
 =======
 
@@ -125,11 +123,11 @@ Speculative functions
 These functions are probably not explicitly necessary, or at least not
 appropriate for the high level interface.
 
-.. autofunction:: broadcast
-
 .. autofunction:: gather
 
 .. autofunction:: scatter
+
+.. py:function:: broadcast
 
 .. py:function:: concatenate(iterable: Iterable[T]) -> T
 
@@ -150,7 +148,7 @@ Base classes
     Proposed alternative to the subgraph-builder context manager provided by
     subgraph().
 
-    Example:
+    Example::
 
         # Create a subgraph Function with several Variables.
         #

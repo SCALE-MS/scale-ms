@@ -24,7 +24,7 @@ def commandline_operation(executable=None,
 
     Output:
         The output node of the resulting operation handle contains
-        
+
         * ``file``: the mapping of CLI flags to filename strings resulting from the ``output_files`` kwarg
         * ``erroroutput``: A string of error output (if any) if the process failed.
         * ``returncode``: return code of the subprocess.

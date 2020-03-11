@@ -10,6 +10,7 @@ for data flow driven molecular simulation management and analysis.
     :maxdepth: 2
 
     developer
+    glossary
 
 ..  samples
     srs
@@ -17,3 +18,4 @@ for data flow driven molecular simulation management and analysis.
     gmxapi
 
 These document drafts are maintained at https://github.com/SCALE-MS/scale-ms/
+and published online at https://scale-ms.readthedocs.io/

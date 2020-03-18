@@ -44,7 +44,7 @@ initial_pdb = coordinate_inputs[0]
 
 simulation_and_analysis_iteration = scalems.subgraph(variables={
         'conformation': initial_input,
-        'transition_matrix': scalems.ndarray(0., shape=(N, N)),
+        'transition_matrix': scalems.ndarray(0., shape=(N, N)),  # number of simulations or number of clusters?
         'is_converged': False})
 
 with simulation_and_analysis_iteration:
@@ -57,9 +57,9 @@ with simulation_and_analysis_iteration:
     # terminate the simulation
     allframes = collect_configurations(md.output.trajectory)
     
-    adaptive_msm = analysis.msm_analyzer(topfile=editconf.file['-o'],
+    adaptive_msm = analysis.msm_analyzer(molecular_topology=initial_pdb,
                                          trajectory=allframes,
-                                         P=subgraph.transition_matrix)
+                                         transition_matrix=subgraph.transition_matrix)
 
     # Update the persistent data for the subgraph
     subgraph.P = adaptive_msm.output.transition_matrix

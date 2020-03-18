@@ -31,6 +31,9 @@ initial_simulation_input = make_input(
 #      - User should not have to worry about details such as whether temporary files would be needed should be 
 #      - so maybe the broadcasating would be done in make_input
 #      - 
+
+# a single modify commands but an array of modifiers.  If replacing some aspect of contents. 
+# ensemble obect.
 initial_input = scalems.broadcast(initial_simulation_input, shape=(N,))
 
 # We will need a pdb for MSM building in PyEmma
@@ -47,6 +50,7 @@ simulation_and_analysis_iteration = scalems.subgraph(variables={
         'transition_matrix': scalems.ndarray(0., shape=(N, N)),  # number of simulations or number of clusters?
         'is_converged': False})
 
+# see PR #28, python.rst subgraph class definition
 with simulation_and_analysis_iteration:
     modified_input = modify_input(
         input=initial_input, structure=simulation_and_analysis_iteration.conformation)
@@ -62,7 +66,7 @@ with simulation_and_analysis_iteration:
                                          transition_matrix=subgraph.transition_matrix)
 
     # Update the persistent data for the subgraph
-    subgraph.P = adaptive_msm.output.transition_matrix
+    subgraph.transition_matrix = adaptive_msm.output.transition_matrix
 
     # adaptive_msm here is responsible for maintaining the ensemble width
     subgraph.conformation = adaptive_msm.output.conformation
@@ -160,6 +164,20 @@ def make_input(simulation_parameters = ['md.mdp'],
                                                output_files={
             '-o': scalems.OutputFile(suffix='.tpr')
             })
+
+    # simulation object. Structured the same for all wrappers, but you can't use one from another.
+    # strongly - a simulation toolset has some function that creates aan object that encapuslaes 
+    # modify that input object, and convert the simulataon to back into a simulation inpput object.
+    # the pattern holds. 
+    # key thing is that the overall program flow.  You package the iniputs and pass iit to th next tools. 
+
+    #whaat we havee been donig with gMX api. 
+    # Make input command was consumiing on one file.  
+    # add features that if it is expecting 1 tpr and you give it 10 tpr files.
+    # it creates a simiulatioin iniput object that. What is specified.  If you use it with other gmxapi components.
+    # they understand what it's shape is.   And it does support array indexing. 
+    # once you have createad aan API object. We want people to recognize it's an abstraction. 
+    # should make assumptions. 
 
     return gromacs_api.read_tpr(preprocess.output.files['-o'])
 

@@ -14,17 +14,7 @@ from gromacs_wrapper import collect_configurations, structure_to_pdb, make_input
 # configuration_list (an array of filenames) and md_inputs (a file
 # name, or list of file names if multiple inputs are needed to
 # intitialize the simulation.
-#
-# In theory, this could be abstracted further as some sort of input bundle.
-# that contains all information needed to star the simulation.
-# 
-# So if one has N simulations, you would start with a list of N input objects.
-# Each object could be tagged as a package of a supported type (GROMACS, LAMMPS, NAMD),
-# and wrapper code for each supported type knows how to unwrap it.
-#
-# for GROMACS, it would be a .tpr file (or internal represntation of
-# the .tpr file) For LAMMPS, it's the array of input files, since
-# LAMMPS directly reads that.
+
 
 coordinate_inputs = configuration_input_list # some list of files
 run_parameters = md_inputs # some list of files
@@ -37,10 +27,10 @@ initial_simulation_input = make_input(
 
 # Set up an array of N simulations, starting from a single input.
 # MRS: seems like some instructions would need to be given here, such as:
-#       # which entries in the files to replaced by random numbers
-#       # may need a temporary directory to store modified files.
-#       # so maybe the broadcasating would be done in make_input
-
+#      - which entries in the files to replaced by random numbers, or state dependent inputs
+#      - User should not have to worry about details such as whether temporary files would be needed should be 
+#      - so maybe the broadcasating would be done in make_input
+#      - 
 initial_input = scalems.broadcast(initial_simulation_input, shape=(N,))
 
 # We will need a pdb for MSM building in PyEmma
@@ -52,17 +42,14 @@ initial_pdb = coordinate_inputs[0]
 # MRS: I'm not sold on using the name subgraph, because it doesn't
 #      describe what it is a subgraph of. Can this be made more specific?
 
-# MRS: can a name be used instead of 'P' below? 
-#
-
-subgraph = scalems.subgraph(variables={
+simulation_and_analysis_iteration = scalems.subgraph(variables={
         'conformation': initial_input,
-        'P': scalems.ndarray(0., shape=(N, N)),
+        'transition_matrix': scalems.ndarray(0., shape=(N, N)),
         'is_converged': False})
 
-with subgraph:
+with simulation_and_analysis_iteration:
     modified_input = modify_input(
-        input=initial_input, structure=subgraph.conformation)
+        input=initial_input, structure=simulation_and_analysis_iteration.conformation)
     md = simulate(input=modified_input)
     
     # Get the output trajectories and pass to PyEmma to build the MSM
@@ -72,7 +59,7 @@ with subgraph:
     
     adaptive_msm = analysis.msm_analyzer(topfile=editconf.file['-o'],
                                          trajectory=allframes,
-                                         P=subgraph.P)
+                                         P=subgraph.transition_matrix)
 
     # Update the persistent data for the subgraph
     subgraph.P = adaptive_msm.output.transition_matrix
@@ -84,9 +71,9 @@ with subgraph:
     # In the default work graph, add a node that depends on `condition` and
     # wraps subgraph.
 
-    my_loop = gmx.while_loop(operation=subgraph,
+my_loop = gmx.while_loop(operation=subgraph,
                              condition=scalems.logical_not(subgraph.is_converged))
-    my_loop.run()
+my_loop.run()
 
 #
 #analyze.py::
@@ -115,35 +102,32 @@ class MSMAnalyzer:
     Builds msm from output trajectory
     """
     
-    def __init__(self, topfile, trajectory, P, N):
+    def __init__(self, molecular_topology_file, trajectory, transition_matrix, num_clusters):
 
         # Build markov model with PyEmma
-        feat = coor.featurizer(topfile)  # MRS: should be using something more generalizable than this.
+        feat = coor.featurizer(moleular_topology_file)  
         X = coor.load(trajectory, feat)
         Y = coor.tica(X, dim=2).get_output()
-        k_means = coor.cluster_kmeans(Y, k=N)
+        k_means = coor.cluster_kmeans(Y, k=num_clusters)
         centroids = get_centroids(k_means)
 
-        M = msm.estimate_markov_model(kmeans.dtrajs, 100)
+        markov_model = msm.estimate_markov_model(kmeans.dtrajs, 100)  # 
         
-            # Q = n-1 transition matrix, P = n transition matrix
-        Q = P
-        self.P = M.get_transition_matrix()  # figure this out
-        self._is_converged = relative_entropy(self.P, Q) < tol
+        previous_transition_matrix = transition_matrix
+        self.transition_matrix = markov_model.get_transition_matrix()  # figure this out
+        self._is_converged = relative_entropy(self.transition_matrix, transition_matrix) < tol
 
     def is_converged(self):
         return self._is_converged
     
-    def transition_matrix(self):
-        return self.P
+    def get_transition_matrix(self):
+        return self.transition_matrix
 
 # Assuming MSMAnalyzer is an existing tool we do not want to modify,
 # create a scalems compatible operation by wrapping with a provided utility.
 
-#MRS: suggest names rather than 'P' and 'N'
-
 msm_analyzer = scalems.make_operation(MSMAnalyzer,
-                                      inputs=['topfile', 'trajectory', 'P', 'N'],
+                                      inputs=['topfile', 'trajectory', 'transition_matrix', 'num_clusters'],
                                       output=['is_converged', 'transition_matrix']
                                       )
 
@@ -156,14 +140,9 @@ msm_analyzer = scalems.make_operation(MSMAnalyzer,
 # All wrappers should have, to the extent possible, the same methods.
 #
 # gromacs_wrapper.py:
-#
 
 import gmxapi
 import scalems
-
-# MRS: we probably want to make these parameters keywords parameters
-# instead of required parameters to make it clear what files are
-# needed for each command.
 
 def make_input(simulation_parameters = ['md.mdp'], 
                topology = ['md.top'], 

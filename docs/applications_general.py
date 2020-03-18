@@ -66,16 +66,16 @@ with simulation_and_analysis_iteration:
                                          transition_matrix=subgraph.transition_matrix)
 
     # Update the persistent data for the subgraph
-    subgraph.transition_matrix = adaptive_msm.output.transition_matrix
+    simulation_and_analysis_iteration.transition_matrix = adaptive_msm.output.transition_matrix
 
     # adaptive_msm here is responsible for maintaining the ensemble width
-    subgraph.conformation = adaptive_msm.output.conformation
-    subgraph.is_converged = adaptive_msm.output.is_converged
+    simulation_and_analysis_iteration.conformation = adaptive_msm.output.conformation
+    simulation_and_analysis_iteration.is_converged = adaptive_msm.output.is_converged
 
     # In the default work graph, add a node that depends on `condition` and
     # wraps subgraph.
 
-my_loop = gmx.while_loop(operation=subgraph,
+my_loop = gmx.while_loop(operation=simulation_and_analysis_iteration,
                              condition=scalems.logical_not(subgraph.is_converged))
 my_loop.run()
 

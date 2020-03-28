@@ -9,45 +9,39 @@
 #supporting modules (`gromacs_wrapper.py` and `lammps_wrapper.py`) 
 #wraps command line MD commands with a SCALE-MS wrapper layer.  The results should be in the same format.
 
-from gromacs_wrapper import collect_configurations, structure_to_pdb, make_input, simulate, modify_input
+from gromacs_wrapper import collect_configurations, internal_to_pdb, make_input, simulate, modify_input
 
 # configuration_list (an array of filenames) and md_inputs (a file
 # name, or list of file names if multiple inputs are needed to
 # intitialize the simulation.
 
-
-coordinate_inputs = configuration_input_list # some list of files
+# these lines are a BIT GROMACS specific, as other programs may have slightly different formats.
+coordinate_inputs = configuration_input_list # some list of files of length
 run_parameters = md_inputs # some list of files
-topology_files = topology_input_list # some list of files
+topology_files = topology_input_list # some list of files. 
+
+num_simulations = 1000
 
 initial_simulation_input = make_input(
     simulation_parameters=run_parameters,
     topology=topology_file,
     conformation=coordinate_inputs)
 
-# Set up an array of N simulations, starting from a single input.
-# MRS: seems like some instructions would need to be given here, such as:
-#      - which entries in the files to replaced by random numbers, or state dependent inputs
-#      - User should not have to worry about details such as whether temporary files would be needed should be 
-#      - so maybe the broadcasating would be done in make_input
-#      - 
+# Set up an array of num_simulations simulations, starting from a single input.
 
-# a single modify commands but an array of modifiers.  If replacing some aspect of contents. 
-# ensemble obect.
-initial_input = scalems.broadcast(initial_simulation_input, shape=(N,))
+# NOTE: we presume that broadcast creates num_simulations even if the initial simulation input contains
+# fewer initial coordinates than num simulations. Like, if num_simulations is 40, and the initial 
+# coordinate list contains 7, then it will iterate (1,2,3,4,5,6,7,1,2,3,4,5, ... until reaching 40)?
+# and so on with the other files?
+
+initial_input = scalems.broadcast(initial_simulation_input, shape=(num_simulations,))
 
 # We will need a pdb for MSM building in PyEmma
-initial_pdb = coordinate_inputs[0]
-
-# Get a placeholder object that can serve as a sub context / work graph owner
-# and can be used in a control operation.
-
-# MRS: I'm not sold on using the name subgraph, because it doesn't
-#      describe what it is a subgraph of. Can this be made more specific?
+initial_pdb = internal_to_pdb(initial_input.get_coordinate(0))
 
 simulation_and_analysis_iteration = scalems.subgraph(variables={
         'conformation': initial_input,
-        'transition_matrix': scalems.ndarray(0., shape=(N, N)),  # number of simulations or number of clusters?
+        'transition_matrix': scalems.ndarray(0., shape=(num_clusters, num_clusters)),  
         'is_converged': False})
 
 # see PR #28, python.rst subgraph class definition
@@ -142,7 +136,8 @@ msm_analyzer = scalems.make_operation(MSMAnalyzer,
 # interchangeably by the rest of the tools.
 #
 # All wrappers should have, to the extent possible, the same methods.
-#
+
+
 # gromacs_wrapper.py:
 
 import gmxapi
@@ -153,9 +148,7 @@ def make_input(simulation_parameters = ['md.mdp'],
                initial_conformation = ['md.gro'], 
                binary_location = 'gmx'):
 
-#
-# makes decision here: wheether 
-#
+
     preprocess = scalems.commandline_operation(binary_location, 'grompp',
                                                input_files={
             '-f': run_parameters,
@@ -166,18 +159,19 @@ def make_input(simulation_parameters = ['md.mdp'],
             })
 
     # simulation object. Structured the same for all wrappers, but you can't use one from another.
-    # strongly - a simulation toolset has some function that creates aan object that encapuslaes 
+    # strongly - a simulation toolset has some function that creates an object that encapsulates 
     # modify that input object, and convert the simulataon to back into a simulation inpput object.
     # the pattern holds. 
-    # key thing is that the overall program flow.  You package the iniputs and pass iit to th next tools. 
+    # key thing is that the overall program flow.  You package the iniputs and pass it to the next tools. 
 
-    #whaat we havee been donig with gMX api. 
-    # Make input command was consumiing on one file.  
+    # what we havee been doing with gmxapi. 
+    # 'Make input' command was consuming one file.  
+    #
     # add features that if it is expecting 1 tpr and you give it 10 tpr files.
-    # it creates a simiulatioin iniput object that. What is specified.  If you use it with other gmxapi components.
+    # it creates a simulatioin input object that has dynamic shape If you use it with other gmxapi components.
     # they understand what it's shape is.   And it does support array indexing. 
     # once you have createad aan API object. We want people to recognize it's an abstraction. 
-    # should make assumptions. 
+    # should make assumptions about accessing as an array
 
     return gromacs_api.read_tpr(preprocess.output.files['-o'])
 
@@ -197,10 +191,11 @@ def simulate():
 
     # wraps gmxapi mdrun.
 
+# a single modify commands but an array of modifiers.  If replacing some aspect of contents. 
+# ensemble obect.
 def modify_input():
     
     # wraps gmxapi modify_input 
-
 
 #
 #lammps_wrapper.py:

@@ -4,8 +4,11 @@ Biased restrained ensemble refinement: New DEER incorporation workflow in gmxapi
 
 import json
 
+# TODO: distinguish scale-ms functionality from gmxapi functionality
 import gmx
+# MD extension code, written in C++ has been compiled and installed for use as a plugin.
 import myplugin  # Custom potentials
+# The researcher has written a brer_tools package to support their new method.
 import brer_tools
 
 # Add a TPR-loading operation to the default work graph (initially empty) that

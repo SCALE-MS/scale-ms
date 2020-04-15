@@ -1,14 +1,16 @@
-#!/usr/bin/env python
 """Run restrained-ensemble sampling and biasing workflow."""
 
 import json
 
+# TODO: distinguish scale-ms functionality from gmxapi functionality
 import gmx
+# MD extension code, written in C++ has been compiled and installed for use as a plugin.
 import myplugin
+# The researcher has written a restrained_md_analysis package to support their new method.
 from restrained_md_analysis import calculate_js
 
 # The user has already built 20 input files in 20 directories for an ensemble of width 20.
-N = 100
+N = 20
 starting_structure = 'input_conf.gro'
 topology_file = 'input.top'
 run_parameters = 'params.mdp'

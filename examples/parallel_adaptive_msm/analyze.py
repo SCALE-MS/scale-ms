@@ -20,29 +20,28 @@ def relative_entropy(P, Q):
 
 class MSMAnalyzer:
     """
-    Builds msm from gmxapi output trajectory
+    Builds msm from output trajectory
     """
 
-    def __init__(self, topfile, trajectory, P, N):
-        # Build markov model with PyEmma
-        feat = coor.featurizer(topfile)
+    def __init__(self, molecular_topology_file, trajectory, transition_matrix, num_clusters):
+        # Build Markov model with PyEmma
+        feat = coor.featurizer(molecular_topology_file)
         X = coor.load(trajectory, feat)
         Y = coor.tica(X, dim=2).get_output()
-        k_means = coor.cluster_kmeans(Y, k=N)
+        k_means = coor.cluster_kmeans(Y, k=num_clusters)
         centroids = get_centroids(k_means)
 
-        M = msm.estimate_markov_model(kmeans.dtrajs, 100)
+        markov_model = msm.estimate_markov_model(kmeans.dtrajs, 100)  #
 
-        # Q = n-1 transition matrix, P = n transition matrix
-        Q = P
-        self.P = M.get_transition_matrix()  # figure this out
-        self._is_converged = relative_entropy(self.P, Q) < tol
+        previous_transition_matrix = transition_matrix
+        self.transition_matrix = markov_model.get_transition_matrix()  # figure this out
+        self._is_converged = relative_entropy(self.transition_matrix, transition_matrix) < tol
 
     def is_converged(self):
         return self._is_converged
 
-    def transition_matrix(self):
-        return self.P
+    def get_transition_matrix(self):
+        return self.transition_matrix
 
 
 # Assuming MSMAnalyzer is an existing tool we do not want to modify,

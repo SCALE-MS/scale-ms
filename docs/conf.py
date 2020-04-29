@@ -31,6 +31,7 @@ release = '0'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
+    'sphinx.ext.autodoc',
     'sphinx.ext.todo', # Note: todo_include_todos=True is required for directives to produce output.
     'sphinxcontrib.plantuml'
 ]

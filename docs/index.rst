@@ -10,6 +10,7 @@ for data flow driven molecular simulation management and analysis.
     :maxdepth: 2
 
     developer
+    python
     glossary
 
 ..  samples

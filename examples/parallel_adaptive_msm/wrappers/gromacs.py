@@ -22,14 +22,14 @@ modify_input = gmxapi.modify_input
 
 def make_input(simulation_parameters = ['md.mdp'],
                topology = ['md.top'],
-               initial_conformation = ['md.gro'],
+               conformation = ['md.gro'],
                wrapper_name = 'gmx'):
 
     preprocess = scalems.commandline_operation(wrapper_name, 'grompp',
                                                input_files={
                                                    '-f': simulation_parameters,
                                                    '-p': topology,
-                                                   '-c': initial_conformation},
+                                                   '-c': conformation},
                                                output_files={
                                                    '-o': scalems.OutputFile(suffix='.tpr')
                                                })

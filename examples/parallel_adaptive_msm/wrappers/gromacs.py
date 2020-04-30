@@ -1,10 +1,9 @@
-# Simulation preparation and output
-# manipulation use command line tools. Simulation is executed with gmxapi.
-#
-# The idea would be that all wrappers return similar objects, so that they could be used
-# interchangeably by the rest of the tools.
-#
-# All wrappers should have, to the extent possible, the same methods.
+"""
+Gromacs simulation tools.
+
+Preparation and output manipulation use command line tools.
+Simulation is executed with gmxapi.
+"""
 
 import gmxapi
 import scalems
@@ -12,11 +11,13 @@ import scalems
 # Declare the public interface of this wrapper module.
 __all__ = ['make_input', 'internal_to_pdb', 'collect_coordinates', 'simulate', 'modify_input']
 
-
+# Get an exportable 'simulate' function for this module.
 simulate = gmxapi.mdrun
-# a single modify commands but an array of modifiers.  If replacing some aspect of contents.
-# ensemble object.
+
+# Get an exportable 'modify_input' function for this module..
 modify_input = gmxapi.modify_input
+
+# Define the remaining functions for a normalized simulation tool interface.
 
 
 def make_input(simulation_parameters = ['md.mdp'],
@@ -26,9 +27,9 @@ def make_input(simulation_parameters = ['md.mdp'],
 
     preprocess = scalems.commandline_operation(wrapper_name, 'grompp',
                                                input_files={
-                                                   '-f': run_parameters,
-                                                   '-p': topology_file,
-                                                   '-c': starting_structure},
+                                                   '-f': simulation_parameters,
+                                                   '-p': topology,
+                                                   '-c': initial_conformation},
                                                output_files={
                                                    '-o': scalems.OutputFile(suffix='.tpr')
                                                })

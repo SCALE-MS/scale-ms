@@ -1,9 +1,13 @@
 """
-Analysis tool for adaptive msms
+Example of a user-provided Analysis tool wrapper.
+
+Wraps Pyemma to implement a Markov State Model builder and analyzer.
+Set up a SCALE-MS compatible operation implementation and export it as the
+module function `msm_analyzer`.
 """
 
-import gmx
-import pyemma
+import scalems
+
 import pyemma.coor as coor
 import pyemma.msm as msm
 

@@ -1,9 +1,17 @@
+"""
+Iterative adaptive Markov State Model refinement.
+
+This script provides an entry point for a workflow implemented in terms of
+SCALE-MS data flow and execution management, plus user-provided support tools.
+"""
+
 import scalems
 
-from gmxapi import modify_input
-from gmxapi import mdrun as simulate
+# Get a module that provides the `msm_analyzer` function we will be using.
+from . import msmtool
 
-from gromacsmd import collect_samples, gro_to_pdb, make_input
+# Get a set of simulation tools following a common interface convention.
+from .wrappers.gromacs import collect_coordinates, internal_to_pdb, make_input, modify_input, simulate
 
 # Could start with a list of distinct confs, but here we use a single starting point.
 # GROMACS MD model and method parameters.
@@ -14,13 +22,16 @@ run_parameters = 'params.mdp'  # GROMACS simulation parameters.
 initial_simulation_input = make_input(
     simulation_parameters=run_parameters,
     topology=topology_file,
-    conformation=starting_structure)
+    initial_conformation=starting_structure)
 
-# Set up an array of N simulations, starting from a single input.
-initial_input = scalems.broadcast(initial_simulation_input, shape=(N,))
+# Set up an array of N=10 simulations, starting from a single input.
+N = 10
+# A `broadcast` function is possible, but is not explicitly necessary, so we have not specified one yet.
+#    initial_input = scalems.broadcast(initial_simulation_input, shape=(N,))
+initial_input = [initial_simulation_input] * N
 
 # We will need a pdb for MSM building in PyEmma
-initial_pdb = gro_to_pdb(starting_structure)
+initial_pdb = internal_to_pdb(starting_structure)
 
 # Get a placeholder object that can serve as a sub context / work graph owner
 # and can be used in a control operation.
@@ -37,9 +48,9 @@ with subgraph:
     # Get the output trajectories and pass to PyEmma to build the MSM
     # Return a stop condition object that can be used in gmx while loop to
     # terminate the simulation
-    allframes = collect_samples(md.output.trajectory)
+    allframes = collect_coordinates(md.output.trajectory)
 
-    adaptive_msm = analysis.msm_analyzer(topfile=editconf.file['-o'],
+    adaptive_msm = msmtool.msm_analyzer(topfile=initial_pdb,
                                          trajectory=allframes,
                                          P=subgraph.P)
     # Update the persistent data for the subgraph
@@ -50,6 +61,6 @@ with subgraph:
 
 # In the default work graph, add a node that depends on `condition` and
 # wraps subgraph.
-my_loop = gmx.while_loop(operation=subgraph,
+my_loop = scalems.while_loop(function=subgraph,
                          condition=scalems.logical_not(subgraph.is_converged))
 my_loop.run()

@@ -9,3 +9,4 @@ operations and control flow logic.
     :caption: Examples
 
     applications/parallel_adaptive_msm
+    applications/asynchronous_adaptive_msm.rst

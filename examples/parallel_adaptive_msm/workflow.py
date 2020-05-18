@@ -45,7 +45,7 @@ initial_input = [initial_simulation_input] * num_simulations
 initial_pdb = internal_to_pdb(starting_structure)
 
 # Build a model with 10 Markov states (clusters in conformation space).
-num_clustsers = 10
+num_clusters = 10
 
 # Get a placeholder object that can serve as a sub context / work graph owner
 # and can be used in a control operation.
@@ -68,7 +68,7 @@ with simulation_and_analysis_iteration:
                                         trajectory=allframes,
                                         transition_matrix=simulation_and_analysis_iteration.transition_matrix)
     # Update the persistent data for the subgraph
-    simulation_and_analysis_iteration.P = adaptive_msm.output.transition_matrix
+    simulation_and_analysis_iteration.transition_matrix = adaptive_msm.output.transition_matrix
     # adaptive_msm here is responsible for maintaining the ensemble width
     simulation_and_analysis_iteration.conformation = adaptive_msm.output.conformation
     simulation_and_analysis_iteration.is_converged = adaptive_msm.output.is_converged

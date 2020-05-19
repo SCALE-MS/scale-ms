@@ -9,7 +9,9 @@ for data flow driven molecular simulation management and analysis.
 ..  toctree::
     :maxdepth: 2
 
+    userguide
     developer
+    python
     glossary
 
 ..  samples

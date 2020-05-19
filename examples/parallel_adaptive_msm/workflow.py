@@ -15,7 +15,7 @@ import scalems
 from . import msmtool
 
 # Get a set of simulation tools following a common interface convention.
-from .wrappers.gromacs import collect_coordinates, internal_to_pdb, make_input, modify_input, simulate
+from scalems.wrappers.gromacs import collect_coordinates, internal_to_pdb, make_input, modify_input, simulate
 
 # Acquire simulation inputs. Generic data hierarchy is not yet clear. Model,
 # method, instance/system/conformation/microstate, and implementation details

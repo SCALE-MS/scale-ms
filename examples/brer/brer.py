@@ -4,8 +4,9 @@ Biased restrained ensemble refinement: New DEER incorporation workflow in gmxapi
 
 import json
 
-# TODO: distinguish scale-ms functionality from gmxapi functionality
-import gmx
+import scalems
+from scalems.wrappers.gromacs import make_input, modify_input, simulate
+
 # MD extension code, written in C++ has been compiled and installed for use as a plugin.
 import myplugin  # Custom potentials
 # The researcher has written a brer_tools package to support their new method.
@@ -23,30 +24,27 @@ with open(potential_parameters, mode='r') as fh:
     my_dict_params = json.load(fh)
 
 # make a single simulation input file
-initial_tpr = gmx.commandline_operation(
-    'gmx',
-    'grompp',
-    input={
-        '-f': run_parameters,
-        '-p': topology_file,
-        '-c': starting_structure
-    })
+initial_tpr = make_input(
+        simulation_parameters=run_parameters,
+        topology=topology_file,
+        conformation=starting_structure
+    )
 
-tpr_list = list([initial_tpr for _ in range(N)])  # A list of (the same) input file
-initial_input = gmx.read_tpr(tpr_list)  # An array of N simulations
+initial_input = list([initial_tpr for _ in range(N)])  # An array of N simulations
 
-# just to demonstrate gmxapi functionality, modify a parameter here
-# changed parameters with width 1 on an ensemble with width 50
-# if we wanted each ensemble member to have a different value, we would just
-# have the new parameter value be an array of width 50
-lengthened_input = gmx.modify_input(
+# Just to demonstrate functionality, modify a parameter here.
+# Change parameters with width 1 value. Implicitly broadcasts on an ensemble with width 50.
+# If we wanted each ensemble member to have a different value, we would just
+# have the new parameter value be an array of width 50, assuming API integration
+# with the tool to understand allowed input data type and shape.
+lengthened_input = modify_input(
     initial_input, parameters={'nsteps': 50000000})
 
 # Create subgraph objects that encapsulate multiple operations
 # and can be used in conditional and loop operations.
 # For subgraphs, inputs can be accessed as variables and are copied to the next
-# iteration (not typical for gmxapi operation input/output).
-train = gmx.subgraph(variables={'conformation': initial_input})
+# iteration (not typical for operation input/output).
+train = scalems.subgraph(variables={'conformation': initial_input})
 
 # References to the results of operations know which (sub)graph they live in.
 # The `with` block activates and deactivates the scope of the subgraph in order
@@ -58,55 +56,53 @@ with train:
     myplugin.training_restraint(
         label='training_potential',
         params=my_dict_params)
-    modified_input = gmx.modify_input(
+    modified_input = modify_input(
         input=initial_input, structure=train.conformation)
-    md = gmx.mdrun(input=modified_input, potential=train.training_potential)
-    # Alternate syntax to facilitate adding multiple potentials:
+    md = simulate(input=modified_input, potential=train.training_potential)
+    # Alternative syntax to facilitate adding multiple potentials:
     # md.interface.potential.add(train.training_potential)
     brer_tools.training_analyzer(
         label='is_converged',
-        params=train.training_potential.output.alpha)
-    train.conformation = md.output.conformation
+        params=train.training_potential.alpha)
+    train.conformation = md.conformation
 # At the end of the `with` block, `train` is no longer the active graph, and
-# gmx.exceptions.ScopeError will be raised if `modified_input`, or `md` are used
+# scalems.exceptions.ScopeError will be raised if `modified_input`, or `md` are used
 # in other graph scopes (without first reassigning, of course)
 # More discussion at https://github.com/kassonlab/gmxapi/issues/205
 
 # In the default work graph, add a node that depends on `condition` and
 # wraps subgraph.
-train_loop = gmx.while_loop(
-    operation=train,
-    condition=gmx.logical_not(train.is_converged))
+train_loop = scalems.while_loop(
+    function=train,
+    condition=scalems.logical_not(train.is_converged))
 
 # in this particular application, we "roll back" to the initial input
-converge = gmx.subgraph(variables={'conformation': initial_input,
-                                   }
-                        )
+converge = scalems.subgraph(variables={'conformation': initial_input})
 
 with converge:
-    modified_input = gmx.modify_input(
+    modified_input = modify_input(
         input=initial_input, structure=converge.conformation)
     myplugin.converge_restraint(
         label='converging_potential',
-        params=train_loop.training_potential.output)
+        params=train_loop.training_potential)
     brer_tools.converge_analyzer(
-        converge.converging_potential.output.distances,
+        converge.converging_potential.distances,
         label='is_converged',
     )
-    md = gmx.mdrun(input=modified_input, potential=converge.converging_potential)
+    md = simulate(input=modified_input, potential=converge.converging_potential)
 
-conv_loop = gmx.while_loop(
-    operation=converge,
-    condition=gmx.logical_not(converge.is_converged))
+conv_loop = scalems.while_loop(
+    function=converge,
+    condition=scalems.logical_not(converge.is_converged))
 
-production_input = gmx.modify_input(
+production_input = modify_input(
     input=initial_input, structure=converge.conformation)
 prod_potential = myplugin.production_restraint(
-    params=converge.converging_potential.output)
-prod_md = gmx.mdrun(input=production_input, potential=prod_potential)
+    params=converge.converging_potential)
+prod_md = simulate(input=production_input, potential=prod_potential)
 
-gmx.run()
+prod_md.run()
 
 print('Final alpha value was {}'.format(
-    train_loop.training_potential.output.alpha.result()))
+    train_loop.training_potential.alpha.result()))
 # also can extract conformation filenames, etc.

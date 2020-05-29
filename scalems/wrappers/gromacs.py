@@ -33,21 +33,6 @@ def make_input(simulation_parameters = ['md.mdp'],
                                                output_files={
                                                    '-o': scalems.OutputFile(suffix='.tpr')
                                                })
-    # simulation object. Structured the same for all wrappers, but you can't use one from another.
-    # strongly - a simulation tool set has some function that creates an object that encapsulates
-    # modify that input object, and convert the simulation to back into a simulation input object.
-    # the pattern holds.
-    # key thing is that the overall program flow.  You package the inputs and pass it to the next tools.
-
-    # what we have been doing with gmxapi.
-    # 'Make input' command was consuming one file.
-    #
-    # add features that if it is expecting 1 tpr and you give it 10
-    # tpr files.  it creates a simulation input object that has
-    # dynamic shape if you use it with other gmxapi components.  Those
-    # components understand what it's shape is once you have created
-    # an API object.  Although it supports array indexing, it is not a
-    # tuple or a list, and should be recognized as an abstraction.
 
     return gmxapi.read_tpr(preprocess.output.files['-o'])
 

@@ -1,5 +1,6 @@
 """Serialization utilities."""
 
+import abc
 import collections
 import json
 import typing
@@ -96,7 +97,28 @@ class OperationIdentifier(tuple):
         return '.'.join(self)
 
 
-class Integer64(object):
+class OperationNode(abc.ABC):
+    """Abstract interface for operation node references."""
+    @abc.abstractmethod
+    def to_json(self, **json_args) -> str:
+        """Serialize the node to a JSON record."""
+        ...
+
+    @classmethod
+    def from_json(cls, serialized: str):
+        """Creation method to deserialize a JSON record."""
+        # TODO: We could, of course, dispatch to registered subclasses,
+        #  but this is deferred until refactoring converts node references into
+        #  views into a Context.
+        ...
+
+    @abc.abstractmethod
+    def fingerprint(self) -> Fingerprint:
+        """Get the unique identifying information for the node."""
+        ...
+
+
+class Integer64(OperationNode):
     import json as _json
     # TODO: Replace numpy dependency with memoryview manager or core gmxapi
     #  buffer protocol provider.

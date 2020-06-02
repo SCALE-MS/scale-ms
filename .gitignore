@@ -6,6 +6,9 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+# Data and object files
+*.npz
+*.npy
 # C extensions
 *.so
 

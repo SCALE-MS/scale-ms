@@ -64,6 +64,7 @@ def test_contention(tmp_path):
         with pytest.raises(_context.LockException):
             _context.finalize_context()
         _context._unlock_directory()
+        _context.finalize_context()
 
         expected_instance = os.getpid()
         unexpected_instance = expected_instance + 1

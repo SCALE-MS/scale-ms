@@ -32,8 +32,10 @@ Component visibility and relevance should be annotated.
         which SCALE-MS based applications or scripts are written.
 
     CPI
-        *TDB*
-        The interface used within the framework to launch workers and place tasks.
+        Capability provider interface.
+        An API for interacting with the execution framework at run time
+        (i.e. within a worker process *after* it has been launched). Allows
+        execution side task insertion, etc.
 
     application
         Software written in terms of the SCALE-MS :term:`API`. May be limited
@@ -49,12 +51,12 @@ Component visibility and relevance should be annotated.
         A software package that implements the SCALE-MS :term:`API`.
 
     executor
-        *TBD*
-        A :term:`CPI` client.
+        The pilot agent role by which processes are launched in an execution
+        environment.
 
     execution manager
-        *TBD*
-        A :term:`middleware` component that determines :term:`task` placement.
+        A (theoretical) :term:`middleware` component that mediates the translation
+        between data driven work flows and schedulable (task driven) work loads.
 
     framework
         SCALE-MS is a set of specifications, support packages, and software
@@ -73,6 +75,7 @@ Component visibility and relevance should be annotated.
         scheduling, and work management systems.
 
     run time
+    runtime
         The software environment in which SCALE-MS :term:`task` s are executed.
 
     script
@@ -91,10 +94,10 @@ Component visibility and relevance should be annotated.
         know how the simulator is being accessed.
 
     worker
-        The unit of allocation of runtime computing resources:
+        A logical unit of allocated of runtime computing resources:
         A process (or group of processes, such as spanning the ranks of an MPI context),
-        managed by a run time system through the framework and able to
-        execute SCALE-MS :term:`work` as directed by an :doc:`executor <executor>`.
+        managed (through the framework) by a run time system, able to
+        execute SCALE-MS :term:`work`.
 
         Should not be relevant to the user,
         but may figure into the implementation details of task dispatching.
@@ -103,7 +106,7 @@ Component visibility and relevance should be annotated.
         Data and requests for data are provided to the worker by its CPI client.
         The worker is able to publish both final results and intermediate
         results for the work it is executing.
-        More generally, the worker publishes updates to the work graph,
+        More generally, the worker publishes updates to the task graph,
         which include state updates for existing graph nodes as well as
         new nodes.
         New nodes are necessary to hold static data,
@@ -114,11 +117,11 @@ Component visibility and relevance should be annotated.
         of tasks, or to participate in an :term:`ensemble`.
 
     work flow
-        *TBD*
+        A network of :term:`command` s or high level (abstract) tasks.
 
     work load
         A representation of work that is dispatched for managed execution,
-        represented in SCALE-MS in terms of a :term:`graph` or portion thereof.
+        represented in SCALE-MS in terms of a task :term:`graph` or portion thereof.
         May be dynamic, with additional work added after dispatch.
 
 .. todo:: Separate essential user-level definition from more in-depth discussion.
@@ -130,7 +133,7 @@ Interface terminology
     :sorted:
 
     command
-        Places one or more operations into the work graph.
+        Places one or more high level tasks into the work graph.
         The syntax of UI-level functions that instantiate operations is specified by
         the API, but can extend the syntax implied by the serialized representation
         of a node for flexibility and user-friendliness. May be a *factory* for
@@ -150,25 +153,32 @@ Interface terminology
         until inputs are bound
         (*e.g.* until an :term:`instance <operation instance>` is created).
 
+    task
     operation
     operation instance
-        Data sources and specific instances of :term:`function` s.
+        Data sources and specific instances of :term:`function` s managed by the
+        framework to fulfil a :term:`command`.
 
-        *Operations* can be thought of as nodes in a :term:`work graph`.
-        .. Previously described as *WorkElement* or *node*.
+        *Tasks* can be thought of as nodes in a :term:`work graph`, but the
+        nature of a *task* is a factor of the interface layer (and the level of
+        the software stack). The scope of the term has varied over the project
+        history, but the current sense is that communication is clearest if we
+        allow the term to be used in various scopes, while emphasizing the
+        context of the discussion with qualifiers. E.g. *runtime task* or
+        *high level task*.
 
-        Identity: An *operation* is the uniquely identifiable representation of a
+        Identity: An *task* is the uniquely identifiable representation of a
         :term:`function` instance, defined in terms of the inputs and
         specified behavior.
 
-        Corollary: the definition of an operation (a node) is immutable once added to the graph.
+        Corollary: the definition of a task (a node) is immutable once added to the graph.
 
         Finer points:
 
-        * The outputs of an operation may be accessed and subscribed to at any time.
-        * Internally, operations may be stateful. They have metadata associated with
+        * The outputs of a task may be accessed and subscribed to at any time.
+        * Internally, tasks may be stateful. They have metadata associated with
           their degree of completion and, potentially, with references to other
-          resources to describe intermediate or final results.
+          assets (artifacts) to describe intermediate or final results.
 
 Data flow terminology
 ---------------------
@@ -177,7 +187,7 @@ Data flow terminology
     :sorted:
 
     edge
-        A graph edge represents a (data) dependency between :term:`operation` s.
+        A graph edge represents a (data) dependency between :term:`task` s.
 
     ensemble
         An ensemble (as used here) is a concept for grouping related work.
@@ -196,9 +206,19 @@ Data flow terminology
         appropriateness of the allocated ensemble worker pool for the available
         work.
 
+    node
+        We avoid this term, not just because it overloads vocabulary used to
+        describe HPC computing environments, but because it is imprecise in the
+        context of the SCALE-MS abstraction layers. Usually, some qualified form
+        of the term :term:`task` is clearer. A truly abstract graph (encoding an
+        algorithm as a network of API abstractions) may most properly map a node
+        to a :term:`command`.
+
     port
-        Generic term for a named source, sink, resource, or binding hook on a node.
-        :term:`operation` s provide and consume resources through named *ports*.
+        Generic term for a named source, sink, data resource, or binding hook on a
+        :term:`function` or :term:`task`.
+        :term:`task` s are represented as providing and consuming resources through named *ports*.
+        See also: :term:`asset`.
 
     work
     graph
@@ -206,7 +226,7 @@ Data flow terminology
         A prescription to produce computational results, packaged for dispatching and execution.
 
         Work is described as a directed acyclic graph (DAG) of data flow (:term:`edge` s)
-        and operations on the data (:term:`operation` s).
+        and operations on the data (:term:`task` s).
         Work represents the computational products
         requested by a client, but may be an abstraction for lower level tasks,
         and the exact work load may not be determined until run time.
@@ -232,8 +252,8 @@ This document assumes the following definitions of potentially overloaded key wo
         that must be allocated and accessed to dispatch and execute computational
         tasks. Not to be confused with :term:`API resource`.
 
-    resource
-    API resource
+    asset
+    data resource
         Describes an API hook for an interaction mediated by a Context. Data flow
         is described as *immutable* resources (generally produced as :term:`operation` outputs)
         that can be consumed by binding to :term:`function` inputs (subscribing)
@@ -255,7 +275,12 @@ This document assumes the following definitions of potentially overloaded key wo
 
     simulation segment
         The smallest amount of :term:`simulator` :term:`work` that is representable
-        within SCALE-MS. May correspond to a single API call, a check-point
+        within SCALE-MS.
+        Note that coupled simulation tasks represented in a high-level interface
+        may be decomposed into sequences of uncoupled tasks for run time execution
+        when the software bridge to the simulator can encode such segmentation.
+
+        May correspond to a single API call, a check-point
         interval, a call-back interval, a trajectory output interval, or whatever
         unit of abstract simulation work is necessary to discuss the unit of
         identifiable and reproducible simulation output: a :term:`trajectory segment`.
@@ -288,7 +313,7 @@ This document assumes the following definitions of potentially overloaded key wo
             then they are "coupled segments" or an "ensemble segment," I think.
 
     task
-        The unit of work at the :term:`CPI` or :term:`run time` level.
+        A unit of work at the :term:`CPI` or :term:`run time` level.
         Generally an :term:`operation` or a portion of an operation that has
         been decomposed in terms of decoupled parallelism or execution checkpoint
         interval.
@@ -300,18 +325,10 @@ This document assumes the following definitions of potentially overloaded key wo
 
     Session
         Object or abstraction representing work that is executing on computing resources
-        allocated by an instance of a Context implementation. The Session is the
-        scoped active state of a Context while computing resources are held.
-
-.. topic:: *Context* and *Session*
-
-    roughly map to terms like *Executor* and *Task* in some other frameworks.
-    Distinctions relate to the lifetime of the :term:`Context` instance, and the fact that
-    it owns both the work specification (including operation and data handles)
-    and the computing resources.
-    The :term:`Context` instance owns resources (on behalf of the client) that may
-    otherwise be owned directly by the client, and so its lifetime must span all
-    references to resources, operation handles, and data futures.
+        allocated according to an instance of a Context implementation.
+        The Session is the (scoped) active state of a Context while computing
+        resources are held. A `radical.pilot.Session` may provide the implementation
+        of a Session in a RADICAL Pilot based Context.
 
 ..    discovered task
         A task that has become runnable, but was not already scheduled.

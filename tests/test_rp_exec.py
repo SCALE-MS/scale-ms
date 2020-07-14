@@ -14,6 +14,7 @@ import pytest
 
 
 def get_rp_decorator():
+    """Decorator for tests that should be run in a RADICAL Pilot environment only."""
     try:
         import radical.pilot as rp
         import radical.utils as ru
@@ -21,12 +22,22 @@ def get_rp_decorator():
         rp = None
         ru = None
 
-    # Decorator for tests that should be run in a RADICAL Pilot environment only.
-    with_radical_only = pytest.mark.skipif(None in (rp, ru),
-                                           reason="Test requires RADICAL environment.")
+    with_radical_only = pytest.mark.skipif(
+        rp is None or ru is None or 'RADICAL_PILOT_DBURL' not in os.environ,
+        reason="Test requires RADICAL environment.")
+
+    # The above logic may not be sufficient to mark the usability of the RP environment.
+    if rp is not None and 'RADICAL_PILOT_DBURL' in os.environ:
+        try:
+            with rp.Session():
+                with_radical_only = pytest.mark.RADICAL_PILOT
+        except:
+            with_radical_only = pytest.mark.skip(reason="Cannot create radical.pilot.Session")
+
     return with_radical_only
 
 
+# Decorator for tests that should be run in a RADICAL Pilot environment only.
 with_radical_only = get_rp_decorator()
 
 

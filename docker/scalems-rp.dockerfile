@@ -16,10 +16,10 @@
 # 2. Wait a few seconds for the MongoDB service to start.
 # 3. Exec the tests in the container.
 #
-#     docker run --rm --name rp_test -u root -d scalems-rp
-#     # sleep 3
-#     docker exec -ti rp_test rp-venv/bin/python -m pytest scalems/tests
-#     docker kill rp_test
+#     docker run --rm --name scalems_test -u root -d scalems-rp
+#     sleep 3
+#     docker exec -ti scalems_test bash -c "rp-venv/bin/activate && python -m pytest scalems/tests -s"
+#     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile
 FROM rp-complete

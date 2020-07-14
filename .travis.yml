@@ -1,0 +1,34 @@
+# Install and test scale-ms package in a Docker container.
+#
+# We currently use Docker to encapsulate the environment requirements of a
+# functional RADICAL Pilot installation. We are not yet able to stage the scalems
+# package into this environment or provide simple dispatching from a non-RP
+# client environment, so we build an image containing both the scalems package
+# and the test scripts, then make static use of that container.
+
+language: python
+
+git:
+  depth: 1
+
+services:
+  - docker
+
+install:
+  # The rp-complete image should not change much and could reasonably be cached or pulled.
+  - docker build -t rp-complete -f docker/rp-complete.dockerfile docker
+  # The scalems-rp image needs to be rebuilt for every commit because it contains the updated
+  # scalems package and test scripts.
+  - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .
+
+script:
+  - docker run --rm --name scalems_test -u root -d scalems-rp
+  - docker ps
+  - sleep 5
+  - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests -s"
+  - docker kill scalems_test
+
+before_install:
+  - uname -a
+  - ulimit -a
+  - python -V

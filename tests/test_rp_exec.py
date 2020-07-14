@@ -9,6 +9,7 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 """
 
 import os
+import warnings
 
 import pytest
 
@@ -29,8 +30,12 @@ def get_rp_decorator():
     # The above logic may not be sufficient to mark the usability of the RP environment.
     if rp is not None and 'RADICAL_PILOT_DBURL' in os.environ:
         try:
-            with rp.Session():
-                with_radical_only = pytest.mark.RADICAL_PILOT
+            # Note: radical.pilot.Session creation causes several deprecation warnings.
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', category=DeprecationWarning)
+                with rp.Session():
+                    with_radical_only = pytest.mark.skipif(False,
+                                                           reason="RP should be available.")
         except:
             with_radical_only = pytest.mark.skip(reason="Cannot create radical.pilot.Session")
 

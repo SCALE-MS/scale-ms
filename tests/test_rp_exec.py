@@ -31,6 +31,7 @@ def get_rp_decorator():
     if rp is not None and 'RADICAL_PILOT_DBURL' in os.environ:
         try:
             # Note: radical.pilot.Session creation causes several deprecation warnings.
+            # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', category=DeprecationWarning)
                 with rp.Session():
@@ -87,6 +88,7 @@ def test_rp_import():
 
 
 # Note: radical.pilot.Session creation causes several deprecation warnings.
+# Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @with_radical_only
 def test_rp_basic_task(rp_config):

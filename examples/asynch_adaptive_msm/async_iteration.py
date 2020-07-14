@@ -59,7 +59,19 @@ async def analysis_iteration(model, trajectories):
     return (model, simulation_input_set)
 
 
-async def simulation_iteration(inputs: Iterable[Future[SimulationInput]]):
+async def simulation_iteration_optionA(inputs: Iterable[Future[SimulationInput]],
+                                       conformations: Iterable[Future[SimulationFrame]]):
+    """Perform an iteration of launching a wave of simulations.
+
+    Given an asynchronous iterable of simulation inputs, launch simulations as
+    the inputs become available. The set of simulation results compose the
+    asynchronously awaitable output.
+    """
+    # Return a set of awaitable simulations.
+    return {simulate(modify_input(i, conformation=x)) for i, x in zip(inputs, conformations)}
+
+
+async def simulation_iteration_optionB(inputs: Iterable[Future[SimulationInput]]):
     """Perform an iteration of launching a wave of simulations.
 
     Given an asynchronous iterable of simulation inputs, launch simulations as
@@ -72,9 +84,18 @@ async def simulation_iteration(inputs: Iterable[Future[SimulationInput]]):
 
 async def simulation_and_analysis_loop(initial_input):
     simulation_input = initial_input
+    next_conformation = simulation_input.conformation
     model = msmtool.msm_analyzer()
     while not model.is_converged():
-        model, simulation_input = analysis_iteration(model, simulation_iteration(simulation_input))
+        # Option A would combine phase 0 and 1. E.g.:
+        #     simulation = simulation_iteration_optionA(simulation_input, next_conformation)
+        # Option B:
+        # Phase 0: Prepare simulation input with the next round of initial conformations.
+        simulation_input = modify_input(simulation_input, conformation=next_conformation)
+        # Phase 1: Perform simulations
+        simulation = simulation_iteration_optionB(simulation_input)
+        # Phase 2: Update MSM to obtain next set of most informative initial conformations.
+        model, next_conformation = analysis_iteration(model, simulation)
     return model
 
 

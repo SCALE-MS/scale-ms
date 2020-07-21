@@ -62,16 +62,16 @@ with simulation_and_analysis_iteration:
     # Get the output trajectories and pass to PyEmma to build the MSM
     # Return a stop condition object that can be used in gmx while loop to
     # terminate the simulation
-    allframes = collect_coordinates(md.output.trajectory)
+    allframes = collect_coordinates(md.trajectory)
 
     adaptive_msm = msmtool.msm_analyzer(topfile=initial_pdb,
                                         trajectory=allframes,
                                         transition_matrix=simulation_and_analysis_iteration.transition_matrix)
     # Update the persistent data for the subgraph
-    simulation_and_analysis_iteration.transition_matrix = adaptive_msm.output.transition_matrix
+    simulation_and_analysis_iteration.transition_matrix = adaptive_msm.transition_matrix
     # adaptive_msm here is responsible for maintaining the ensemble width
-    simulation_and_analysis_iteration.conformation = adaptive_msm.output.conformation
-    simulation_and_analysis_iteration.is_converged = adaptive_msm.output.is_converged
+    simulation_and_analysis_iteration.conformation = adaptive_msm.conformation
+    simulation_and_analysis_iteration.is_converged = adaptive_msm.is_converged
 
 # In the default work graph, add a node that depends on `condition` and
 # wraps subgraph.

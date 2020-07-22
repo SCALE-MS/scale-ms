@@ -32,6 +32,14 @@ RUN apt-get update && \
         vim && \
     rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && \
+    apt-get install -y \
+        python3.7-dev \
+        python3.7-venv && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1
+
 USER rp
 
 RUN (cd ~rp && python3 -m venv rp-venv)

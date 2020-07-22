@@ -18,7 +18,7 @@
 #
 #     docker run --rm --name scalems_test -u root -d scalems-rp
 #     sleep 3
-#     docker exec -ti scalems_test bash -c "rp-venv/bin/activate && python -m pytest scalems/tests -s"
+#     docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests -s"
 #     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile

@@ -3,6 +3,7 @@ from setuptools import setup
 setup(
     name='scalems',
     version='0',
+    python_requires='>=3.7',
     packages=['scalems'],
     url='https://github.com/SCALE-MS/scale-ms/',
     license='',

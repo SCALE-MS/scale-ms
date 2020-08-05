@@ -3,8 +3,81 @@
 This package provides Python driven data flow scripting and graph execution
 for molecular science computational research protocols.
 
-Refer to https://scale-ms.readthedocs.io/ for complete documentation.
+Refer to https://scale-ms.readthedocs.io/ for package documentation.
+
+Refer to https://github.com/SCALE-MS/scale-ms/wiki for development documentation.
+
+Invocation:
+    ScaleMS scripts describe a workflow. To run the workflow, you must tell
+    ScaleMS how to dispatch the work for execution.
+
+    For most use cases, you can run the script in the context of a particular
+    execution scheme by using the ``-m`` Python command line flag to specify a
+    ScaleMS execution module::
+
+        # Execute with the default local execution manager.
+        python -m scalems.local myworkflow.py
+        # Execute with the RADICAL Pilot based execution manager.
+        python -m scalems.radical myworkflow.py
+
+    Execution managers can be configured and used from within the workflow script,
+    but the user has extra responsibility to properly shut down the execution
+    manager, and the resulting workflow may be less portable. For details, refer
+    to the documentation for particular WorkflowContexts.
+
 """
+
+import typing
+ResultType = typing.TypeVar('ResultType')
+class WorkflowObject(typing.Generic[ResultType]): ...
+
+
+def wait(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
+    """Resolve a workflow reference to a local object.
+
+    ScaleMS commands return abstract references to work without waiting for the
+    work to execute. Other ScaleMS commands can operate on these references,
+    relying on the framework to manage data flow.
+
+    If you need to extract a concrete result, or otherwise force data flow resolution
+    (blocking the current code until execution and data transfer are complete),
+    you may use scalems.wait(ref) to convert a workflow reference to a concrete
+    local result.
+
+    Note that scalems.wait() can allow the current scope to yield to other tasks.
+    Developers should use scalems.wait() instead of native concurrency primitives
+    when coding for dynamic data flow.
+
+    .. todo:: Establish stable API/CPI for tasks that create other tasks or modify the data flow graph during execution.
+
+    scalems.wait() will produce an error if you have not configured and launched
+    an execution manager in the current scope.
+    """
+    from . import context
+    return context.wait(ref, **kwargs)
+
+
+def run(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
+    """Execute a workflow and return the results.
+
+    This call is not necessary if an execution manager is already running, such
+    as when a workflow script is invoked with `python -m scalems.<some_executor> workflow.py`,
+    when run in a Jupyter notebook (or other application with a compatible native event loop),
+    or when the execution manager is launched explicitly within the script.
+
+    `scalems.run()` may be useful if you want to embed a ScaleMS application in another
+    application, or as a short-hand for execution management with the Python
+    Context Manager syntax by which ScaleMS execution can be more explicitly directed.
+    `scalems.run()` is analogous to (and may simply wrap a call to) `asyncio.run()`.
+
+    As with `asyncio.run()`, `scalems.run()` is intended to be invoked (from the
+    main thread) exactly once in a Python interpreter process lifetime. It is
+    probably fine to call it more than once, but such a use case probably indicates
+    non-standard ScaleMS software design. Nested calls to `scalems.run()` have
+    unspecified behavior.
+    """
+    from . import context
+    return context.run(ref, **kwargs)
 
 
 def commandline_operation(executable=None,

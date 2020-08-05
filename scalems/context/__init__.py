@@ -8,6 +8,53 @@ This module allows the Python interpreter to track a global stack or tree
 structure to allow for simpler syntax and clean resource de-allocation.
 """
 
+import concurrent.futures
+import contextvars
+
+
+class AbstractWorkflowContext(concurrent.futures.Executor):
+    """Abstract base class for SCALE-MS workflow Contexts.
+
+    A workflow context includes a strategy for dispatching a workflow
+    for execution. Instances provide the concurrent.futures.Executor
+    interface with support and semantics that depend on the Executor
+    implementation and execution environment.
+
+    Notably, we rely on the Python contextmanager protocol to regulate
+    the acquisition and release of resources, so SCALE-MS workflow
+    contexts do not initialize Executors at creation. Instead,
+    client code should use `with` blocks for scoped initialization and
+    *shutdown* of Executor roles.
+
+    TODO: Enforce centralization of Context instantiation for the interpreter process.
+    For instance:
+    * Implement a root context singleton and require acquisition of new Context
+      handles through methods in this module.
+    * Use abstract base class machinery to register Context implementations.
+    * Require Context instances to track their parent Context, or otherwise
+      participate in a single tree structure.
+    * Prevent instantiation of Command references without a reference to a Context instance.
+    """
+
+
+class DefaultContext(AbstractWorkflowContext):
+    """Manage workflow data and metadata, but defer execution to sub-contexts.
+
+    Not yet implemented or used.
+    """
+
+
+# Root workflow context for the interpreter process.
+_interpreter_context = DefaultContext()
+# Note: asyncio.create_task() automatically duplicates a nested contextvars.Context
+# for the new task.
+parent = contextvars.ContextVar('parent', default=None)
+current = contextvars.ContextVar('current', default=_interpreter_context)
+
+
+def get_context():
+    return current.get()
+
 
 def run(coroutine, **kwargs):
     """Execute the provided coroutine object.

@@ -1,0 +1,157 @@
+@startuml
+title Immediate launch
+
+box "Worker Context"
+participant "Resource manager" as context
+participant "Node Director" as node_director
+participant "Node Builder" as node_builder
+participant "Result publisher" as publisher
+end box
+
+box "checkpoint facility"
+participant "API" as checkpoint_facility
+participant "Checkpoint director" as checkpoint_director
+participant "checkpointer: Publisher" as checkpoint_publisher
+participant "backing store" as checkpoint_backing_store
+end box
+
+box "Operation implementation" #DDEEFF
+participant "API connectors" as factory
+participant resources
+participant function
+end box
+
+[-> context: place data
+
+[-> context: deserialize node
+activate context
+
+context -> node_builder **: get_node_builder(uid, inputs)
+activate node_builder
+context -> node_director ++
+
+node_director -> factory
+node_director <-- factory: input resource builder
+node_director <-- factory: output resource builder
+node_director <-- factory: functor builder
+
+
+node_director -> checkpoint_facility ++
+checkpoint_facility -> factory: negotiate facilities
+checkpoint_facility -> checkpoint_backing_store ++: initialize
+checkpoint_facility <-- checkpoint_backing_store --: state metadata
+node_director <-- checkpoint_facility --
+
+node_director -> checkpoint_facility ++
+checkpoint_facility -> checkpoint_director **: backing store reference
+checkpoint_facility --> node_director --: checkpoint_director
+
+node_director -> node_builder: apply node input
+activate node_builder
+
+node_builder -> factory ++: resource builder
+
+checkpoint_facility <-- factory ++: receive checkpoint state
+checkpoint_facility -> checkpoint_director ++
+checkpoint_director -> checkpoint_backing_store ++: read
+checkpoint_director -> factory: apply checkpoint state
+checkpoint_director -> checkpoint_backing_store: close
+deactivate checkpoint_backing_store
+deactivate checkpoint_director
+deactivate checkpoint_facility
+alt incomplete && has_dependencies
+    node_builder -> context: register subscriptions
+end
+deactivate node_builder
+
+node_director -> node_builder ++: set up output
+node_builder -> publisher **
+deactivate node_builder
+
+node_director -> node_builder ++: build()
+node_builder -> factory ++: build()
+factory <- factory ++: resolve input subscriptions
+alt incomplete && has_dependencies
+    factory -> context: await subscriptions
+    context --> factory: apply inputs
+end
+deactivate factory
+
+node_builder -> checkpoint_facility ++
+checkpoint_facility -> checkpoint_publisher **: backing store reference
+return
+
+node_builder -> checkpoint_publisher ++
+checkpoint_publisher -> publisher: subscribe
+ref over publisher
+Use case
+end ref
+deactivate checkpoint_publisher
+
+publisher <-- factory ++: acquire
+factory -> resources ++
+node_builder <-- factory --: resources
+deactivate factory
+
+node_builder -> factory ++: task builder
+factory -> function ++
+function -> resources: input
+node_builder <-- factory --: functor
+
+alt partial completion checkpoint
+function -> resources: checkpoint
+resources -> checkpoint_publisher ++: update
+checkpoint_publisher -> checkpoint_backing_store ++: open
+checkpoint_publisher -> checkpoint_backing_store: write
+checkpoint_publisher -> checkpoint_backing_store: close
+deactivate checkpoint_backing_store
+deactivate checkpoint_publisher
+end
+
+function -> resources: output
+resources -> publisher ++: publish
+publisher -> checkpoint_publisher ++: publish
+checkpoint_publisher -> checkpoint_backing_store ++: open
+checkpoint_publisher -> checkpoint_backing_store: write
+checkpoint_publisher -> checkpoint_backing_store: close
+deactivate checkpoint_backing_store
+deactivate checkpoint_publisher
+
+publisher -> context: publish
+activate context
+context -> context: subscriptions
+[<-- context: stage output data
+deactivate context
+deactivate publisher
+
+function -> node_builder: success
+node_builder -> function: release
+deactivate function
+
+node_builder -> resources: release references
+resources --> publisher: release
+destroy publisher
+destroy resources
+
+node_director <-- node_builder --: node
+context <-- node_director --
+destroy node_builder
+[<-- context: node
+deactivate context
+
+|||
+    ref over context, node_director, node_builder, publisher
+Use case: subscribe to result publisher
+
+Scenario 1: results not yet available
+1. node result publisher receives subscription request.
+2. Context identifies that node is not finalized.
+3. Subscriber is added to the list of publishers to notify on node output activity.
+
+Scenario 2: results already published
+1. node result publisher receives subscription request
+2. Context identifies that node is already complete.
+3. Subscriber receives published results before subscribe() completes.
+    end ref
+
+@enduml

@@ -37,12 +37,24 @@ Utility functions:
         converts a native structure object to a structure file in the Protein Data Bank
         (PDB) format.
 
+    get_trajectory(source) -> Trajectory:
+        Get a Future for (currently implementation-specific) Trajectory data from
+        a Simulation or other sensible source. Note: this free function allows us
+        to defer the question of whether trajectory sources are assumed to have a
+        `trajectory` instance attribute.
+
     collect_coordinates(trajectories: scalems.Iterable[scalems.Iterable[Conformation]]) -> scalems.Iterable[Conformation]:
         Some data hierarchies or topological transformations need to be performed
         by native tools. *collect_coordinates* creates a single iterable of
         system conformations from a collection of sources of conformation data.
 
 Module types:
+    Frame:
+        Molecular system microstate data. Generally, a frame of simulation trajectory
+        output, an input configuration, or a subset of simulation snapshot/checkpoint data.
+        At a minimum, the member data is assumed to include atomic coordinates,
+        indexed consistently with other Frames extracted from the same source.
+
     SimulationInput:
         Packages simulation inputs for consumption by other tools in the simulation
         package. If array-like or set-like input is provided, the SimulationInput
@@ -56,5 +68,14 @@ Module types:
         is convertible to SimulationInput. The Simulation reference produced by
         a *simulate()* command has the data flow shape of the SimulationInput
         provided to it.
+
+    Trajectory:
+        A data Future representing molecular system trajectory data. For MD, this
+        is presumed to be a trajectory output file or set of sequenced files.
+        For a Simulation reference encompassing an ensemble or batch of simulations,
+        outer dimensions of the Trajectory reference will describe the same shape
+        as the source. A Trajectory has SCALE-MS sequence semantics. The wrapper
+        should allow sequence-based data shaping commands to treat a Trajectory
+        as a sequence of Frame data.
 
 """

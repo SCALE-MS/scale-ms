@@ -8,11 +8,11 @@ This module allows the Python interpreter to track a global stack or tree
 structure to allow for simpler syntax and clean resource de-allocation.
 """
 
-import concurrent.futures
+import abc
 import contextvars
 
 
-class AbstractWorkflowContext(concurrent.futures.Executor):
+class AbstractWorkflowContext(abc.ABC):
     """Abstract base class for SCALE-MS workflow Contexts.
 
     A workflow context includes a strategy for dispatching a workflow
@@ -35,6 +35,40 @@ class AbstractWorkflowContext(concurrent.futures.Executor):
       participate in a single tree structure.
     * Prevent instantiation of Command references without a reference to a Context instance.
     """
+    def __enter__(self):
+        """Initialize context manager and return the entered Session."""
+        raise NotImplementedError('Context Manager protocol not implemented for {}.'.format(type(self)))
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Exit context manager without processing exceptions."""
+        return False
+        # TODO: Consider if/how we should process un-awaited tasks.
+
+    # @abc.abstractmethod
+    # def add_task(self, operation: str, bound_input):
+    #     """Add a task to the workflow.
+    #
+    #     Arguments:
+    #         operation: named operation to perform
+    #         bound_input: reference to a workflow object compatible with operation input.
+    #
+    #     Returns:
+    #         Reference to the new task.
+    #
+    #     TODO: Resolve operation implementation to dispatch task configuration.
+    #     """
+    #     ...
+
+    @abc.abstractmethod
+    def add_task(self, task_description):
+        """Add a task to the workflow.
+
+        Returns:
+            Reference to the new task.
+
+        TODO: Resolve operation implementation to dispatch task configuration.
+        """
+        ...
 
 
 class DefaultContext(AbstractWorkflowContext):
@@ -42,6 +76,9 @@ class DefaultContext(AbstractWorkflowContext):
 
     Not yet implemented or used.
     """
+
+    def add_task(self, task_description):
+        raise NotImplementedError('Trivial work graph holder not yet implemented.')
 
 
 # Root workflow context for the interpreter process.

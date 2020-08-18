@@ -13,6 +13,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
+from .context import get_context
 
 # TODO: what is the mechanism for registering a command implementation in a new Context?
 # TODO: What is the relationship between the command factory and the command type? Which parts need to be importable?
@@ -80,7 +81,7 @@ class Subprocess:
         ...
 
     def uid(self):
-        return ['0']*64
+        return '0'*64
 
     def serialize(self) -> str:
         """Encode the task as a JSON record.
@@ -155,7 +156,7 @@ class Subprocess:
 
 
 
-def executable(*args, **kwargs):
+def executable(*args, context=None, **kwargs):
     """Execute a command line program.
 
     Note:
@@ -229,6 +230,8 @@ def executable(*args, **kwargs):
     bound_input = SubprocessInput(*args, **kwargs)
 
     # TODO: Implement TaskBuilder director.
-    coroutine = Subprocess(bound_input)
+    if context is None:
+        context = get_context()
+    task = context.add_task(Subprocess(bound_input))
 
-    return coroutine
+    return task

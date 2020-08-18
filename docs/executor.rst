@@ -74,6 +74,8 @@ Upshot:
    the task protocol, and absorb that behavior into scalems.wait() and scalems.run()
    in the long term.
 
+::
+
     def canonical_syntax():
         context = sms_context.get_context()
         # For testing purposes, we will explicitly create each of the implemented Contexts.

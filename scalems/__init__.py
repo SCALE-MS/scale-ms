@@ -28,6 +28,10 @@ Invocation:
 """
 
 import typing
+
+from .subprocess import executable
+
+
 ResultType = typing.TypeVar('ResultType')
 class WorkflowObject(typing.Generic[ResultType]): ...
 
@@ -78,46 +82,6 @@ def run(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
     """
     from . import context
     return context.run(ref, **kwargs)
-
-
-def commandline_operation(executable=None,
-                          arguments=(),
-                          input_files: dict = None,
-                          output_files: dict = None,
-                          **kwargs):
-    """Helper function to define a new operation in terms of a command line executable.
-
-    Dynamically defines an operation that executes a subprocess with managed data flow.
-
-    Arguments:
-        executable: name of an executable on the path
-        arguments: list of positional arguments to insert at ``argv[1]``
-        input_files: mapping of command-line flags to input file names
-        output_files: mapping of command-line flags to output file names
-
-    Output:
-        The output node of the resulting operation handle contains
-
-        * ``file``: the mapping of CLI flags to filename strings resulting from the ``output_files`` kwarg
-        * ``erroroutput``: A string of error output (if any) if the process failed.
-        * ``returncode``: return code of the subprocess.
-
-    To do:
-        * Provide handling for multithreading and multiprocessing options.
-          We cannot currently know what resources the executable will try to use,
-          so we have to assume that it will monopolize the resources of the
-          compute node it is run on. Furthermore, we must not launch the tool in
-          a multiprocess worker because we do not know how it will behave.
-        * Provide standard I/O stream handling.
-        * Separate the registration of the command line tool from the operation
-          creation. It is okay to have a single helper function for users to
-          quickly wrap a CLI tool, but we should be clear about the normative
-          way that Functions are defined and used.
-    """
-    # Define a new Operation for a particular executable and input/output parameter set.
-    # Generate a chain of operations to process the named key word arguments and handle
-    # input/output data dependencies.
-    raise NotImplementedError()
 
 
 def function_wrapper(output: dict = None):

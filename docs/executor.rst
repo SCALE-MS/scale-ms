@@ -76,14 +76,14 @@ Upshot:
 
 ::
 
-    def canonical_syntax():
+    async def canonical_syntax():
         context = sms_context.get_context()
         # For testing purposes, we will explicitly create each of the implemented Contexts.
         # Simple use case:
         # Use context manager protocol to initialize and finalize connections and resources.
         with context as session:
             cmd = executable(('/bin/echo', 'hello', 'world'), stdout='filename')
-            session.run(cmd) # Near-term solution to resolve all awaitables explicitly.
+            await session.run(cmd) # Near-term solution to resolve all awaitables explicitly.
             # Alternative not yet implemented:
             #    scalems.wait(cmd.exitcode) # Minimally resolve cmd.exitcode
             assert cmd.exitcode.done()

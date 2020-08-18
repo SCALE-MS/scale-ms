@@ -1,4 +1,8 @@
-"""Test the scalems._subprocess.exec command."""
+"""Test the scalems.executable command.
+
+TODO: Consider whether we can reimplement as a parameterized test over the
+      various executors.
+"""
 
 import asyncio
 
@@ -36,16 +40,17 @@ def test_exec_immediate():
         # TODO: Check output
         session.run(cmd)
 
-# def test_exec_local():
-#     # Test local execution with standard deferred launch.
-#     # TODO: The `with` block should be equivalent to a `-m scalems.local` invocation.
-#     #       Confirm with `pytest -m scalems.local ...`
-#     # Test LocalExecutor
-#     context = scalems.local.LocalExecutor()
-#     # Note that a coroutine object created from an `async def` function is only awaitable once.
-#     with context as session:
-#         cmd = executable(('/bin/echo',))
-#         session.run(cmd)
+
+@pytest.mark.asyncio
+async def test_exec_local():
+    # Test local execution with standard deferred launch.
+    # TODO: The `with` block should be equivalent to a `-m scalems.local` invocation. Test.
+    context = scalems.local.AsyncWorkflowContext()
+    # Note that a coroutine object created from an `async def` function is only awaitable once.
+    with context as session:
+        cmd = executable(('/bin/echo',))
+        # session.run(cmd)
+        await session.run()
 
 
 # Currently in test_rp_exec.py

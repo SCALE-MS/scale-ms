@@ -29,4 +29,6 @@ WORKDIR /home/rp
 
 COPY --chown=rp:radical . scalems
 
+RUN ./rp-venv/bin/pip install --upgrade pip setuptools
+RUN ./rp-venv/bin/pip install -r scalems/requirements-testing.txt
 RUN ./rp-venv/bin/pip install scalems/

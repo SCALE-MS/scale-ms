@@ -12,7 +12,9 @@ import os
 import warnings
 
 import pytest
-
+import scalems
+import scalems.context
+import scalems.radical
 
 def get_rp_decorator():
     """Decorator for tests that should be run in a RADICAL Pilot environment only."""
@@ -133,16 +135,21 @@ def test_rp_basic_task(rp_config):
         umgr.wait_units()
 
         assert task.exit_code == 0
+    assert session.closed
 
 
 # Note: radical.pilot.Session creation causes several deprecation warnings.
 # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-# @pytest.mark.filterwarnings('ignore::DeprecationWarning')
-# @with_radical_only
-# def test_exec_rp():
-#     # Test RPDispatcher context
-#     # Note that a coroutine object created from an `async def` function is only awaitable once.
-#     cmd = executable(('/bin/echo',))
-#     context = sms_context.RPDispatcher()
-#     with context as session:
-#         session.run(cmd)
+@pytest.mark.filterwarnings('ignore::DeprecationWarning')
+@pytest.mark.asyncio
+@with_radical_only
+async def test_exec_rp():
+    original_context = scalems.context.get_context()
+    # Test RPDispatcher context
+    # Note that a coroutine object created from an `async def` function is only awaitable once.
+    context = scalems.radical.RPWorkflowContext()
+    async with context as session:
+        cmd = scalems.executable(('/bin/echo',))
+        await session.run()
+    # Test active context scoping.
+    assert scalems.context.get_context() is original_context

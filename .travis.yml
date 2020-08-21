@@ -7,26 +7,35 @@
 # and the test scripts, then make static use of that container.
 
 language: python
+python: "3.7"
 
 git:
   depth: 1
 
-services:
-  - docker
-
-install:
-  # The rp-complete image should not change much and could reasonably be cached or pulled.
-  - docker build -t rp-complete -f docker/rp-complete.dockerfile docker
-  # The scalems-rp image needs to be rebuilt for every commit because it contains the updated
-  # scalems package and test scripts.
-  - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .
-
-script:
-  - docker run --rm --name scalems_test -u root -d scalems-rp
-  - docker ps
-  - sleep 5
-  - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests -s"
-  - docker kill scalems_test
+jobs:
+  include:
+    - install:
+        - pip install --upgrade pip setuptools
+        - pip install -r requirements-testing.txt
+        - pip install .
+      script:
+        - pytest tests -s
+    - services:
+        - docker
+      install:
+        # The rp-complete image should not change much and can reasonably be cached or pulled.
+        - docker pull scalems/rp-complete
+        # The scalems-rp image needs to be rebuilt for every commit because it contains the updated
+        # scalems package and test scripts.
+        - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .
+      script:
+        # - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+        - docker run --rm --name scalems_test -u root -d scalems-rp
+        - docker ps
+        - sleep 5
+        - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
+        # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
+        - docker kill scalems_test
 
 before_install:
   - uname -a

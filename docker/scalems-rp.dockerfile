@@ -1,7 +1,7 @@
 # Install the `scalems` package into a RP-ready container.
 #
-# Before building this image, build the `rp-complete` image from `rp-complete.dockerfile`
-#     docker build -t rp-complete -f rp-complete.dockerfile .
+# Before building this image, pull or build the `rp-complete` image from `rp-complete.dockerfile`
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile .
 #
 # Usage:
 #
@@ -22,7 +22,7 @@
 #     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile
-FROM rp-complete
+FROM scalems/rp-complete
 
 USER rp
 WORKDIR /home/rp

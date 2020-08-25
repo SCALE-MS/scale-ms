@@ -5,8 +5,6 @@ Execution middleware
 Executable graphs or graph segments produced by client software are dispatched
 and translated for execution on managed computing resources.
 
-.. uml:: diagrams/runtime_interface_sequence.puml
-
 WorkflowContext
 ===============
 
@@ -95,6 +93,12 @@ Upshot:
         #   already bound to a particular execution framework.
         # * Set the Context and then call scalems.run(workflow) to get behavior like
         #   asyncio.run().
+
+Runtime executor
+================
+
+.. uml:: diagrams/workflow_staging/runtime_interface_sequence.puml
+
 
 Simple work
 ===========

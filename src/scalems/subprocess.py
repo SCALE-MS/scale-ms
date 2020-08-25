@@ -232,6 +232,8 @@ def executable(*args, context=None, **kwargs):
     # TODO: Implement TaskBuilder director.
     if context is None:
         context = get_context()
+    # TODO: The returned value should be a TaskView provided by the Context with
+    #       minimal state or ownership semantics.
     task = context.add_task(Subprocess(bound_input))
 
     return task

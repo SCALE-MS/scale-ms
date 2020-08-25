@@ -59,7 +59,15 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
     so the asyncio event loop must be running before then.
 
     To help enforce this, we use an async Context Manager, at least in the
-    initial implementation. Further discussion is welcome.
+    initial implementation. However, the implementation is not thread-safe.
+    It is not reentrant, but this is not checked. We probably _do_ want to
+    constrain ourselves to zero or one Sessions per environment, but we _do_
+    need to support multiple Pilots and task submission scopes (resource
+    requirement groups).
+    Further discussion is welcome.
+
+    TODO: Separate the WorkflowContext and its rp.Session management from the
+          executor and its umgr management.
     """
     def __init__(self):
         import radical.pilot as rp
@@ -71,6 +79,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
         resource = 'local.localhost'
         # TODO: Find default config?
         resource_config = {resource: {}}
+        # TODO: Get from user or local config files.
         resource_config[resource].update({
             'project': None,
             'queue': None,
@@ -106,6 +115,13 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
 
     # def submit(self, task_description: dict) -> Future:
     def add_task(self, task_description):
+        """Placeholder for task creation interface.
+
+        TODO: Subscribe to Futures in the task input.
+        TODO: Dispatch task configuration according to registered implementations.
+        TODO: Own a task instance and return a task view.
+        TODO: Accept object types other than Subprocess (e.g. Data, PyFunc, or opaque dispatchable types).
+        """
         from . import operations
         # TODO: more complete type hinting.
         if not isinstance(task_description, scalems.subprocess.Subprocess):
@@ -176,6 +192,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
             self.shutdown()
             assert scalems.context.get_context() is self
             # Restore context module state since we are not using contextvars.Context.run() or equivalent.
+            # TODO: We should either check that we have not branched/re-entered, or this scope should be captured as a single awaitable and contextvars.run().
             for token in self.contextvar_tokens:
                 token.var.reset(token)
             # Note: This is a chance to await unawaited tasks and make extra-sure that RP is properly cleaned up.

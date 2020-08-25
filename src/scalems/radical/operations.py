@@ -9,6 +9,15 @@ from . import RPFuture, RPResult
 
 
 def executable(context, task: scalems.subprocess.Subprocess):
+    """Implement scalems.executable for the RPWorkflowContext.
+
+    Provide the awaitable result for the Subprocess Future behavior.
+
+    TODO: Tie return value to SubprocessResult.
+    TODO: Manage the state of the Subprocess instance.
+    TODO: Finish implementing Future.
+    TODO: Move Future base to asyncio.Future.
+    """
     if not isinstance(context, scalems.radical.RPWorkflowContext):
         raise ValueError('This resource factory is only valid for RADICAL Pilot workflow contexts.')
 
@@ -22,6 +31,8 @@ def executable(context, task: scalems.subprocess.Subprocess):
         'env': None
     }
 
+    # Construct the RP executable task description.
+    # Ref: https://radicalpilot.readthedocs.io/en/stable/apidoc.html#radical.pilot.ComputeUnit
     task_description = {'executable': args[0],
                         'cpu_processes': 1}
     task = context.umgr.submit_units(context.rp.ComputeUnitDescription(task_description))
@@ -40,6 +51,8 @@ def executable(context, task: scalems.subprocess.Subprocess):
     async def coroutine():
         # task.wait() just hangs. Using umgr.wait_units() instead...
         # task.wait()
+        # TODO: Why does task.wait() not work?
+        # TODO: Can we at least wait on a specific task ID?
         context.umgr.wait_units()
         return future
     return coroutine()

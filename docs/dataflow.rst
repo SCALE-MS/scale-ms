@@ -14,6 +14,12 @@ Ref: https://github.com/SCALE-MS/scale-ms/wiki/Data-model for the latest details
 Object Model
 ============
 
+The model is influenced by our ability to serialize and deserialize a
+directed acyclic dependency graph,
+and our ability to separate responsibilities for knowledge of implementation details
+in a highly extensible API.
+This document is not completely decoupled from discussion in :doc:`serialization`
+
 Note that the following discussion does not use "Type" and "Instance" in a way
 that necessarily maps to the data model or typing system of any particular programming language.
 If it helps you, consider that "XType" and "XInstance" may be facets

@@ -1,0 +1,15 @@
+; Allow scalems.executable signatures to be dynamically defined as distinct types
+; (implemented in terms of Subprocess) for simpler records, optimized set-up and error checking,
+; and potential optimization of resource allocation.
+@startuml
+object "referents[i]: SubprocessInstance" as instance
+instance : uid= <hash>
+instance : type =
+
+object SubprocessInput
+object SubprocessResult
+object Mapping
+object "output_files: Mapping" as output_files
+object "input_files: Mapping" as input_files
+
+@enduml

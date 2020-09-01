@@ -1,0 +1,168 @@
+'WIP: Represent a command line task with more complicated dependency relationships.
+@startuml
+
+object "referents[i]: SubprocessInstance" as instance
+instance : uid = <hash>
+instance : type = ["scalems", "Subprocess"]
+instance : input = <hash>
+instance : result = <hash>
+
+object "referents[i-1]: SubprocessInput" as input
+input : uid = <hash>
+input : type = ["scalems", "SubprocessInput"]
+input : argv = ["myprogram", "--num_threads", "8", "-i", input_files["-i"], "-o", "outfile"]
+input : inputs = {"path": input_files.uid}
+input : outputs = {"path": output_files.uid}
+input : stdin = <null ref>
+input : environment = empty
+input : resources = {"path": resource_spec.uid}
+
+object "artifacts[j]: SubprocessResult" as result
+result : uid = <hash>
+result : type = ["scalems", "SubprocessResult"]
+result : exitcode = 0
+result : stdout = <fileref>
+result : stderr = <fileref>
+result : file = {"-o": <fileref>}
+
+object "input_files: Mapping" as input_files
+input_files : uid = <hash>
+input_files : type = ["scalems", "Mapping"]
+input_files : data = {"-i": "infile"}
+
+object "output_files: Mapping" as output_files
+output_files : uid = <hash>
+output_files : type = ["scalems", "Mapping"]
+output_files : data = {"-o": "outfile"}
+
+object "resource_spec: Mapping" as resources
+resources : uid = <hash>
+resources : type = ["scalems", "Mapping"]
+resources : data = {"ncpus": 8, "launch_method": "exec"}
+
+input -- instance
+instance .. result
+input -- input_files
+input -- output_files
+input -- resources
+
+object "scalmes.Subprocess: ResourceType" as subprocesstype
+subprocesstype : input = { "type": ["scalems", "SubprocessInput"], "shape": [1] }
+subprocesstype : result = { "type": ["scalems", "SubprocessResult"], "shape": [1] }
+
+object "scalems.SubprocessInput: DataType" as input_type
+input_type : argv = { "type": ["scalems", "String"], "shape": [constraints.OneOrMore] }
+input_type : inputs = { "type": ["scalems", "Mapping"], "shape": [1] }
+input_type : outputs = { "type": ["scalems", "Mapping"], "shape": [1] }
+input_type : stdin = { "type": ["scalems", "File"], "shape": [1] }
+input_type : environment = { "type": ["scalems", "Mapping"], "shape": [1] }
+input_type : resources = { "type": ["scalems", "Mapping"], "shape": [1] }
+
+object "scalems.SubprocessResult: DataType" as result_type
+result_type : exitcode = { "type": ["scalems", "Integer"], "shape": [1] }
+result_type : stdout = { "type": ["scalems", "File"], "shape": [1] }
+result_type : stderr = { "type": ["scalems", "File"], "shape": [1] }
+result_type : file = { "type": ["scalems", "Mapping"], "shape": [1] }
+
+
+note as N1
+Incoming workflow JSON record
+
+{
+    "version"= "scalems_workflow_1",
+    "types"= {
+        "scalems.SubprocessInput" = {
+            "argv" = { "type"= ["scalems", "String"], "shape"= ["constraints.OneOrMore"] },
+            "inputs" = { "type"= ["scalems", "Mapping"], "shape"= [1] },
+            "outputs" = { "type"= ["scalems", "Mapping"], "shape"= [1] },
+            "stdin" = { "type"= ["scalems", "File"], "shape"= [1] },
+            "environment" = { "type"= ["scalems", "Mapping"], "shape"= [1] },
+            "resources" = { "type"= ["scalems", "Mapping"], "shape"= [1] }
+        },
+        "scalems.SubprocessResult" = {
+            "exitcode" = { "type"= ["scalems", "Integer"], "shape"= [1] },
+            "stdout" = { "type"= ["scalems", "File"], "shape"= [1] },
+            "stderr" = { "type"= ["scalems", "File"], "shape"= [1] },
+            "file" = { "type"= ["scalems", "Mapping"], "shape"= [1] }
+        },
+        "scalems.Subprocess" = {
+            "input" = { "type": ["scalems", "SubprocessInput"], "shape": [1] },
+            "result" = { "type": ["scalems", "SubprocessResult"], "shape": [1] }
+        },
+    },
+    "referents"= [
+        {
+            "label": "input_files",
+            "uid": "aaaa...",
+            "type": ["scalems", "Mapping"],
+            "data": [{"-i"= ["infile"]}]
+        },
+        {
+            "uid": "cccc...",
+            "type": ["scalems", "String"],
+            "data": ["myprogram", "--num_threads", "8"]
+        },
+        {
+            "uid": "dddd...",
+            "type"= ["scalems", "extend_sequence"],
+            "front"= ["-i"],
+            "back"= "aaaa...['-i']"
+        },
+        {
+            "label": "output_files",
+            "uid": "bbbb....",
+            "type": ["scalems", "Mapping"],
+            "data": [{"-o"= ["outfile"]}]
+        },
+        {
+            "uid"= "ffff...",
+            "type"= ["scalems", "extend_sequence"],
+            "front"= ["-o"],
+            "back"= "bbbb...['-o']"
+        },
+        {
+            "uid"= "eeee...",
+            "type"= ["scalems", "extend_sequence"],
+            "front"= "cccc...",
+            "back"= "dddd..."
+        },
+        {
+            "uid"= "0000...",
+            "label"= "subprocess_input.argv",
+            "type"= ["scalems", "extend_sequence"],
+            "front"= "eeee...",
+            "back"= "ffff..."
+        },
+
+        {
+            "label": "resource_spec",
+            "uid": <hash>,
+            "type": ["scalems", "Mapping"],
+            "data": []
+        },
+        {
+            "label": "subprocess_input",
+            "uid": <hash>,
+            "type": ["scalems", "SubprocessInput"],
+            "argv": "0000...",
+            "inputs": ,
+            "outputs": ,
+            "stdin": null,
+            "environment" = [{}],
+            "resources" = []
+
+        },
+        {
+            "label": "command",
+            "uid": <hash>,
+            "type": ["scalems", "Subprocess"],
+        }
+
+    ]
+}
+end note
+
+note as N2
+end note
+
+@enduml

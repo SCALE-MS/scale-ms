@@ -164,7 +164,15 @@ string: string
 
 To reconcile potential ambiguities between reference strings and string values,
 serialized raw data may not include references. This is consistent with the notion
-that embedded raw data is static. As a workaround, if necessary, we can use
+that embedded raw data is static.
+Combining data from references and static sources constitutes additional
+operations that are reasonable to include in the workflow record.
+We may need to better specify data topology operations to allow suppression of
+excessive primitive operations in the workflow record.
+It may be appropriate to have some operations apply exclusively to references
+so that we can easily specify lists and maps in terms of references.
+
+As a workaround, if necessary, we can use
 dynamically declared types or subgraphs of primitive operations to encode objects
 composed from a combination of static and reference data.
 

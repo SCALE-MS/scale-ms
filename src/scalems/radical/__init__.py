@@ -117,10 +117,20 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
     def add_task(self, task_description):
         """Placeholder for task creation interface.
 
+        As part of the task creation interface, the target context gets access
+        to a factory for publishing results. When one context is dispatching to
+        another, this publisher has an asyncio.Future interface. The returned
+        object has scalems.Future behavior(s), which have slightly different
+        Future semantics, such as an assumption of deferred execution. The scalems
+        Future, then, should accommodate more than just a binary DONE state,
+        more like the concurrent.futures or RP task state.
+
         TODO: Subscribe to Futures in the task input.
         TODO: Dispatch task configuration according to registered implementations.
         TODO: Own a task instance and return a task view.
         TODO: Accept object types other than Subprocess (e.g. Data, PyFunc, or opaque dispatchable types).
+
+        TODO: Change state when executor is active. Dispatch new tasks to executor.add_task. Subscribe local Futures to executor.
         """
         from . import operations
         # TODO: more complete type hinting.
@@ -131,6 +141,16 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
             # TODO: Consider decreasing error level to `warning`.
             raise ValueError('Task already present in workflow.')
 
+        # TODO: separate the client-side staging from the rp task submission.
+        # The task submission will be handled by proxy through a workflow management
+        # task.
+        # Internally, we need to take ownership of an asyncio.Future for each
+        # task. Technically, we could lazily create the Future on the client
+        # side only once we know for sure that the work will be executed, but
+        # we can leave that for a later optimization. Note that there is one
+        # Future for the client environment and one Future for the execution
+        # environment. The asyncio.Future objects are implementation details.
+        # Clients interact with a scalems.Future behavior mediated by the context.
         task = operations.executable(self, task_description)
 
         self.task_map[uid] = task
@@ -151,6 +171,8 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
         # if self.event_loop is None:
         #     raise RuntimeError('No event loop!')
         # loop = self.event_loop
+        # This would be a reasonable time to create asyncio.Future objects and provide them
+        # as output resources to the instantiated tasks.
         return await asyncio.wait(self.task_map.values())
 
     def shutdown(self):
@@ -185,6 +207,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
             return context
 
         # Note that any return value from __aenter__() will be awaited.
+        # TODO: Before returning, subscribe local futures to executor.
         return launch(self)
 
     def __aexit__(self, exc_type, exc_val, exc_tb):

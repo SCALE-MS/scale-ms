@@ -38,6 +38,9 @@ def executable(context, task: scalems.subprocess.Subprocess):
     task = context.umgr.submit_units(context.rp.ComputeUnitDescription(task_description))
     task_ref = weakref.ref(task)
     # TODO: The Context should be in charge of creating the Future.
+    # The task implementation uses 3 aspects of the Future interface.
+    # If not future.cancelled(), call either future.set_result() or future.set_exception().
+    # For long-running tasks, it is appropriate to periodically check whether future.cancelled...
     future = RPFuture(task_ref)
 
     def cb(obj, state):

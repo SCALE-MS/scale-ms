@@ -2,6 +2,7 @@
 
 [![Build Status](https://travis-ci.com/SCALE-MS/scale-ms.svg?branch=master)](https://travis-ci.com/SCALE-MS/scale-ms)
 [![Documentation Status](https://readthedocs.org/projects/scale-ms/badge/?version=latest)](https://scale-ms.readthedocs.io/en/latest/?badge=latest)
+[[DockerHub]](https://hub.docker.com/r/scalems/ci)
 
 NSF Awards
 

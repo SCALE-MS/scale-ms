@@ -67,11 +67,13 @@ RUN . ~rp/rp-venv/bin/activate && \
         'radical.saga>=1.0' \
         'radical.utils>=1.1'
 
-RUN (cd ~rp && \
-    . ~rp/rp-venv/bin/activate && \
-    git clone --depth=1 -b devel https://github.com/radical-cybertools/radical.pilot.git && \
-    cd radical.pilot && \
-    ~rp/rp-venv/bin/pip install .)
+# Get repository for example and test files.
+RUN cd ~rp && \
+    git clone --depth=1 -b master https://github.com/radical-cybertools/radical.pilot.git
+
+# ... but install official version from PyPI
+RUN . ~rp/rp-venv/bin/activate && \
+    pip install radical.pilot
 
 
 USER root

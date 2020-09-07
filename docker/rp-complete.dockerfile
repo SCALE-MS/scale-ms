@@ -14,6 +14,10 @@
 #     docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
 #     # If '-d' was used with 'run', you can just kill the container when done.
 #     docker kill rp_test
+#
+# Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default 1.5.2)
+#     docker build -t rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
+#
 
 FROM mongo:bionic
 # Reference https://github.com/docker-library/mongo/blob/master/4.2/Dockerfile
@@ -67,11 +71,12 @@ RUN . ~rp/rp-venv/bin/activate && \
         'radical.saga>=1.0' \
         'radical.utils>=1.1'
 
-# Get repository for example and test files.
+# Get repository for example and test files and to simplify RPREF build argument.
+ARG RPREF="1.5.2"
 RUN cd ~rp && \
-    git clone --depth=1 -b master https://github.com/radical-cybertools/radical.pilot.git
+    git clone --depth=1 -b $RPREF https://github.com/radical-cybertools/radical.pilot.git
 
-# Install RP from master branch
+# Install RP from whichever git ref is provided as `--build-arg RPREF=...` (default 1.5.2)
 RUN . ~rp/rp-venv/bin/activate && \
     cd ~rp/radical.pilot && \
     pip install .
@@ -99,4 +104,3 @@ ENV MONGO_INITDB_ROOT_PASSWORD=password
 # tell RP to use the same.
 # Note that the default mongodb port number is 27017.
 ENV RADICAL_PILOT_DBURL="mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROOT_PASSWORD@localhost:27017/admin"
-

@@ -15,7 +15,7 @@
 #     # If '-d' was used with 'run', you can just kill the container when done.
 #     docker kill rp_test
 #
-# Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default 1.5.2)
+# Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default v1.5.2)
 #     docker build -t rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
 #
 
@@ -33,7 +33,8 @@ RUN apt-get update && \
         iputils-ping \
         python3-dev \
         python3-venv \
-        vim && \
+        vim \
+        wget && \
     rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && \
@@ -72,9 +73,14 @@ RUN . ~rp/rp-venv/bin/activate && \
         'radical.utils>=1.1'
 
 # Get repository for example and test files and to simplify RPREF build argument.
-ARG RPREF="1.5.2"
+# Note that GitHub may have a source directory name suffix that does not exactly
+# match the branch or tag name, so we use a glob to try to normalize the name.
+ARG RPREF="v1.5.2"
 RUN cd ~rp && \
-    git clone --depth=1 -b $RPREF https://github.com/radical-cybertools/radical.pilot.git
+    wget https://github.com/radical-cybertools/radical.pilot/archive/$RPREF.tar.gz && \
+    tar zxvf $RPREF.tar.gz && \
+    mv radical.pilot-* radical.pilot && \
+    rm $RPREF.tar.gz
 
 # Install RP from whichever git ref is provided as `--build-arg RPREF=...` (default 1.5.2)
 RUN . ~rp/rp-venv/bin/activate && \

@@ -22,7 +22,7 @@ jobs:
       script:
         - pytest tests -s
     - name: "RP dispatching"
-      env: RPREF="1.5.2"
+      env: RPREF="v1.5.2"
       services:
         - docker
       install:

@@ -25,6 +25,7 @@ jobs:
       install:
         # The rp-complete image should not change much and can reasonably be cached or pulled.
         - docker pull scalems/rp-complete
+        - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile .)
         # The scalems-rp image needs to be rebuilt for every commit because it contains the updated
         # scalems package and test scripts.
         - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .

@@ -14,13 +14,16 @@ git:
 
 jobs:
   include:
-    - install:
+    - name: "Local execution"
+      install:
         - pip install --upgrade pip setuptools
         - pip install -r requirements-testing.txt
         - pip install .
       script:
         - pytest tests -s
-    - services:
+    - name: "RP dispatching"
+      env: RPREF="v1.5.2"
+      services:
         - docker
       install:
         # The rp-complete image should not change much and can reasonably be cached or pulled.
@@ -36,6 +39,34 @@ jobs:
         - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
         # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
         - docker kill scalems_test
+    - name: "RP master dependency"
+      env: RPREF="master"
+      services:
+        - docker
+      install:
+        - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
+      script:
+        - docker run --rm --name rp_test -u root -d scalems/rp-complete
+        - docker ps
+        - sleep 5
+        - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
+        - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/misc/task_overlay.py radical.pilot/examples/misc/task_overlay.cfg"
+        - docker kill rp_test
+    - name: "RP master dispatching"
+      env: RPREF="master"
+      services:
+        - docker
+      install:
+        - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
+        - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .
+      script:
+        - docker run --rm --name scalems_test -u root -d scalems-rp
+        - docker ps
+        - sleep 5
+        - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
+        - docker kill scalems_test
+  allow_failures:
+    - env: RPREF="master"
 
 before_install:
   - uname -a

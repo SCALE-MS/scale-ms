@@ -71,10 +71,20 @@ RUN . ~rp/rp-venv/bin/activate && \
 RUN cd ~rp && \
     git clone --depth=1 -b master https://github.com/radical-cybertools/radical.pilot.git
 
-# ... but install official version from PyPI
+# Install RP from master branch
 RUN . ~rp/rp-venv/bin/activate && \
-    pip install radical.pilot
+    cd ~rp/radical.pilot && \
+    pip install .
+# OR
+## Install official version from PyPI
+#RUN . ~rp/rp-venv/bin/activate && \
+#    pip install radical.pilot
 
+
+# Allow RADICAL Pilot to provide more useful behavior during testing,
+# such as mocking missing resources from the resource specification.
+ENV RADICAL_DEBUG="True"
+RUN echo export RADICAL_DEBUG=$RADICAL_DEBUG >> ~rp/.profile
 
 USER root
 
@@ -90,6 +100,3 @@ ENV MONGO_INITDB_ROOT_PASSWORD=password
 # Note that the default mongodb port number is 27017.
 ENV RADICAL_PILOT_DBURL="mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROOT_PASSWORD@localhost:27017/admin"
 
-# Allow RADICAL Pilot to provide more useful behavior during testing,
-# such as mocking missing resources from the resource specification.
-ENV RADICAL_DEBUG="True"

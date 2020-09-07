@@ -45,18 +45,13 @@ jobs:
         - docker
       install:
         - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile .)
-        # The scalems-rp image needs to be rebuilt for every commit because it contains the updated
-        # scalems package and test scripts.
-        - docker build -t scalems-rp -f docker/scalems-rp.dockerfile --build-arg RPREF=$RPREF .
       script:
-        # - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-        - docker run --rm --name scalems_test -u root -d scalems-rp
+        - docker run --rm --name rp_test -u root -d scalems/rp-complete
         - docker ps
         - sleep 5
         - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
-        - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
-        # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
-        - docker kill scalems_test
+        - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/misc/task_overlay.py radical.pilot/examples/misc/task_overlay.cfg"
+        - docker kill rp_test
   allow_failures:
     - env: RPREF="master"
 

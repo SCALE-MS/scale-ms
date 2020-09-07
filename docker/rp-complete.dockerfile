@@ -89,3 +89,7 @@ ENV MONGO_INITDB_ROOT_PASSWORD=password
 # tell RP to use the same.
 # Note that the default mongodb port number is 27017.
 ENV RADICAL_PILOT_DBURL="mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROOT_PASSWORD@localhost:27017/admin"
+
+# Allow RADICAL Pilot to provide more useful behavior during testing,
+# such as mocking missing resources from the resource specification.
+ENV RADICAL_DEBUG="True"

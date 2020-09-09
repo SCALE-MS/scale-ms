@@ -62,8 +62,8 @@ def executable(context, task: scalems.subprocess.Subprocess):
     # Translate SubprocessInput to the Python subprocess function signature.
     subprocess_input = make_subprocess_args(context=context, task_input=task.input_collection())
     # Run subprocess.
-    if isinstance(context, scalems.local.AsyncWorkflowContext):
-        handle = get_coroutine(subprocess_input)
+    if isinstance(context, scalems.local_immediate.ImmediateExecutionContext):
+        handle = local_exec(subprocess_input)
     else:
         raise RuntimeError('Cannot dispatch for context {}'.format(repr(context)))
     # Return SubprocessResult object.

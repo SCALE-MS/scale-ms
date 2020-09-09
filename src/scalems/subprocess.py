@@ -179,8 +179,8 @@ def executable(*args, context=None, **kwargs):
          argv: a tuple (or list) to be the subprocess arguments, including the executable
 
     Optional Arguments:
-         outputs: labeled output files
-         inputs: labeled input files
+         outputs: labeled output files, mapping command line flag to one (or more) filenames
+         inputs: labeled input files, mapping command line flag to one (or more) filenames
          environment: environment variables to be set in the process environment
          stdin: source for posix style standard input file handle (default None)
          stdout: Capture standard out to a filesystem artifact, even if it is not consumed in the workflow.
@@ -213,16 +213,23 @@ def executable(*args, context=None, **kwargs):
     The *file* output has the same keys as the *outputs* key word argument.
 
     Example:
-        Execute a command named ``exe`` that takes a flagged option for file name
-        (stored in a local Python variable ``my_filename``) and an ``origin`` flag
-        that uses the next three arguments to define a vector. It is known to the
-        user that the command always produces a file called ``exe.out``.
+        Execute a command named ``exe`` that takes a flagged option for input
+        and output file names
+        (stored in a local Python variable ``my_filename`` and as the string literal ``'exe.out'``)
+        and an ``origin`` flag
+        that uses the next three arguments to define a vector.
 
             >>> my_filename = "somefilename"
-            >>> result = scalems.executable(('exe', '--origin', 1.0, 2.0, 3.0, '-f', my_filename), inputs={'infile': my_filename}, outputs={'outfile': 'exe.out'})
-            >>> assert hasattr(result, 'file')
-            >>> assert os.path.exists(result.file['outfile'].result())
-            >>> assert hasattr(result, 'exitcode')
+            >>> command = scalems.executable(('exe', '--origin', 1.0, 2.0, 3.0), \
+            ...                             inputs={'--infile': scalems.file(my_filename)}, \
+            ...                             outputs={'--outfile': scalems.file('exe.out')})
+            >>> assert hasattr(command, 'file')
+            >>> import os
+            >>> assert os.path.exists(command.file['--outfile'].result())
+            >>> assert hasattr(command, 'exitcode')
+
+    TODO:
+        Consider input/output files that do not appear on the command line, but which must figure into data flow.
 
     """
     # TODO: Dispatch correctly if a SubprocessInput is provided.

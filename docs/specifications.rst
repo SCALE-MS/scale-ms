@@ -10,5 +10,3 @@ with compatible external software.
     :maxdepth: 2
 
     serialization
-    workspec_schema_0_2.rst
-    gmxapi

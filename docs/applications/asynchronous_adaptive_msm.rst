@@ -36,9 +36,9 @@ a convergence condition, rather than for a fixed number of simulations), but the
 runtime must support some adaptive functionality in that the mapping of task
 output to task input is not known until data is produced during execution.
 
-:file:`examples/parallel_adaptive_msm/unordered_mapping.py`
+:file:`examples/async_adaptive_msm/unordered_mapping.py`
 
-.. literalinclude:: ../../examples/parallel_adaptive_msm/unordered_mapping.py
+.. literalinclude:: ../../examples/async_adaptive_msm/unordered_mapping.py
 
 
 Example 2: Data queue
@@ -47,9 +47,9 @@ Example 2: Data queue
 Simulation results are popped from an asynchronous queue, analyzed, and used to
 inform the simulations added back to the queue.
 
-:file:`examples/parallel_adaptive_msm/async_queue.py`
+:file:`examples/async_adaptive_msm/async_queue.py`
 
-.. literalinclude:: ../../examples/parallel_adaptive_msm/async_queue.py
+.. literalinclude:: ../../examples/async_adaptive_msm/async_queue.py
 
 Example 3: Asynchronous batches
 -------------------------------
@@ -60,6 +60,6 @@ configuration of the next batch of simulations. An asynchronous looping construc
 allows the next batch to be scheduled and launched opportunistically as inputs
 dependencies are satisfied.
 
-:file:`examples/parallel_adaptive_msm/async_iteration.py`
+:file:`examples/async_adaptive_msm/async_iteration.py`
 
-.. literalinclude:: ../../examples/parallel_adaptive_msm/async_iteration.py
+.. literalinclude:: ../../examples/async_adaptive_msm/async_iteration.py

@@ -76,7 +76,7 @@ Basic functions
 
 Core Function implementations provided with the SCALE-MS package.
 
-.. autofunction:: cli
+.. autofunction:: executable
 
 .. autofunction:: extend_sequence
 
@@ -110,8 +110,6 @@ Helpers
 =======
 
 Tools for dynamically generating Functions.
-
-.. autofunction:: commandline_operation
 
 .. autofunction:: function_wrapper
 

@@ -9,6 +9,7 @@ import asyncio
 import pytest
 import scalems.context
 import scalems.local
+import scalems.local_immediate
 from scalems.exceptions import MissingImplementationError
 from scalems.subprocess import executable
 
@@ -30,7 +31,7 @@ def test_exec_default():
 
 def test_exec_immediate():
     # Test immediate execution.
-    context = scalems.local.ImmediateExecutionContext()
+    context = scalems.local_immediate.ImmediateExecutionContext()
     with context as session:
         # TODO: Automatic context subscription so `cmd` can be obtained before non-default context.
         # Cross-context dispatching with the root context is not an important core feature now,
@@ -50,9 +51,12 @@ async def test_exec_local():
     # Note that a coroutine object created from an `async def` function is only awaitable once.
     with context as session:
         cmd = executable(('/bin/echo',))
-        # session.run(cmd)
+        # TODO:
+        # cmd.result()
+        # TODO:
+        # scalems.run(cmd)
+        # TODO: Remove Session.run() from public interface (use scalems.run())
         await session.run()
-
 
 # Currently in test_rp_exec.py
 # def test_exec_rp():

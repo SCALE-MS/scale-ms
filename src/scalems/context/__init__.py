@@ -9,13 +9,49 @@ structure to allow for simpler syntax and clean resource de-allocation.
 """
 
 import abc
+import contextlib
 import contextvars
+import functools
 import logging
 
 from scalems.exceptions import MissingImplementationError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
+
+
+# TODO: Incorporate into WorkflowContext interface.
+# Design note: WorkflowContext classes could cache implementation details for item types,
+# but (since we acknowledge that work may be defined before instantiating the context to
+# which it will be dispatched), we need to allow the WorkflowContext implementation to
+# negotiate/fetch the implementation details at any time. In general, relationships between specific
+# workflow item types and context types should be resolved in terms of context traits,
+# not specific class definitions. In practice, we have some more tightly-coupled relationships,
+# at least in early versions, as we handle (a) subprocess-type items, (b) function-based items,
+# and (c) data staging details for (1) local execution and (2) remote (RADICAL Pilot) execution.
+@functools.singledispatch
+def workflow_item_director_factory(item, *, context, label: str = None):
+    """
+
+    Get a workflow item director for a context and input type.
+
+    When called, the director finalizes the new item and returns a view.
+    """
+    raise NotImplementedError('No registered implementation for {} in {}'.format(repr(item), repr(context)))
+
+
+@workflow_item_director_factory.register
+def _(item_type: type, *, context, label: str = None):
+    # When dispatching on a class instead of an instance, just construct an
+    # object of the indicated type and re-dispatch. Note that implementers of
+    # item types must register an overload with this singledispatch function.
+    # TODO: Consider how best to register operations and manage their state.
+    def constructor_proxy_director(*args, **kwargs):
+        assert isinstance(item_type, type)
+        item = item_type(*args, **kwargs)
+        director = workflow_item_director_factory(item, context=context, label=label)
+        return director()
+    return constructor_proxy_director
 
 
 class AbstractWorkflowContext(abc.ABC):

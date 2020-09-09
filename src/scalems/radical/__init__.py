@@ -1,4 +1,4 @@
-"""Entry point subpackage for ScaleMS execution dispatching to RADICAL Pilot.
+"""Workflow subpackage for ScaleMS execution dispatching to RADICAL Pilot.
 
 Example:
     python -m scalems.radical myworkflow.py
@@ -78,6 +78,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
     TODO: Separate the WorkflowContext and its rp.Session management from the
           executor and its umgr management.
     """
+    # TODO: Consider allowing the user to provide a rp.Session
     def __init__(self):
         # Import locally so that radical.pilot is only a dependency when used.
         import radical.pilot as rp

@@ -1,8 +1,14 @@
 """Define the ScaleMS Subprocess command.
 
-scalems.subprocess() is used to execute a program in one (or more) subprocesses.
+scalems.executable() is used to execute a program in one (or more) subprocesses.
 It is an alternative to the built-in Python subprocess.Popen or asyncio.create_subprocess_exec
 with extensions to better support ScaleMS execution dispatching and ensemble data flow.
+
+The core task is represented by ``scalems.subprocess.SubprocessTask``, but also
+requires the definition of ``scalems.subprocess.SubprocessInput`` and
+``scalems.subprocess.SubprocessResult``.
+
+
 
 In the first iteration, we can use dataclasses.dataclass to define input/output data structures
 in terms of standard types. In a follow-up, we can use a scalems metaclass to define them
@@ -14,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
 from .exceptions import MissingImplementationError
-from .context import get_context
+from . import context as _context
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -37,6 +43,29 @@ class SubprocessInput:
     resources: typing.Mapping[str, typing.Any] = field(default_factory=dict)
 
 
+# Register a director for SubprocessInput workflow items.
+# TODO: Link to deserializer behavior.
+# TODO: Normalize task_builder protocol.
+# TODO: Generate from class decorator.
+# TODO: Need a generic TaskView class for clients with reference to managed elements.
+@_context.workflow_item_director_factory.register
+def _(item: SubprocessInput, *, context, label: str = None):
+    def director(*args, **kwargs):
+        if len(args) > 0:
+            # TODO: Establish some reasonable exceptions.
+            raise ValueError('Unexpected positional arguments.')
+        if len(kwargs) > 0:
+            raise ValueError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
+        uid = hash(item)
+        if uid in context.task_map:
+            # TODO: Consider whether this is the correct behavior
+            return context.task_map[uid]
+        else:
+            context.task_map[uid] = item
+            return context.task_map[uid]
+    return director
+
+
 @dataclass
 class SubprocessResult:
     # file: Field(Path)
@@ -48,29 +77,37 @@ class SubprocessResult:
     file: typing.Mapping[str, Path]
 
 
-class SubprocessResourceType:
+class SubprocessTask:
     """Describe the type of resource provided by a Subprocess command."""
     @classmethod
     def as_strings(cls):
-        return ('scalems', 'subprocess')
+        # TODO: Consider either deriving from the `import` identifier,
+        #       or defining a more sophisticated protocol for name resolution.
+        return ('scalems', 'subprocess', 'SubprocessTask')
 
     @classmethod
     def identifier(cls):
         return '.'.join(cls.as_strings())
 
-
-class Subprocess:
     @classmethod
-    def type(self):
-        return SubprocessResourceType
-
-    @classmethod
-    def input_type(cls):
+    def input_type(cls) -> type:
         return SubprocessInput
 
     @classmethod
-    def result_type(cls):
+    def result_type(cls) -> type:
         return SubprocessResult
+
+
+# TODO: Instances must have a way to map to the owning Context and a task implementation.
+# It is reasonable to allow the WorkflowContext to produce an object satisfying a common
+# ItemView interface, plus additional interface aspects as specified by the workflow item
+# developer in e.g. SubprocessResourceType.
+class Subprocess:
+    @classmethod
+    def resource_type(cls):
+        # Note: we return an instance to better reflect the documented object
+        # model and to allow for future contextual information, such as shape.
+        return SubprocessTask()
 
     def __init__(self, input: SubprocessInput):
         self._bound_input = input
@@ -160,6 +197,28 @@ class Subprocess:
     #     return self._result
 
 
+# Register a director for Subprocess workflow items.
+# TODO: Wrap this in the decorator or metaclass used for TaskTypes.
+@_context.workflow_item_director_factory.register
+def _(item: Subprocess, *, context: _context.AbstractWorkflowContext, label: str = None):
+    def director(*args, **kwargs):
+        if len(args) > 0:
+            # TODO: Establish some reasonable exceptions.
+            raise ValueError('Unexpected positional arguments.')
+        if len(kwargs) > 0:
+            raise ValueError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
+
+        # Note regarding registering task implementation functions:
+        # scalems.subprocess is a very special kind of task. Each execution
+        # environment needs to provide a specialized implementation for the
+        # foreseeable future. It does not make sense for this module to provide
+        # a default Python function reference for a task factory or callable.
+        task_view = context.add_task(item)
+
+        return task_view
+
+    return director
+
 
 def executable(*args, context=None, **kwargs):
     """Execute a command line program.
@@ -237,15 +296,28 @@ def executable(*args, context=None, **kwargs):
         Consider input/output files that do not appear on the command line, but which must figure into data flow.
 
     """
-    # TODO: Dispatch correctly if a SubprocessInput is provided.
-    # TODO: Use Python overload type hints.
+    if context is None:
+        context = _context.get_context()
+
+    # TODO: Figure out a reasonable way to check and catch invalid input through a dispatcher.
+    # subprocess_input = context.add(Subprocess.input_type(), *args, **kwargs)
+    input_type = Subprocess.resource_type().input_type()
+    assert isinstance(input_type, type)
+
+    # TODO: Add input separately. First, just add the Subprocess object.
+    # Note: static type checkers may not be able to resolve that `input_type is SubprocessInput` for argument checking.
+    # Provide local object to the context and replace local reference with a view to the workflow item.
+    # subprocess_input = _context.add_to_workflow(context, Subprocess.resource_type().input_type(), *args, **kwargs)
     bound_input = SubprocessInput(*args, **kwargs)
 
-    # TODO: Implement TaskBuilder director.
-    if context is None:
-        context = get_context()
+    director = _context.workflow_item_director_factory(Subprocess, context=context)
+    # Design note: at some point, dynamic workflows will require thread-safe
+    # workflow editing context. We could either block on acquiring the editor
+    # context, use an async context manager, or hide the possible async
+    # aspect by letting the return value of the director be awaitable.
+
+    task_view = director(input=bound_input)
+
     # TODO: The returned value should be a TaskView provided by the Context with
     #       minimal state or ownership semantics.
-    task = context.add_task(Subprocess(bound_input))
-
-    return task
+    return task_view

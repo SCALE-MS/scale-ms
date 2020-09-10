@@ -220,9 +220,9 @@ def executable(*args, context=None, **kwargs):
         that uses the next three arguments to define a vector.
 
             >>> my_filename = "somefilename"
-            >>> command = scalems.executable(('exe', '--origin', 1.0, 2.0, 3.0), \
-            ...                             inputs={'--infile': scalems.file(my_filename)}, \
-            ...                             outputs={'--outfile': scalems.file('exe.out')})
+            >>> command = scalems.executable(('exe', '--origin', 1.0, 2.0, 3.0),
+            ...                              inputs={'--infile': scalems.file(my_filename)},
+            ...                              outputs={'--outfile': scalems.file('exe.out')})
             >>> assert hasattr(command, 'file')
             >>> import os
             >>> assert os.path.exists(command.file['--outfile'].result())

@@ -9,11 +9,15 @@ Example:
 
 import asyncio
 import concurrent.futures
+import logging
 import warnings
 from typing import Any, Callable
 
 import scalems.context
 from . import operations
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 
 class ImmediateExecutionContext(scalems.context.AbstractWorkflowContext):

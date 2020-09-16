@@ -42,6 +42,7 @@ Event loop:
 
 import asyncio
 import concurrent.futures
+import logging
 import os
 import warnings
 import weakref
@@ -50,6 +51,9 @@ from types import TracebackType
 from typing import Any, Callable, Optional, Tuple
 
 import scalems.context
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 
 class RPWorkflowContext(scalems.context.AbstractWorkflowContext):

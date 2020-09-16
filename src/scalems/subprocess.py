@@ -8,12 +8,16 @@ In the first iteration, we can use dataclasses.dataclass to define input/output 
 in terms of standard types. In a follow-up, we can use a scalems metaclass to define them
 in terms of Data Descriptors that support mixed scalems.Future and native constant data types.
 """
-
+import logging
 import typing
 from dataclasses import dataclass, field
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
 from .context import get_context
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
+
 
 # TODO: what is the mechanism for registering a command implementation in a new Context?
 # TODO: What is the relationship between the command factory and the command type? Which parts need to be importable?

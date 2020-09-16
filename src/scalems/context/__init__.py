@@ -10,6 +10,10 @@ structure to allow for simpler syntax and clean resource de-allocation.
 
 import abc
 import contextvars
+import logging
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 
 class AbstractWorkflowContext(abc.ABC):

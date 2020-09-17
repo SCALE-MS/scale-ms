@@ -9,12 +9,13 @@ import asyncio
 import pytest
 import scalems.context
 import scalems.local
+from scalems.exceptions import MissingImplementationError
 from scalems.subprocess import executable
 
 
 def test_exec_default():
     # Check for expected behavior of the default context
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(MissingImplementationError):
         # Test default context
         cmd = executable(('/bin/echo',))
         context = scalems.context.get_context()

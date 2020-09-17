@@ -13,6 +13,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
+from .exceptions import InvalidArgumentError, MissingImplementationError
 from .context import get_context
 
 logger = logging.getLogger(__name__)
@@ -99,7 +100,7 @@ class Subprocess:
         # "label" not yet supported.
         record['input'] = self._bound_input # reference
         record['result'] = self._result # reference
-        raise NotImplementedError('To do...')
+        raise MissingImplementationError('To do...')
 
     @classmethod
     def deserialize(cls, record: str, context = None):
@@ -137,7 +138,7 @@ class Subprocess:
     #         from scalems.radical.operations import executable as _rp_exec
     #         self._result = _rp_exec(self)
     #     else:
-    #         raise NotImplementedError('Current context {} does not implement scalems.executable'.format(context))
+    #         raise MissingImplementationError('Current context {} does not implement scalems.executable'.format(context))
     #
     #     # Allow this function to be a generator function, fulfilling the awaitable protocol.
     #     yield self

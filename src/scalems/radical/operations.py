@@ -5,6 +5,8 @@ Specialize implementations of ScaleMS operations.
 import weakref
 
 import scalems.subprocess
+from scalems.exceptions import DispatchError
+
 from . import RPFuture, RPResult
 
 
@@ -19,7 +21,7 @@ def executable(context, task: scalems.subprocess.Subprocess):
     TODO: Move Future base to asyncio.Future.
     """
     if not isinstance(context, scalems.radical.RPWorkflowContext):
-        raise ValueError('This resource factory is only valid for RADICAL Pilot workflow contexts.')
+        raise DispatchError('This resource factory is only valid for RADICAL Pilot workflow contexts.')
 
     task_input = task.input_collection()
     args = list([arg for arg in task_input.argv])

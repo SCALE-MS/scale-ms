@@ -14,6 +14,8 @@ import warnings
 from typing import Any, Callable
 
 import scalems.context
+from scalems.exceptions import DuplicateKeyError, MissingImplementationError
+
 from . import operations
 
 logger = logging.getLogger(__name__)
@@ -133,18 +135,18 @@ class AsyncWorkflowContext(scalems.context.AbstractWorkflowContext):
     def add_task(self, task_description):
         # # TODO: Resolve implementation details for *operation*.
         # if operation != 'scalems.executable':
-        #     raise NotImplementedError('No implementation for {} in {}'.format(operation, repr(self)))
+        #     raise MissingImplementationError('No implementation for {} in {}'.format(operation, repr(self)))
         # # Copy a static copy of the input.
         # # TODO: Dispatch tasks addition, allowing negotiation of Context capabilities and subscription
         # #  to resources owned by other Contexts.
         # if not isinstance(bound_input, scalems.subprocess.SubprocessInput):
         #     raise ValueError('Only scalems.subprocess.SubprocessInput objects supported as input.')
         if not isinstance(task_description, scalems.subprocess.Subprocess):
-            raise NotImplementedError('Operation not supported.')
+            raise MissingImplementationError('Operation not supported.')
         uid = task_description.uid()
         if uid in self.task_map:
             # TODO: Consider decreasing error level to `warning`.
-            raise ValueError('Task already present in workflow.')
+            raise DuplicateKeyError('Task already present in workflow.')
         # TODO: use generic reference to implementation.
         # TODO: DO NOT hold a reference to the client-provided object; CREATE a task in the current context.
         #       Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
@@ -163,7 +165,7 @@ class AsyncWorkflowContext(scalems.context.AbstractWorkflowContext):
         TODO: Move this function implementation to the executor instance / Session implementation.
         """
         if task is not None:
-            raise NotImplementedError('Semantics for run(task) are not yet defined.')
+            raise MissingImplementationError('Semantics for run(task) are not yet defined.')
         # Bypass the need for asyncio.run()
         # if self.event_loop is None:
         #     raise RuntimeError('No event loop!')
@@ -173,7 +175,7 @@ class AsyncWorkflowContext(scalems.context.AbstractWorkflowContext):
     def wait(self, awaitable, **kwargs):
         # TODO: We have to confirm that an event loop is running and properly handle awaitables.
         assert asyncio.iscoroutine(awaitable)
-        raise NotImplementedError()
+        raise MissingImplementationError()
 
 
 # class LocalExecutor(concurrent.futures.Executor):
@@ -198,7 +200,7 @@ class AsyncWorkflowContext(scalems.context.AbstractWorkflowContext):
 #             task = fn(*args, **kwargs)
 #             assert asyncio.iscoroutine(task)
 #         else:
-#             raise NotImplementedError('todo...')
+#             raise MissingImplementationError('todo...')
 #         return task
 #
 #     def __init__(self):

@@ -51,6 +51,7 @@ from types import TracebackType
 from typing import Any, Callable, Optional, Tuple
 
 import scalems.context
+from scalems.exceptions import DispatchError, DuplicateKeyError, InvalidArgumentError, MissingImplementationError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -78,7 +79,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
         self.rp = rp
         self.__rp_cfg = dict()
         if not 'RADICAL_PILOT_DBURL' in os.environ:
-            raise RuntimeError('RADICAL Pilot environment is not available.')
+            raise DispatchError('RADICAL Pilot environment is not available.')
 
         resource = 'local.localhost'
         # TODO: Find default config?
@@ -129,11 +130,11 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
         from . import operations
         # TODO: more complete type hinting.
         if not isinstance(task_description, scalems.subprocess.Subprocess):
-            raise NotImplementedError('Operation not supported.')
+            raise MissingImplementationError('Operation not supported.')
         uid = task_description.uid()
         if uid in self.task_map:
             # TODO: Consider decreasing error level to `warning`.
-            raise ValueError('Task already present in workflow.')
+            raise DuplicateKeyError('Task already present in workflow.')
 
         task = operations.executable(self, task_description)
 
@@ -150,7 +151,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
         TODO: Move this function implementation to the executor instance / Session implementation.
         """
         if task is not None:
-            raise NotImplementedError('Semantics for run(task) are not yet defined.')
+            raise MissingImplementationError('Semantics for run(task) are not yet defined.')
         # Bypass the need for asyncio.run()
         # if self.event_loop is None:
         #     raise RuntimeError('No event loop!')
@@ -219,21 +220,21 @@ class RPFuture(concurrent.futures.Future):
     def __init__(self, task) -> None:
         super().__init__()
         if not callable(task):
-            raise ValueError('Provide a callable that produces the rp ComputeUnit.')
+            raise InvalidArgumentError('Provide a callable that produces the rp ComputeUnit.')
         self.task = task
 
     def cancel(self) -> bool:
-        raise NotImplementedError()
+        raise MissingImplementationError()
 
     def cancelled(self) -> bool:
         return super().cancelled()
 
     def running(self) -> bool:
-        raise NotImplementedError()
+        raise MissingImplementationError()
 
     def add_done_callback(self, fn: Callable[[Future], Any]) -> None:
         # TODO: more complete type hinting.
-        raise NotImplementedError()
+        raise MissingImplementationError()
 
     def result(self, timeout: Optional[float] = ...) -> RPResult:
         if not self.done():
@@ -245,10 +246,10 @@ class RPFuture(concurrent.futures.Future):
         return super().result()
 
     def set_running_or_notify_cancel(self) -> bool:
-        raise NotImplementedError()
+        raise MissingImplementationError()
 
     def exception(self, timeout: Optional[float] = ...) -> Optional[BaseException]:
-        raise NotImplementedError()
+        raise MissingImplementationError()
 
     def set_exception(self, exception: Optional[BaseException]) -> None:
         super().set_exception(exception)

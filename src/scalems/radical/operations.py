@@ -5,7 +5,7 @@ Specialize implementations of ScaleMS operations.
 import weakref
 
 import scalems.subprocess
-from scalems.exceptions import DispatchError
+from scalems.exceptions import DispatchError, InternalError
 
 from . import RPFuture, RPResult
 
@@ -40,7 +40,12 @@ def executable(context, task: scalems.subprocess.Subprocess):
     task = context.umgr.submit_units(context.rp.ComputeUnitDescription(task_description))
     task_ref = weakref.ref(task)
     # TODO: The Context should be in charge of creating the Future.
-    future = RPFuture(task_ref)
+    try:
+        future = RPFuture(task_ref)
+    except TypeError as e:
+        raise InternalError('Failed to get a reference to a new RADICAL Pilot task.') from e
+    except Exception as e:
+        raise InternalError('Unknown error occurred in RADICAL Pilot connector.') from e
 
     def cb(obj, state):
         # Where is the state enumeration?

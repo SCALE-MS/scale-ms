@@ -12,7 +12,7 @@ import abc
 import contextvars
 import logging
 
-from scalems.exceptions import InvalidArgumentError, MissingImplementationError
+from scalems.exceptions import MissingImplementationError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -124,4 +124,4 @@ def run(coroutine, **kwargs):
     # TODO: Consider generalized coroutines to be dispatched through
     #     custom event loops or executors.
 
-    raise InvalidArgumentError('Unrecognized awaitable: {}'.format(coroutine))
+    raise TypeError('Unrecognized awaitable: {}'.format(coroutine))

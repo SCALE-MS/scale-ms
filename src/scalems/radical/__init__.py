@@ -50,8 +50,12 @@ from concurrent.futures import Future
 from types import TracebackType
 from typing import Any, Callable, Optional, Tuple
 
+# Note that the importer of this module should be sure to import radical.pilot
+# before importing the built-in logging module to avoid spurious warnings.
+import radical.pilot as rp
+
 import scalems.context
-from scalems.exceptions import DispatchError, DuplicateKeyError, InvalidArgumentError, MissingImplementationError
+from scalems.exceptions import DispatchError, DuplicateKeyError, MissingImplementationError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -75,7 +79,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
           executor and its umgr management.
     """
     def __init__(self):
-        import radical.pilot as rp
+        # TODO: Eliminate use cases that require this exposure.
         self.rp = rp
         self.__rp_cfg = dict()
         if not 'RADICAL_PILOT_DBURL' in os.environ:
@@ -217,10 +221,10 @@ class RPResult:
 class RPFuture(concurrent.futures.Future):
     """Future interface for RADICAL Pilot tasks."""
 
-    def __init__(self, task) -> None:
+    def __init__(self, task: weakref.ref) -> None:
         super().__init__()
-        if not callable(task):
-            raise InvalidArgumentError('Provide a callable that produces the rp ComputeUnit.')
+        if not callable(task) or not isinstance(task(), rp.ComputeUnit):
+            raise TypeError('Provide a callable that produces the rp ComputeUnit.')
         self.task = task
 
     def cancel(self) -> bool:

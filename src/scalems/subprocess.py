@@ -13,7 +13,7 @@ import typing
 from dataclasses import dataclass, field
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
-from .exceptions import InvalidArgumentError, MissingImplementationError
+from .exceptions import MissingImplementationError
 from .context import get_context
 
 logger = logging.getLogger(__name__)

@@ -10,6 +10,12 @@ structure to allow for simpler syntax and clean resource de-allocation.
 
 import abc
 import contextvars
+import logging
+
+from scalems.exceptions import MissingImplementationError
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 
 class AbstractWorkflowContext(abc.ABC):
@@ -37,7 +43,7 @@ class AbstractWorkflowContext(abc.ABC):
     """
     def __enter__(self):
         """Initialize context manager and return the entered Session."""
-        raise NotImplementedError('Context Manager protocol not implemented for {}.'.format(type(self)))
+        raise MissingImplementationError('Context Manager protocol not implemented for {}.'.format(type(self)))
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Exit context manager without processing exceptions."""
@@ -78,7 +84,7 @@ class DefaultContext(AbstractWorkflowContext):
     """
 
     def add_task(self, task_description):
-        raise NotImplementedError('Trivial work graph holder not yet implemented.')
+        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
 
 
 # Root workflow context for the interpreter process.
@@ -118,4 +124,4 @@ def run(coroutine, **kwargs):
     # TODO: Consider generalized coroutines to be dispatched through
     #     custom event loops or executors.
 
-    raise ValueError('Unrecognized awaitable: {}'.format(coroutine))
+    raise TypeError('Unrecognized awaitable: {}'.format(coroutine))

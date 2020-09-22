@@ -3,6 +3,7 @@ Specialize implementations of ScaleMS operations.
 
 """
 import scalems.subprocess
+from scalems.exceptions import DispatchError
 
 
 def local_exec(task_description: dict):
@@ -67,6 +68,6 @@ def executable(context, task: scalems.subprocess.Subprocess):
     elif isinstance(context, scalems.local.AsyncWorkflowContext):
         handle = get_coroutine(subprocess_input)
     else:
-        raise RuntimeError('Cannot dispatch for context {}'.format(repr(context)))
+        raise DispatchError('Cannot dispatch for context {}'.format(repr(context)))
     # Return SubprocessResult object.
     return handle

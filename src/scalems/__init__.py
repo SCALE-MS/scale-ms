@@ -29,6 +29,7 @@ Invocation:
 
 import typing
 
+from . import exceptions as exceptions
 from .subprocess import executable
 
 
@@ -113,7 +114,7 @@ def function_wrapper(output: dict = None):
     publish multiple named results. Otherwise, the ``output`` of the generated operation
     will just capture the return value of the wrapped function.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def subgraph(variables=None):
@@ -156,12 +157,12 @@ def subgraph(variables=None):
         assert handle.output.float_with_default.result() == 6
 
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def logical_not(value):
     """Negate boolean inputs."""
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def logical_and(iterable):
@@ -172,7 +173,7 @@ def logical_and(iterable):
     and simplicity of implementation), the operation is not marked "complete"
     until all inputs have been resolved.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def while_loop(*, function, condition, max_iteration=10, **kwargs):
@@ -208,7 +209,7 @@ def while_loop(*, function, condition, max_iteration=10, **kwargs):
         removed on short notice.
 
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def desequence(iterable):
@@ -222,7 +223,7 @@ def desequence(iterable):
     This allows iterative tools (e.g. `map`) to use unordered or asynchronous
     iteration on resource slices as they become available.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def resequence(keys, collection):
@@ -235,6 +236,7 @@ def resequence(keys, collection):
     for applying a sequence from one part of a work flow to data that has been
     processed asynchronously.
     """
+    raise exceptions.MissingImplementationError()
 
 
 def gather(iterable):
@@ -259,7 +261,7 @@ def gather(iterable):
         could express its ensemble/decomposition behavior in terms of a particular
         target scope of an operation.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def scatter(iterable, axis=1):
@@ -274,6 +276,7 @@ def scatter(iterable, axis=1):
     of function inputs or minimize implicit broadcast, scatter, and gather behavior.
     Otherwise, we will need to disambiguate decomposition.
     """
+    raise exceptions.MissingImplementationError()
 
 
 def reduce(function, iterable):
@@ -289,12 +292,12 @@ def reduce(function, iterable):
 
     Compare to :py:func:`functools.reduce`
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def extend_sequence(sequence_a, sequence_b):
     """Combine sequential data into a new sequence."""
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def map(function, iterable, shape=None):
@@ -306,7 +309,7 @@ def map(function, iterable, shape=None):
 
     If *iterable* is unordered, the generated operation collection is unordered.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def poll():
@@ -318,4 +321,4 @@ def poll():
     Used in a work graph, this adds a non-deterministic aspect, but adds truly
     asynchronous adaptability.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()

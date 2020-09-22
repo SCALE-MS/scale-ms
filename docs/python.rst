@@ -186,3 +186,14 @@ Base classes
                                   condition=scalems.logical_not(MyFusedOperation.is_converged),
                                   simulation=initial_input)
         loop.run()
+
+Logging
+=======
+
+.. automodule:: scalems.logger
+
+Exceptions
+==========
+
+.. automodule:: scalems.exceptions
+    :members:

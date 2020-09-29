@@ -66,15 +66,15 @@ with analysis_iteration:
     # Get the output trajectories and pass to PyEmma to build the MSM
     # Return a stop condition object that can be used in gmx while loop to
     # terminate the simulation
-    allframes = collect_coordinates(md.output.trajectory)
+    allframes = collect_coordinates(md.trajectory)
 
     adaptive_msm = msmtool.msm_analyzer(topfile=initial_pdb,
                                         trajectory=allframes,
                                         transition_matrix=analysis_iteration.transition_matrix)
 
     # Update the persistent data for the subgraph
-    analysis_iteration.transition_matrix = adaptive_msm.output.transition_matrix
-    analysis_iteration.is_converged = adaptive_msm.output.is_converged
+    analysis_iteration.transition_matrix = adaptive_msm.transition_matrix
+    analysis_iteration.is_converged = adaptive_msm.is_converged
 
     # Finish the iteration with conditional logic (1) to avoid adding more
     # unnecessary simulations to the queue, and (2) to allow this subgraph to
@@ -82,7 +82,7 @@ with analysis_iteration:
     with scalems.conditional(condition=scalems.logical_not(analysis_iteration.is_converged)):
         # Use the MSM update to generate simulation inputs for further refinement.
         modified_input = modify_input(
-            input=initial_simulation_input, structure=adaptive_msm.output.conformation)
+            input=initial_simulation_input, structure=adaptive_msm.conformation)
         scalems.map(queue.put, simulate(modified_input))
 
 # In the default work graph, add a node that depends on `condition` and

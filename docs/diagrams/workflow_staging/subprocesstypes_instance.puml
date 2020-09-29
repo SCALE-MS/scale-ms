@@ -1,0 +1,21 @@
+@startuml
+
+object "scalmes.Subprocess: ResourceType" as subprocesstype
+subprocesstype : input = { "type": ["scalems", "SubprocessInput"], "shape": [1] }
+subprocesstype : result = { "type": ["scalems", "SubprocessResult"], "shape": [1] }
+
+object "scalems.SubprocessInput: DataType" as input_type
+input_type : argv = { "type": ["scalems", "String"], "shape": [constraints.OneOrMore] }
+input_type : inputs = { "type": ["scalems", "Mapping"], "shape": [1] }
+input_type : outputs = { "type": ["scalems", "Mapping"], "shape": [1] }
+input_type : stdin = { "type": ["scalems", "File"], "shape": [1] }
+input_type : environment = { "type": ["scalems", "Mapping"], "shape": [1] }
+input_type : resources = { "type": ["scalems", "Mapping"], "shape": [1] }
+
+object "scalems.SubprocessResult: DataType" as result_type
+result_type : exitcode = { "type": ["scalems", "Integer"], "shape": [1] }
+result_type : stdout = { "type": ["scalems", "File"], "shape": [1] }
+result_type : stderr = { "type": ["scalems", "File"], "shape": [1] }
+result_type : file = { "type": ["scalems", "Mapping"], "shape": [1] }
+
+@enduml

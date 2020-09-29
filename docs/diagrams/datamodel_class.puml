@@ -1,0 +1,78 @@
+@startuml
+abstract Object <<Mapping>> {
+    {abstract} identifier
+}
+
+abstract class ResourceType {
+    {abstract} ImplementationIdentifier
+}
+
+class Description {
+shape: Tuple
+{abstract} ResourceType type()
+}
+
+interface Referent {
+    uid: Fingerprint
+}
+
+class Reference {
+    path
+    slice
+}
+
+Reference .. Referent
+
+class Field <<Mapping>> {
+    {static} name
+    {method} Description get(Label key)
+}
+
+
+ResourceType "0..*" *-- Field
+
+abstract class CommandType {
+    input: InputType
+    result: ResultType
+    {abstract} interface: Description
+}
+
+CommandType *-- Description
+
+abstract class InputType
+abstract class ResultType
+
+CommandType --> InputType
+CommandType --> ResultType
+
+ResourceType <|-- CommandType
+
+abstract class CommandInstance <<Task>> {
+    uid: Fingerprint
+    {abstract} label: UserString
+    input: InputReference
+    result: ResultReference
+}
+
+CommandInstance *-- CommandType
+CommandInstance "*" *-- Reference
+
+
+abstract class DataType {
+    {static} implementation_identifier
+    {abstract} Field data
+}
+ResourceType <|-- DataType
+
+abstract class DataInstance {
+    uid: Fingerprint
+    {abstract} label: UserString
+    {abstract} data: Bytes
+}
+
+DataInstance *- DataType
+
+Object <|-- ResourceType
+Object <|-- DataInstance
+Object <|-- CommandInstance
+@enduml

@@ -1,7 +1,7 @@
 # Install the `scalems` package into a RP-ready container.
 #
-# Before building this image, build the `rp-complete` image from `rp-complete.dockerfile`
-#     docker build -t rp-complete -f rp-complete.dockerfile .
+# Before building this image, pull or build the `rp-complete` image from `rp-complete.dockerfile`
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile .
 #
 # Usage:
 #
@@ -16,17 +16,20 @@
 # 2. Wait a few seconds for the MongoDB service to start.
 # 3. Exec the tests in the container.
 #
-#     docker run --rm --name rp_test -u root -d scalems-rp
-#     # sleep 3
-#     docker exec -ti rp_test rp-venv/bin/python -m pytest scalems/tests
-#     docker kill rp_test
+#     docker run --rm --name scalems_test -u root -d scalems-rp
+#     sleep 3
+#     docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests -s"
+#     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile
-FROM rp-complete
+FROM scalems/rp-complete
 
 USER rp
 WORKDIR /home/rp
 
+RUN ./rp-venv/bin/pip install --upgrade pip setuptools
+
 COPY --chown=rp:radical . scalems
 
+RUN ./rp-venv/bin/pip install -r scalems/requirements-testing.txt
 RUN ./rp-venv/bin/pip install scalems/

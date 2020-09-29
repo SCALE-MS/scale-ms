@@ -21,7 +21,7 @@ initial_input = [initial_simulation_input] * num_simulations
 
 
 # Get the Future for the sequenced iterable of MD trajectories.
-trajectory_sequence = simulate(input=initial_input).output.trajectory
+trajectory_sequence = simulate(input=initial_input).trajectory
 
 # Convert the sequence Future to an unordered iterable Future.
 trajectory_unordered_collection = scalems.desequence(trajectory_sequence)

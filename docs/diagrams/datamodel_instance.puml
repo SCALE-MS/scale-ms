@@ -1,0 +1,31 @@
+@startuml
+
+class MyCommandInstance {
+    inputs: MyInputReference
+    results: MyResultReference
+}
+
+MyCommandInstance "1" *- MyResultReference : results
+
+object command<<MyCommandInstance>>
+command : results not yet available
+
+object myResultInstance<<MyResultType>> {
+    concrete results
+}
+
+MyResultReference <|.. command
+MyResultReference <|.. "myResultInstance"
+
+class Input <<Reference>> {
+    path
+    slice
+    done()
+    wait()
+}
+
+MyCommandInstance "0..*" -- "1..*" Task
+MyCommandInstance "0..*" -- "1..*" Data
+(MyCommandInstance, Task) . Input
+(MyCommandInstance, Data) . Input
+@enduml

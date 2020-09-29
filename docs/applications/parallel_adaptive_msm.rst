@@ -31,6 +31,6 @@ given here for completeness.
 Simulation preparation and output
 manipulation use command line tools. Simulation is executed with gmxapi.
 
-:file:`examples/parallel_adaptive_msm/wrappers/gromacs.py`
+:file:`src/scalems/wrappers/gromacs.py`
 
-.. literalinclude:: ../../examples/parallel_adaptive_msm/wrappers/gromacs.py
+.. literalinclude:: ../../src/scalems/wrappers/gromacs.py

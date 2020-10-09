@@ -104,16 +104,13 @@ async def input_resource_scope(context, task_input: typing.Union[scalems.subproc
             raise InternalError('No handler for stdin argument of this form.' + repr(task_input.stdin))
         if isinstance(task_input.stdin, (list, tuple)):
             # TODO: Assign appropriate responsibility for maintaining filesystem artifacts.
-            # Consider separating checkpoint responsibility for this data source and decouple
-            # from the current task environment. If necessary, create context manager for a
-            # temporary file created from the list, or just use a asyncio IO stream.
-            fp = tempfile.TemporaryFile(mode='w')
-            # Normalize line endings for local environment.
-            fp.writelines([line.rstrip() for line in task_input.stdin])
-            fp.seek(0)
-            get_stdin = lambda : fp
+            infile = 'stdin'
+            with open(infile, 'w') as fp:
+                # Normalize line endings for local environment.
+                fp.writelines([line.rstrip() for line in task_input.stdin])
         else:
-            get_stdin = lambda path=os.fsencode(task_input.stdin) : open(os.path.abspath(path), 'r')
+            infile = task_input.stdin
+        get_stdin = lambda path=os.fsencode(infile): open(os.path.abspath(path), 'r')
 
     stdout = task_input.stdout
     if stdout is None:

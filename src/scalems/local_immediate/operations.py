@@ -3,6 +3,7 @@ Specialize implementations of ScaleMS operations.
 
 """
 import scalems.subprocess
+from scalems.exceptions import DispatchError
 
 
 def local_exec(task_description: dict):
@@ -34,29 +35,6 @@ def make_subprocess_args(context, task_input: scalems.subprocess.SubprocessInput
     return {'args': args, 'kwargs': kwargs}
 
 
-async def get_coroutine(task_description: dict):
-    """Create and execute a subprocess task in the context."""
-    import asyncio
-    argv = task_description['args']
-    assert isinstance(argv, (list, tuple))
-    assert len(argv) > 0
-    # Get callable.
-    process = await asyncio.create_subprocess_exec(*argv)
-    returncode = await process.wait()
-    result = scalems.subprocess.SubprocessResult(exitcode=returncode, stdout=None, stderr=None, file={})
-    # TODO: We should yield in here, somehow, to allow cancellation of the subprocess.
-    # Suggest splitting runner into separate launch/resolve phases or representing this
-    # long-running function as a stateful object. Note: this is properly a run-time Task.
-    # TODO: Split current Context implementations into two components: run time and dispatcher?
-    # Or is that just the Context / Session division?
-    # Run time needs to allow for task management (asynchronous where applicable) and can
-    # be confined to an environment with a running event loop (where applicable) and/or
-    # active executor.
-    # Dispatcher would be able to insulate callers / collaborators from event loop details.
-    assert result.exitcode is not None
-    return result
-
-
 def executable(context, task: scalems.subprocess.Subprocess):
     # Make inputs.
     # Translate SubprocessInput to the Python subprocess function signature.
@@ -65,6 +43,6 @@ def executable(context, task: scalems.subprocess.Subprocess):
     if isinstance(context, scalems.local_immediate.ImmediateExecutionContext):
         handle = local_exec(subprocess_input)
     else:
-        raise RuntimeError('Cannot dispatch for context {}'.format(repr(context)))
+        raise DispatchError('Cannot dispatch for context {}'.format(repr(context)))
     # Return SubprocessResult object.
     return handle

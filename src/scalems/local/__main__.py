@@ -41,5 +41,17 @@ asyncio.set_event_loop(loop)
 # TODO: Use Async context by default.
 # TODO: More robust dispatching.
 # TODO: Can we support mixing invocation with pytest?
-with scalems.local.AsyncWorkflowContext():
-    runpy.run_path(sys.argv[0])
+exitcode = 0
+try:
+    with scalems.context.scope(scalems.local.AsyncWorkflowManager()):
+        try:
+            global_context = runpy.run_path(sys.argv[0])
+            # TODO: Use a decorator to annotate which function(s) to run?
+            main = global_context['main']
+            cmd = scalems.run(main)
+        except SystemExit as e:
+            exitcode = e.code
+except Exception as e:
+    print('Exception')
+    print(repr(e))
+raise SystemExit(exitcode)

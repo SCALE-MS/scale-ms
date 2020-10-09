@@ -617,7 +617,7 @@ def run(work, context=None, **kwargs):
                 logger.debug('Starting asyncio.run()')
                 # Manage event loop directly, since asyncio.run() doesn't seem to always clean it up right.
                 # TODO: Check for existing event loop.
-                loop = asyncio.new_event_loop()
+                loop = asyncio.get_event_loop()
                 try:
                     task = loop.create_task(coro)
                     result = loop.run_until_complete(task)

@@ -53,8 +53,6 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
     def __init__(self):
         # Basic Context implementation details
         self.task_map = dict()  # Map UIDs to task Futures.
-        self.contextvar_tokens = []
-        self.event_loop = None
         # Note: We actually need multiple queues and a queue monitor to move
         # items between queues. The Executor will have a sense of "scope" for
         # tasks that are grouped by data locality or resource requirements, as
@@ -173,9 +171,6 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
 
             logger.debug('Exiting {} dispatch context.'.format(type(self).__name__))
 
-            # loop = self.event_loop
-            # if loop is None:
-            #     raise RuntimeError('We should not be able to reach this point...')
             # if loop.is_running():
             #     # Clean up unawaited tasks.
             #     loop.run_until_complete(loop.shutdown_asyncgens())
@@ -293,12 +288,6 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
             logger.exception('Uncaught exception during {}.run(): {}'.format(type(self).__name__, str(e)))
         finally:
             logger.debug('Leaving {}.run()'.format(type(self).__name__))
-
-    # def run(self):
-    #     # Bypass the need for asyncio.run()
-    #     # if self.event_loop is None:
-    #     #     raise RuntimeError('No event loop!')
-    #     # loop = self.event_loop
 
 
 # TODO: Implement in fulfilment of our concurrency interface. Is this required by scalems.Future?

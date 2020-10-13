@@ -44,23 +44,15 @@ character_stream.setFormatter(formatter)
 logging.getLogger('scalems').addHandler(character_stream)
 
 
-# Hmm... runpy uses exec, which swallows the exceptions/error status. Need to reconsider.
-# assert False
-# Note: asyncio.run() also masks asserts and uncaught exceptions...
-
-# Does runpy swallow stdout too?
-# import sys
-# sys.stdout.writelines(cmd.result().stdout)
-
-# TODO: TaskView
-# scalems.run(cmd)
-
-
 def main():
     cmd = scalems.executable(argv=['/bin/echo'] + sys.argv[1:])
+    # TODO: Allow Future slicing.
+    return cmd
     # TODO: Automatically dispatch on call to `result()`
-    # TODO: Future slicing.
     # cmd_result = cmd.result()
+    # with open(cmd_result.stdout, 'r') as fh:
+    #     for line in fh:
+    #         print(line.rstrip())
     # For `cmd.result()`, we have to decide how to block until a sufficient amount
     # of asyncio work has taken place. We might need to decorate this enclosing function
     # to allow it to yield to the asyncio event loop. Alternatively, we can embed
@@ -68,10 +60,6 @@ def main():
     # take appropriate action, which may mean throwing an error. We would have to use
     # low level functionality like loop.run_until_complete() and loop.stop() within
     # some scalems environment tracking the global event loop.
-    return cmd
-    # with open(cmd_result.stdout, 'r') as fh:
-    #     for line in fh:
-    #         print(line.rstrip())
 
 
 # Only run the following when this script is executed directly. (I.e. not with `python -m scalems.local ...`)

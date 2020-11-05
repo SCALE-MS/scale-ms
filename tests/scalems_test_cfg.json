@@ -1,0 +1,10 @@
+
+{
+    "cpn"         : 4,
+    "gpn"         : 0,
+    "n_workers"   : 1,
+    "worker_descr": {
+        "executable"   :  "scalems_test_worker.py"
+    }
+}
+

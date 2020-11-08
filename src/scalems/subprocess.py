@@ -1,20 +1,30 @@
 """Define the ScaleMS Subprocess command.
 
-scalems.subprocess() is used to execute a program in one (or more) subprocesses.
+scalems.executable() is used to execute a program in one (or more) subprocesses.
 It is an alternative to the built-in Python subprocess.Popen or asyncio.create_subprocess_exec
 with extensions to better support ScaleMS execution dispatching and ensemble data flow.
+
+The core task is represented by ``scalems.subprocess.SubprocessTask``, but also
+requires the definition of ``scalems.subprocess.SubprocessInput`` and
+``scalems.subprocess.SubprocessResult``.
+
+
 
 In the first iteration, we can use dataclasses.dataclass to define input/output data structures
 in terms of standard types. In a follow-up, we can use a scalems metaclass to define them
 in terms of Data Descriptors that support mixed scalems.Future and native constant data types.
 """
+import dataclasses
+import json
 import logging
+import os
 import typing
-from dataclasses import dataclass, field
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
-from .exceptions import MissingImplementationError
-from .context import get_context
+from .serialization import Encoder
+
+from .exceptions import InternalError, MissingImplementationError, ProtocolError
+from . import context as _context
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -23,21 +33,45 @@ logger.debug('Importing {}'.format(__name__))
 # TODO: what is the mechanism for registering a command implementation in a new Context?
 # TODO: What is the relationship between the command factory and the command type? Which parts need to be importable?
 
-@dataclass
+# TODO: input data typing.
+@dataclasses.dataclass
 class SubprocessInput:
     # TODO: Move input documentation to Input class docs.
     argv: typing.Sequence[str]
-    inputs: typing.Mapping[str, Path] = field(default_factory=dict)
-    outputs: typing.Mapping[str, Path] = field(default_factory=dict)
+    inputs: typing.Mapping[str, Path] = dataclasses.field(default_factory=dict)
+    outputs: typing.Mapping[str, Path] = dataclasses.field(default_factory=dict)
     stdin: typing.Iterable[str] = ()
-    environment: typing.Mapping[str, typing.Union[str, None]] = field(default_factory=dict)
+    environment: typing.Mapping[str, typing.Union[str, None]] = dataclasses.field(default_factory=dict)
     # For now, let's just always enable stdout/stderr
-    # stdout: Optional[Path]
-    # stderr: Optional[Path]
-    resources: typing.Mapping[str, typing.Any] = field(default_factory=dict)
+    stdout: Path = dataclasses.field(default=Path('stdout'))
+    stderr: Path = dataclasses.field(default=Path('stderr'))
+    resources: typing.Mapping[str, typing.Any] = dataclasses.field(default_factory=dict)
 
 
-@dataclass
+# Register a director for SubprocessInput workflow items.
+# TODO: Link to deserializer behavior.
+# TODO: Normalize task_builder protocol.
+# TODO: Generate from class decorator.
+# TODO: Need a generic TaskView class for clients with reference to managed elements.
+@_context.workflow_item_director_factory.register
+def _(item: SubprocessInput, *, context, label: str = None):
+    def director(*args, **kwargs):
+        if len(args) > 0:
+            # TODO: Reconsider reasonable exceptions.
+            raise TypeError('Unexpected positional arguments.')
+        if len(kwargs) > 0:
+            raise TypeError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
+        uid = hash(item)
+        if uid in context.task_map:
+            # TODO: Consider whether this is the correct behavior
+            return context.task_map[uid]
+        else:
+            context.task_map[uid] = item
+            return context.task_map[uid]
+    return director
+
+
+@dataclasses.dataclass
 class SubprocessResult:
     # file: Field(Path)
     # exitcode: Field(int)
@@ -48,29 +82,40 @@ class SubprocessResult:
     file: typing.Mapping[str, Path]
 
 
-class SubprocessResourceType:
+class SubprocessTask:
     """Describe the type of resource provided by a Subprocess command."""
     @classmethod
-    def as_strings(cls):
-        return ('scalems', 'subprocess')
+    def scoped_identifier(cls):
+        # TODO: Consider either deriving from the `import` identifier,
+        #       or defining a more sophisticated protocol for name resolution.
+        return ('scalems', 'subprocess', 'SubprocessTask')
 
     @classmethod
     def identifier(cls):
-        return '.'.join(cls.as_strings())
-
-
-class Subprocess:
-    @classmethod
-    def type(self):
-        return SubprocessResourceType
+        return '.'.join(cls.scoped_identifier())
 
     @classmethod
-    def input_type(cls):
+    def input_type(cls) -> type:
         return SubprocessInput
 
     @classmethod
-    def result_type(cls):
+    def result_type(cls) -> type:
         return SubprocessResult
+
+
+# TODO: helpers / ABCs for Serializeable and Encodable.
+
+
+# TODO: Instances must have a way to map to the owning Context and a task implementation.
+# It is reasonable to allow the WorkflowContext to produce an object satisfying a common
+# ItemView interface, plus additional interface aspects as specified by the workflow item
+# developer in e.g. SubprocessResourceType.
+class Subprocess:
+    @classmethod
+    def resource_type(cls):
+        # Note: we return an instance to better reflect the documented object
+        # model and to allow for future contextual information, such as shape.
+        return SubprocessTask()
 
     def __init__(self, input: SubprocessInput):
         self._bound_input = input
@@ -86,7 +131,11 @@ class Subprocess:
         ...
 
     def uid(self):
-        return '0'*64
+        # Make a fake 256-bit digest.
+        value = b'\x00'*32
+        if not len(value) == 256//8:
+            raise ProtocolError('UID is supposed to be a 256-bit hash digest.')
+        return value
 
     def serialize(self) -> str:
         """Encode the task as a JSON record.
@@ -96,11 +145,19 @@ class Subprocess:
         for bound objects, if they exist.
         """
         record = {}
-        record['uid'] = self.uid()
+        record['uid'] = self.uid().hex()
         # "label" not yet supported.
-        record['input'] = self._bound_input # reference
-        record['result'] = self._result # reference
-        raise MissingImplementationError('To do...')
+        record['type'] = self.resource_type().scoped_identifier()
+        record['input'] = dataclasses.asdict(self._bound_input) # reference
+        record['result'] = dataclasses.asdict(self._result) # reference
+        try:
+            serialized = json.dumps(record, cls=Encoder)
+        except TypeError as e:
+            logger.critical('Missing encoding logic for scalems data. Encoder says ' + str(e))
+            raise InternalError('Missing serialization support.') from e
+
+        # raise MissingImplementationError('To do...')
+        return serialized
 
     @classmethod
     def deserialize(cls, record: str, context = None):
@@ -159,6 +216,28 @@ class Subprocess:
     #         raise RuntimeError('Result was not delivered!')
     #     return self._result
 
+
+# Register a director for Subprocess workflow items.
+# TODO: Wrap this in the decorator or metaclass used for TaskTypes.
+@_context.workflow_item_director_factory.register
+def _(item: Subprocess, *, context: _context.WorkflowManager, label: str = None):
+    def director(*args, **kwargs):
+        if len(args) > 0:
+            # TODO: Reconsider reasonable exceptions.
+            raise TypeError('Unexpected positional arguments.')
+        if len(kwargs) > 0:
+            raise TypeError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
+
+        # Note regarding registering task implementation functions:
+        # scalems.subprocess is a very special kind of task. Each execution
+        # environment needs to provide a specialized implementation for the
+        # foreseeable future. It does not make sense for this module to provide
+        # a default Python function reference for a task factory or callable.
+        task_view = context.add_item(item)
+
+        return task_view
+
+    return director
 
 
 def executable(*args, context=None, **kwargs):
@@ -237,15 +316,44 @@ def executable(*args, context=None, **kwargs):
         Consider input/output files that do not appear on the command line, but which must figure into data flow.
 
     """
-    # TODO: Dispatch correctly if a SubprocessInput is provided.
-    # TODO: Use Python overload type hints.
+    if context is None:
+        context = _context.get_context()
+
+    # TODO: Figure out a reasonable way to check and catch invalid input through a dispatcher.
+    # subprocess_input = context.add(Subprocess.input_type(), *args, **kwargs)
+    input_type = Subprocess.resource_type().input_type()
+    if not isinstance(input_type, type):
+        raise InternalError(
+            'Bug: {} is not coded correctly for the {}.input_type() interface.'.format(
+                __name__,
+                str(type(Subprocess.resource_type()))
+            )
+        )
+
+    # TODO: Add input separately. First, just add the Subprocess object.
+    # Note: static type checkers may not be able to resolve that `input_type is SubprocessInput` for argument checking.
+    # Provide local object to the context and replace local reference with a view to the workflow item.
+    # subprocess_input = _context.add_to_workflow(context, Subprocess.resource_type().input_type(), *args, **kwargs)
     bound_input = SubprocessInput(*args, **kwargs)
 
-    # TODO: Implement TaskBuilder director.
-    if context is None:
-        context = get_context()
+    director = _context.workflow_item_director_factory(Subprocess, context=context)
+    # Design note: at some point, dynamic workflows will require thread-safe
+    # workflow editing context. We could either block on acquiring the editor
+    # context, use an async context manager, or hide the possible async
+    # aspect by letting the return value of the director be awaitable.
+
+    try:
+        task_view = director(input=bound_input)
+    except TypeError as e:
+        logger.error('Invalid input in SubprocessInput: ' + str(e))
+        raise
+    except json.JSONDecodeError as e:
+        logger.critical('Malformed data: ' + e.msg)
+        raise InternalError('Bug: internal data is not being conditioned properly') from e
+    except Exception as e:
+        logger.critical('Unhandled ' + repr(e))
+        raise
+
     # TODO: The returned value should be a TaskView provided by the Context with
     #       minimal state or ownership semantics.
-    task = context.add_task(Subprocess(bound_input))
-
-    return task
+    return task_view

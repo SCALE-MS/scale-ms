@@ -5,11 +5,9 @@ scalems submodules may define additional exceptions, but all will be derived
 from exceptions specified in scalems.exceptions.
 """
 
-__all__ = ['ScaleMSException', 'MissingImplementationError', 'ProtocolError', 'ScopeError']
+import logging as _logging
 
-import logging
-
-logger = logging.getLogger(__name__)
+logger = _logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 

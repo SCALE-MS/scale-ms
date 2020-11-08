@@ -7,7 +7,8 @@ In turn, the initial RP dispatching will probably use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 """
-
+import asyncio
+import logging
 import os
 import warnings
 
@@ -145,11 +146,14 @@ def test_rp_basic_task(rp_config):
 @with_radical_only
 async def test_exec_rp():
     original_context = scalems.context.get_context()
+    asyncio.get_event_loop().set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Test RPDispatcher context
-    # Note that a coroutine object created from an `async def` function is only awaitable once.
     context = scalems.radical.RPWorkflowContext()
-    async with context as session:
-        cmd = scalems.executable(('/bin/echo',))
-        await session.run()
+    with scalems.context.scope(context):
+        async with context.dispatch():
+            cmd = scalems.executable(('/bin/echo',))
+
+
     # Test active context scoping.
     assert scalems.context.get_context() is original_context

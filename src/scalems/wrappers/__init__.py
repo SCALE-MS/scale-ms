@@ -154,3 +154,4 @@ Module types:
         should allow sequence-based data shaping commands to treat a Trajectory
         as a sequence of Frame data.
 
+"""

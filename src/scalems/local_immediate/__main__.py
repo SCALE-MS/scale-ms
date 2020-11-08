@@ -1,7 +1,7 @@
 """Local execution dispatching for ScaleMS workflows.
 
 Usage:
-    python3 -m scalems.local my_workflow.py
+    python3 -m scalems.local_immediate my_workflow.py
 
 """
 
@@ -9,7 +9,7 @@ import asyncio
 import runpy
 import sys
 
-import scalems.local
+import scalems.local_immediate
 
 # We can import scalems.context and set module state before using runpy to
 # execute the script in the current process. This allows us to preconfigure a
@@ -41,17 +41,5 @@ asyncio.set_event_loop(loop)
 # TODO: Use Async context by default.
 # TODO: More robust dispatching.
 # TODO: Can we support mixing invocation with pytest?
-exitcode = 0
-try:
-    with scalems.context.scope(scalems.local.AsyncWorkflowManager()):
-        try:
-            global_context = runpy.run_path(sys.argv[0])
-            # TODO: Use a decorator to annotate which function(s) to run?
-            main = global_context['main']
-            cmd = scalems.run(main)
-        except SystemExit as e:
-            exitcode = e.code
-except Exception as e:
-    print('Exception')
-    print(repr(e))
-raise SystemExit(exitcode)
+with scalems.local_immediate.ImmediateExecutionContext():
+    runpy.run_path(sys.argv[0])

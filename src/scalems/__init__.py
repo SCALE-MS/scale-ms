@@ -26,11 +26,16 @@ Invocation:
     to the documentation for particular WorkflowContexts.
 
 """
-
+import contextlib
+import logging
 import typing
 
-from . import exceptions as exceptions
+import scalems.exceptions as exceptions
+from .context import get_context
 from .subprocess import executable
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 
 ResultType = typing.TypeVar('ResultType')

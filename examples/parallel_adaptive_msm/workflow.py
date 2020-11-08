@@ -15,7 +15,7 @@ import scalems
 from . import msmtool
 
 # Get a set of simulation tools following a common interface convention.
-from scalems.wrappers.gromacs import collect_coordinates, internal_to_pdb, make_input, modify_input, simulate
+from scalems.wrappers.gromacs import get_trajectory, internal_to_pdb, make_input, modify_input, simulate
 
 # Acquire simulation inputs. Generic data hierarchy is not yet clear. Model,
 # method, instance/system/conformation/microstate, and implementation details
@@ -59,19 +59,20 @@ with simulation_and_analysis_iteration:
         input=initial_input, structure=simulation_and_analysis_iteration.conformation)
     md = simulate(input=modified_input)
 
+    # Collect frames from all output trajectories.
+    allframes = scalems.reduce(scalems.extend_sequence, get_trajectory(md))
+
     # Get the output trajectories and pass to PyEmma to build the MSM
     # Return a stop condition object that can be used in gmx while loop to
     # terminate the simulation
-    allframes = collect_coordinates(md.output.trajectory)
-
     adaptive_msm = msmtool.msm_analyzer(topfile=initial_pdb,
                                         trajectory=allframes,
                                         transition_matrix=simulation_and_analysis_iteration.transition_matrix)
     # Update the persistent data for the subgraph
-    simulation_and_analysis_iteration.transition_matrix = adaptive_msm.output.transition_matrix
+    simulation_and_analysis_iteration.transition_matrix = adaptive_msm.transition_matrix
     # adaptive_msm here is responsible for maintaining the ensemble width
-    simulation_and_analysis_iteration.conformation = adaptive_msm.output.conformation
-    simulation_and_analysis_iteration.is_converged = adaptive_msm.output.is_converged
+    simulation_and_analysis_iteration.conformation = adaptive_msm.conformation
+    simulation_and_analysis_iteration.is_converged = adaptive_msm.is_converged
 
 # In the default work graph, add a node that depends on `condition` and
 # wraps subgraph.

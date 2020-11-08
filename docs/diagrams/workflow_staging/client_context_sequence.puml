@@ -1,0 +1,72 @@
+@startuml
+title WorkflowContext client interface
+
+participant "scalems package" as framework
+
+box "WorkflowContext"
+participant "Resource manager" as context
+participant "Graph Director" as node_director
+participant "Node Builder" as node_builder
+participant "Result publisher" as publisher
+end box
+
+
+   framework --> context **: initialize local workflow state
+
+   rnote over framework, context #FFFFFF
+   lock meta-data store and note local workflow artifacts
+   endrnote
+
+-> framework: scalems.integer(((1,2),(3,4)))
+
+    rnote over framework #FFFFFF
+    "69e69fedbdbab6dcda556db6d5835375cefb4e801fb8279d0d7ef3995154bc15":
+    {
+        "operation": ["scalems", "Integer64"],
+        "label": "my_array",
+        "input": { "data": [ [1, 2], [3, 4] ] },
+        "output": { "meta": { "resource": {
+                        "type": "scalems.Integer64",
+                        "shape": [2, 2] }}},
+    }
+    To do: update syntax...
+    endrnote
+
+
+   framework -> context ++: deserialize node
+
+
+    context -> node_builder **: get_node_builder(uid, inputs)
+    activate node_builder
+    context -> node_director ++
+
+    node_director -> node_builder: apply node input
+    activate node_builder
+
+    alt incomplete && has_dependencies
+        node_builder -> context: register subscriptions
+    end
+    deactivate node_builder
+
+    node_director -> node_builder ++: set up output
+    node_builder -> publisher **
+    deactivate node_builder
+
+    node_director -> node_builder ++: build()
+
+    publisher -> context: publish
+    activate context
+    context -> context: subscriptions
+    framework <-- context: stage output data
+    deactivate context
+    deactivate publisher
+
+    node_director <-- node_builder --: node
+    context <-- node_director --
+    destroy node_builder
+    framework <-- context: node
+    deactivate context
+
+    [<-- framework: results
+
+@enduml

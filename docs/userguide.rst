@@ -18,7 +18,7 @@ with an additional proxy layer that allows multiple tasks to be configured
 before any are launched. Compared to the standard Python concurrency modules,
 :py:mod:`asyncio` functionality that is only available within an ``async def``
 function is available directly to the scripting interface, replacing ad hoc
-coroutine definitions with objects (:term:`operation instance`s)
+coroutine definitions with objects (:term:`operation instance` s)
 
 Parallel data flow
 ------------------
@@ -70,7 +70,7 @@ The *condition* of the *while* loop is evaluated before each application of the
 Dynamic functions
 -----------------
 
-Simple SCALE-MS commands add :term:`operation instance`s to the work graph
+Simple SCALE-MS commands add :term:`operation instance` s to the work graph
 
 :py:func:`scalems.map`
 

@@ -3,48 +3,91 @@
 This package provides Python driven data flow scripting and graph execution
 for molecular science computational research protocols.
 
-Refer to https://scale-ms.readthedocs.io/ for complete documentation.
+Refer to https://scale-ms.readthedocs.io/ for package documentation.
+
+Refer to https://github.com/SCALE-MS/scale-ms/wiki for development documentation.
+
+Invocation:
+    ScaleMS scripts describe a workflow. To run the workflow, you must tell
+    ScaleMS how to dispatch the work for execution.
+
+    For most use cases, you can run the script in the context of a particular
+    execution scheme by using the ``-m`` Python command line flag to specify a
+    ScaleMS execution module::
+
+        # Execute with the default local execution manager.
+        python -m scalems.local myworkflow.py
+        # Execute with the RADICAL Pilot based execution manager.
+        python -m scalems.radical myworkflow.py
+
+    Execution managers can be configured and used from within the workflow script,
+    but the user has extra responsibility to properly shut down the execution
+    manager, and the resulting workflow may be less portable. For details, refer
+    to the documentation for particular WorkflowContexts.
+
 """
+import contextlib
+import logging
+import typing
+
+import scalems.exceptions as exceptions
+from .context import get_context
+from .subprocess import executable
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 
-def commandline_operation(executable=None,
-                          arguments=(),
-                          input_files: dict = None,
-                          output_files: dict = None,
-                          **kwargs):
-    """Helper function to define a new operation in terms of a command line executable.
+ResultType = typing.TypeVar('ResultType')
+class WorkflowObject(typing.Generic[ResultType]): ...
 
-    Dynamically defines an operation that executes a subprocess with managed data flow.
 
-    Arguments:
-        executable: name of an executable on the path
-        arguments: list of positional arguments to insert at ``argv[1]``
-        input_files: mapping of command-line flags to input file names
-        output_files: mapping of command-line flags to output file names
+def wait(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
+    """Resolve a workflow reference to a local object.
 
-    Output:
-        The output node of the resulting operation handle contains
+    ScaleMS commands return abstract references to work without waiting for the
+    work to execute. Other ScaleMS commands can operate on these references,
+    relying on the framework to manage data flow.
 
-        * ``file``: the mapping of CLI flags to filename strings resulting from the ``output_files`` kwarg
-        * ``erroroutput``: A string of error output (if any) if the process failed.
-        * ``returncode``: return code of the subprocess.
+    If you need to extract a concrete result, or otherwise force data flow resolution
+    (blocking the current code until execution and data transfer are complete),
+    you may use scalems.wait(ref) to convert a workflow reference to a concrete
+    local result.
 
-    To do:
-        * Provide handling for multithreading and multiprocessing options.
-          We cannot currently know what resources the executable will try to use,
-          so we have to assume that it will monopolize the resources of the
-          compute node it is run on. Furthermore, we must not launch the tool in
-          a multiprocess worker because we do not know how it will behave.
-        * Provide standard I/O stream handling.
-        * Separate the registration of the command line tool from the operation
-          creation. It is okay to have a single helper function for users to
-          quickly wrap a CLI tool, but we should be clear about the normative
-          way that Functions are defined and used.
+    Note that scalems.wait() can allow the current scope to yield to other tasks.
+    Developers should use scalems.wait() instead of native concurrency primitives
+    when coding for dynamic data flow.
+
+    .. todo:: Establish stable API/CPI for tasks that create other tasks or modify the data flow graph during execution.
+
+    scalems.wait() will produce an error if you have not configured and launched
+    an execution manager in the current scope.
     """
-    # Define a new Operation for a particular executable and input/output parameter set.
-    # Generate a chain of operations to process the named key word arguments and handle
-    # input/output data dependencies.
-    raise NotImplementedError()
+    from . import context
+    return context.wait(ref, **kwargs)
+
+
+def run(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
+    """Execute a workflow and return the results.
+
+    This call is not necessary if an execution manager is already running, such
+    as when a workflow script is invoked with `python -m scalems.<some_executor> workflow.py`,
+    when run in a Jupyter notebook (or other application with a compatible native event loop),
+    or when the execution manager is launched explicitly within the script.
+
+    `scalems.run()` may be useful if you want to embed a ScaleMS application in another
+    application, or as a short-hand for execution management with the Python
+    Context Manager syntax by which ScaleMS execution can be more explicitly directed.
+    `scalems.run()` is analogous to (and may simply wrap a call to) `asyncio.run()`.
+
+    As with `asyncio.run()`, `scalems.run()` is intended to be invoked (from the
+    main thread) exactly once in a Python interpreter process lifetime. It is
+    probably fine to call it more than once, but such a use case probably indicates
+    non-standard ScaleMS software design. Nested calls to `scalems.run()` have
+    unspecified behavior.
+    """
+    from . import context
+    return context.run(ref, **kwargs)
 
 
 def function_wrapper(output: dict = None):
@@ -76,7 +119,7 @@ def function_wrapper(output: dict = None):
     publish multiple named results. Otherwise, the ``output`` of the generated operation
     will just capture the return value of the wrapped function.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def subgraph(variables=None):
@@ -119,12 +162,12 @@ def subgraph(variables=None):
         assert handle.output.float_with_default.result() == 6
 
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def logical_not(value):
     """Negate boolean inputs."""
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def logical_and(iterable):
@@ -135,7 +178,7 @@ def logical_and(iterable):
     and simplicity of implementation), the operation is not marked "complete"
     until all inputs have been resolved.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def while_loop(*, function, condition, max_iteration=10, **kwargs):
@@ -171,7 +214,7 @@ def while_loop(*, function, condition, max_iteration=10, **kwargs):
         removed on short notice.
 
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def desequence(iterable):
@@ -185,7 +228,7 @@ def desequence(iterable):
     This allows iterative tools (e.g. `map`) to use unordered or asynchronous
     iteration on resource slices as they become available.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def resequence(keys, collection):
@@ -198,6 +241,7 @@ def resequence(keys, collection):
     for applying a sequence from one part of a work flow to data that has been
     processed asynchronously.
     """
+    raise exceptions.MissingImplementationError()
 
 
 def gather(iterable):
@@ -222,7 +266,7 @@ def gather(iterable):
         could express its ensemble/decomposition behavior in terms of a particular
         target scope of an operation.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def scatter(iterable, axis=1):
@@ -237,6 +281,7 @@ def scatter(iterable, axis=1):
     of function inputs or minimize implicit broadcast, scatter, and gather behavior.
     Otherwise, we will need to disambiguate decomposition.
     """
+    raise exceptions.MissingImplementationError()
 
 
 def reduce(function, iterable):
@@ -252,12 +297,12 @@ def reduce(function, iterable):
 
     Compare to :py:func:`functools.reduce`
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def extend_sequence(sequence_a, sequence_b):
     """Combine sequential data into a new sequence."""
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def map(function, iterable, shape=None):
@@ -269,7 +314,7 @@ def map(function, iterable, shape=None):
 
     If *iterable* is unordered, the generated operation collection is unordered.
     """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()
 
 
 def poll():
@@ -281,58 +326,4 @@ def poll():
     Used in a work graph, this adds a non-deterministic aspect, but adds truly
     asynchronous adaptability.
     """
-    raise NotImplementedError()
-
-
-def cli(command: 'Sequence', shell: bool, output: 'OutputCollectionDescription'):
-    """Execute a command line program in a subprocess.
-
-    Note:
-        Most users will prefer to use the commandline_operation() helper instead
-        of this low-level function.
-
-    Configure an executable in a subprocess. Executes when run in an execution
-    Context, as part of a work graph.
-
-    Shell processing is not enabled, but can be considered for a future version.
-    This means that shell expansions such as environment variables, globbing (``*``),
-    and other special symbols (like ``~`` for home directory) are not available.
-    This allows a simpler and more robust implementation, as well as a better
-    ability to uniquely identify the effects of a command line operation. If you
-    think this disallows important use cases, please let us know.
-
-    Arguments:
-         command: a tuple (or list) to be the subprocess arguments, including the executable
-         output: mapping of command line flags to output filename arguments
-         shell: unused (provides forward-compatibility)
-
-    Arguments are iteratively added to the command line with standard Python
-    iteration, so you should use a tuple or list even if you have only one parameter.
-    I.e. If you provide a string with ``arguments="asdf"`` then it will be passed as
-    ``... "a" "s" "d" "f"``. To pass a single string argument, ``arguments=("asdf")``
-    or ``arguments=["asdf"]``.
-
-    ``input`` and ``output`` should be a dictionary with string keys, where the keys
-    name command line "flags" or options.
-
-    Example:
-        Execute a command named ``exe`` that takes a flagged option for file name
-        (stored in a local Python variable ``my_filename``) and an ``origin`` flag
-        that uses the next three arguments to define a vector.
-
-            >>> my_filename = "somefilename"
-            >>> result = cli(('exe', '--origin', 1.0, 2.0, 3.0, '-f', my_filename), shell=False)
-            >>> assert hasattr(result, 'file')
-            >>> assert hasattr(result, 'erroroutput')
-            >>> assert hasattr(result, 'returncode')
-
-    Returns:
-        A data structure with attributes for each of the results *file*, *erroroutput*, and *returncode*
-
-    Result object attributes:
-        * ``file``: the mapping of CLI flags to filename strings resulting from the *output* kwarg
-        * ``erroroutput``: A string of error output (if any) if the process failed.
-        * ``returncode``: return code of the subprocess.
-
-    """
-    raise NotImplementedError()
+    raise exceptions.MissingImplementationError()

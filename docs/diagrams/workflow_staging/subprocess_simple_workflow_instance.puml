@@ -1,0 +1,58 @@
+@startuml
+
+object "referents[i]: SubprocessInstance" as instance
+instance : uid = <hash>
+instance : type = ["scalems", "Subprocess"]
+instance : input = <hash>
+instance : result = <hash>
+
+object "referents[i-1]: SubprocessInput" as input
+input : uid = <hash>
+input : type = ["scalems", "SubprocessInput"]
+input : argv = ["myprogram", "--num_threads", "8", "-i", "infile", "-o", "outfile"]
+input : inputs = {"path": input_files.uid}
+input : outputs = {"path": output_files.uid}
+input : stdin = <null ref>
+input : environment = empty
+input : resources = {"path": resource_spec.uid}
+
+object "artifacts[j]: SubprocessResult" as result
+result : uid = <hash>
+result : type = ["scalems", "SubprocessResult"]
+result : exitcode = 0
+result : stdout = <fileref>
+result : stderr = <fileref>
+result : file = {"-o": <fileref>}
+
+object "input_files: Mapping" as input_files
+input_files : uid = <hash>
+input_files : type = ["scalems", "Mapping"]
+input_files : data = {"-i": "infile"}
+
+object "output_files: Mapping" as output_files
+output_files : uid = <hash>
+output_files : type = ["scalems", "Mapping"]
+output_files : data = {"-o": "outfile"}
+
+object "resource_spec: Mapping" as resources
+resources : uid = <hash>
+resources : type = ["scalems", "Mapping"]
+resources : data = {"ncpus": 8, "launch_method": "exec"}
+
+input -- instance
+instance .. result
+input -- input_files
+input -- output_files
+input -- resources
+
+
+'input *. input_type
+'result *. result_type
+
+'instance *. subprocesstype
+
+'subprocesstype .> input_type
+
+'subprocesstype .> result_type
+
+@enduml

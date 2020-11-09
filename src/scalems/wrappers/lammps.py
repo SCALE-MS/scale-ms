@@ -11,14 +11,6 @@ import scalems
 # Declare the public interface of this wrapper module.
 __all__ = ['make_input', 'internal_to_pdb', 'collect_coordinates', 'simulate', 'modify_input']
 
-# Get an exportable 'simulate' function for this module.
-simulate = gmxapi.mdrun
-
-# Get an exportable 'modify_input' function for this module..
-modify_input = gmxapi.modify_input
-
-# Define the remaining functions for a normalized simulation tool interface.
-
 def expand_input(infile,include_files=[]) 
    '''
    parameters
@@ -79,7 +71,7 @@ def simulate(input_commands,lammps_binary)
     # probably here want to take the array of commands and covert it into an input file.
 
     input_file = make_temp_file(input_commands)
-    simulation = scalems.commandline_operation('lammps_binary',input_files={'-in':input_file})
+    simulation = scalems.commandline_operation(lammps_binary,input_files={'-in':input_file})
     # output files are specified in the input file.  Should we parse the lammps file to
     # figure out these files, or just let lammps handle them
 

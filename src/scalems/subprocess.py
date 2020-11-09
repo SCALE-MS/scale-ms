@@ -243,10 +243,6 @@ def _(item: Subprocess, *, context: _context.WorkflowManager, label: str = None)
 def executable(*args, context=None, **kwargs):
     """Execute a command line program.
 
-    Note:
-        Most users will prefer to use the commandline_operation() helper instead
-        of this low-level function.
-
     Configure an executable to run in one (or more) subprocess(es).
     Executes when run in an execution Context, as part of a work graph.
     Process environment and execution mechanism depends on the execution environment,
@@ -259,17 +255,19 @@ def executable(*args, context=None, **kwargs):
     ability to uniquely identify the effects of a command line operation. If you
     think this disallows important use cases, please let us know.
 
-    Required Arguments:
+    Arguments:
          argv: a tuple (or list) to be the subprocess arguments, including the executable
 
-    Optional Arguments:
-         outputs: labeled output files, mapping command line flag to one (or more) filenames
-         inputs: labeled input files, mapping command line flag to one (or more) filenames
-         environment: environment variables to be set in the process environment
-         stdin: source for posix style standard input file handle (default None)
-         stdout: Capture standard out to a filesystem artifact, even if it is not consumed in the workflow.
-         stderr: Capture standard error to a filesystem artifact, even if it is not consumed in the workflow.
-         resources: Name additional required resources, such as an MPI environment.
+    *argv* is required. Additional key words are optional.
+
+    Other Parameters:
+         outputs (Mapping): labeled output files, mapping command line flag to one (or more) filenames.
+         inputs (Mapping): labeled input files, mapping command line flag to one (or more) filenames.
+         environment (Mapping): environment variables to be set in the process environment.
+         stdin (str): source for posix style standard input file handle (default None).
+         stdout (str): Capture standard out to a filesystem artifact, even if it is not consumed in the workflow.
+         stderr (str): Capture standard error to a filesystem artifact, even if it is not consumed in the workflow.
+         resources (Mapping): Name additional required resources, such as an MPI environment.
 
     .. todo:: Support POSIX sigaction / IPC traps?
 
@@ -286,6 +284,7 @@ def executable(*args, context=None, **kwargs):
 
     Note that the Execution Context (e.g. RPContext, LocalContext, DockerContext)
     determines the handling of *resources*. Typical values in *resources* may include
+
     * procs_per_task (int): Number of processes to spawn for an instance of the *exec*.
     * threads_per_proc (int): Number of threads to allocate for each process.
     * gpus_per_task (int): Number of GPU devices to allocate for and instance of the *exec*.

@@ -26,7 +26,9 @@ Invocation:
     to the documentation for particular WorkflowContexts.
 
 """
+import abc
 import contextlib
+import functools
 import logging
 import typing
 
@@ -36,6 +38,43 @@ from .subprocess import executable
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
+
+
+class ScriptEntryPoint(abc.ABC):
+    """Annotate a SCALE-MS entry point function.
+
+    An importable Python script may decorate a callable with scalems.app to
+    mark it for execution. This abstract base class provides SCALE-MS with a
+    way to identify callables marked for execution and is not intended to be
+    used directly.
+
+    See :py:func:`scalems.app`
+    """
+    name: typing.Optional[str]
+
+    @abc.abstractmethod
+    def __call__(self, *args, **kwargs):
+        ...
+
+
+def app(func: typing.Callable) -> typing.Callable:
+    """Annotate a callable for execution by SCALEMS.
+
+
+    """
+    class App(ScriptEntryPoint):
+        def __init__(self, func: typing.Callable):
+            if not callable(func):
+                raise ValueError('Needs a function or function object.')
+            self._callable = func
+            self.name = None
+
+        def __call__(self, *args, **kwargs):
+            return self._callable(*args, **kwargs)
+
+    decorated = functools.update_wrapper(App(func), wrapped=func)
+
+    return decorated
 
 
 ResultType = typing.TypeVar('ResultType')
@@ -67,7 +106,7 @@ def wait(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
     return context.wait(ref, **kwargs)
 
 
-def run(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
+def run(ref: WorkflowObject[ResultType], context=None, **kwargs) -> ResultType:
     """Execute a workflow and return the results.
 
     This call is not necessary if an execution manager is already running, such
@@ -86,8 +125,15 @@ def run(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
     non-standard ScaleMS software design. Nested calls to `scalems.run()` have
     unspecified behavior.
     """
-    from . import context
-    return context.run(ref, **kwargs)
+    from .context import run
+
+    # Get asyncio event loop. Use existing event loop or get a new one.
+    # Dispatch according to the current WorkflowManager context.
+    # If specific work is not requested, scan the local scope for scalems tasks,
+    # dispatch them according to the current WorkflowManager context, and run
+    # all managed work.
+
+    return run(ref, context=context, **kwargs)
 
 
 def function_wrapper(output: dict = None):

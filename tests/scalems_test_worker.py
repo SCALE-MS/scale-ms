@@ -18,12 +18,20 @@ class ScaleMSWorker(rpt.Worker):
 
         rp.task_overlay.Worker.__init__(self, cfg)
 
+      # self.register_mode('gmx',   self._gmx)
         self.register_call('hello', self.hello)
 
 
     # --------------------------------------------------------------------------
     #
-    def hello(self, count, uid):
+    def _gmx(self, serialized_data):
+
+        pass
+
+
+    # --------------------------------------------------------------------------
+    #
+    def hello(self, count, uid=None):
         '''
         important work
         '''

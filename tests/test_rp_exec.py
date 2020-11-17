@@ -196,7 +196,8 @@ def test_rp_scalems():
         td    = rp.ComputeUnitDescription(
                    {'executable'   :  '%s/scalems_test_master.py' % pwd,
                     'arguments'    : ['%s/scalems_test_cfg.json'  % pwd],
-                    'input_staging': ['%s/scalems_test_worker.py' % pwd]})
+                    'input_staging': ['%s/scalems_test_cfg.json'  % pwd,
+                                      '%s/scalems_test_worker.py' % pwd]})
 
         pmgr  = rp.PilotManager(session=session)
         umgr  = rp.UnitManager(session=session)

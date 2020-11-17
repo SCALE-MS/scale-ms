@@ -52,41 +52,50 @@ class ScaleMSMaster(rp.task_overlay.Master):
     #
     def _ingest(self):
 
-        new  = self._dir_new
-        pend = self._dir_pending
-        act  = self._dir_active
+        try:
 
-        while not self._term.is_set():
+            new  = self._dir_new
+            pend = self._dir_pending
+            act  = self._dir_active
 
-            incoming = list()
-            print('check %s' % new)
+            while not self._term.is_set():
 
-            for fname in glob.glob('%s/*.json' % new):
+                incoming = list()
+                self._log.debug('=== check %s' % new)
 
-                print('found %s' % fname)
+                for fname in glob.glob('%s/*.json' % new):
 
-                # find incoming work items
-                # FIXME: ensure that write is complete
-                base = os.path.basename(fname)
-                ru.sh_callout('mv %s/%s %s/%s' % (new, base, pend, base))
-                incoming.append(base)
+                    self._log.debug('=== found %s' % fname)
 
-            for base in incoming:
+                    # find incoming work requests
+                    # FIXME: ensure that write is complete
+                    base = os.path.basename(fname)
+                    ru.sh_callout('mv %s/%s %s/%s' % (new, base, pend, base))
+                    incoming.append(base)
 
-                print('work  %s' % base)
+                for base in incoming:
 
-                # read work description and submit as task
-                item = ru.read_json('%s/%s' % (pend, base))
-                item['base'] = base
-                self.request(item)
+                    self._log.debug('=== work  %s' % base)
 
-                # that work is now active
-                ru.sh_callout('mv %s/%s %s/%s' % (pend, base, act, base))
+                    # read work description and submit as task
+                    requests = ru.read_json('%s/%s' % (pend, base))
+                    for request in requests:
+                        uid = ru.generate_id('work')
+                        request['base'] = base
+                        request['uid']  = uid
+                        request['data']['kwargs']['uid'] = uid
+                        self.request(request)
 
-            if not incoming:
-                # avoid busy loop
-                time.sleep(1)
+                    # that work is now active
+                    ru.sh_callout('mv %s/%s %s/%s' % (pend, base, act, base))
 
+                if not incoming:
+                    # avoid busy loop
+                    time.sleep(1)
+
+        except:
+            self._log.exception('ingest thread failed')
+            raise
 
 
     # --------------------------------------------------------------------------
@@ -94,6 +103,7 @@ class ScaleMSMaster(rp.task_overlay.Master):
     def create_work_items(self):
 
         # nothing to do here
+        self._log.debug('=== create_work_items()')
         pass
 
 
@@ -110,8 +120,8 @@ class ScaleMSMaster(rp.task_overlay.Master):
                   (r.uid, r.state, r.result))
 
             # that work is now active
-            ru.sh_callout('mv %s/%s.json %s/%s.json' % (act, r.uid, done, r.uid))
-            self._results.append(r)
+            out, err, ret = ru.sh_callout('mv %s/%s.json %s/' % (act, r.base, done))
+            print(out, err, ret)
 
         # FIXME: we actually finish after first result is received
         self.stop()
@@ -129,7 +139,7 @@ if __name__ == '__main__':
 
     master.start()
 
-    print('master startet')
+    print('master started')
 
     while master.alive():
         print('master alive')

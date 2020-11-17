@@ -1,10 +1,19 @@
 
 {
-    "cpn"         : 4,
-    "gpn"         : 0,
-    "n_workers"   : 1,
+    "cpn"         :  4,
+    "gpn"         :  0,
+    "n_masters"   :  1,
+    "n_workers"   :  1,
+
+    "master"      : "scalems_test_master.py",
+    "worker"      : "scalems_test_worker.py",
+
+    "pilot_descr" : {
+        "runtime"     : 30,
+        "resource"    : "local.localhost"
+    },
     "worker_descr": {
-        "executable"   :  "scalems_test_worker.py"
+        "executable"  : "scalems_test_worker.py"
     }
 }
 

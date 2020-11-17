@@ -2,6 +2,7 @@
 
 import os
 import sys
+import glob
 
 import radical.utils as ru
 import radical.pilot as rp
@@ -32,9 +33,10 @@ if __name__ == '__main__':
     session   = rp.Session()
     try:
         pd = rp.ComputePilotDescription(cfg.pilot_descr)
-        pd.cores   = nodes * cpn
-        pd.gpus    = nodes * gpn
-        pd.runtime = cfg.runtime
+        pd.cores    = nodes * cpn
+        pd.gpus     = nodes * gpn
+        pd.runtime  = cfg.pilot_descr.runtime
+        pd.resource = cfg.pilot_descr.resource
 
         tds = list()
 
@@ -43,17 +45,17 @@ if __name__ == '__main__':
             td.executable     = "python3"
             td.cpu_threads    = cpn
             td.gpu_processes  = gpn
-            td.arguments      = [os.path.basename(master), cfg_file, i]
-            td.input_staging  = [{'source': master,
-                                  'target': os.path.basename(master),
+            td.arguments      = [master, cfg_file, i]
+            td.input_staging  = [{'source': cfg.master,
+                                  'target': 'unit://',
                                   'action': rp.TRANSFER,
                                   'flags' : rp.DEFAULT_FLAGS},
-                                 {'source': worker,
-                                  'target': os.path.basename(worker),
+                                 {'source': cfg.worker,
+                                  'target': 'unit://',
                                   'action': rp.TRANSFER,
                                   'flags' : rp.DEFAULT_FLAGS},
                                  {'source': cfg_file,
-                                  'target': os.path.basename(cfg_file),
+                                  'target': 'unit://',
                                   'action': rp.TRANSFER,
                                   'flags' : rp.DEFAULT_FLAGS}
                                 ]
@@ -65,6 +67,13 @@ if __name__ == '__main__':
         task  = umgr.submit_units(tds)
 
         umgr.add_pilots(pilot)
+
+        # send work item
+        for f in glob.glob('scalems_work/*.json'):
+            pilot.stage_in({'source': f,
+                            'target': 'pilot://scalems_new/',
+                            'action': rp.TRANSFER,
+                            'flags' : rp.DEFAULT_FLAGS})
         umgr.wait_units()
 
     finally:

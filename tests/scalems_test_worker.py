@@ -18,35 +18,26 @@ class ScaleMSWorker(rpt.Worker):
 
         rp.task_overlay.Worker.__init__(self, cfg)
 
-      # self.register_mode('gmx',   self._gmx)
-        self.register_call('hello', self.hello)
+        self.register_mode('gmx',   self._gmx)
+      # self.register_call('hello', self.hello)
 
 
     # --------------------------------------------------------------------------
     #
-    def _gmx(self, serialized_data):
+    def _gmx(self, data):
 
-        pass
+        out = 'gmx  : %s %s' % (time.time(), data['blob'])
+        err = None
+        ret = 0
+
+        return out, err, ret
 
 
     # --------------------------------------------------------------------------
     #
-    def hello(self, count, uid=None):
-        '''
-        important work
-        '''
+    def hello(self, world):
 
-        self._prof.prof('hello_start', uid=uid)
-
-        out = 'hello %5d @ %.2f [%s]' % (count, time.time(), self._uid)
-      # time.sleep(0.1)
-
-        self._prof.prof('hello_io_start', uid=uid)
-        self._log.debug(out)
-        self._prof.prof('hello_io_stop', uid=uid)
-
-        self._prof.prof('hello_stop', uid=uid)
-        return out
+        return 'call : %s %s' % (time.time(), world)
 
 
 # ------------------------------------------------------------------------------

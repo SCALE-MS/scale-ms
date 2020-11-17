@@ -64,16 +64,21 @@ if __name__ == '__main__':
         pmgr  = rp.PilotManager(session=session)
         umgr  = rp.UnitManager(session=session)
         pilot = pmgr.submit_pilots(pd)
-        task  = umgr.submit_units(tds)
+        tasks = umgr.submit_units(tds)
 
         umgr.add_pilots(pilot)
 
         # send work item
-        for f in glob.glob('scalems_work/*.json'):
-            pilot.stage_in({'source': f,
+        for fname in glob.glob('scalems_work/*.json'):
+            check = ru.read_json(fname)
+            pilot.stage_in({'source': fname,
                             'target': 'pilot://scalems_new/',
                             'action': rp.TRANSFER,
                             'flags' : rp.DEFAULT_FLAGS})
+
+      # for task in tasks:
+      #     task.cancel()
+
         umgr.wait_units()
 
     finally:

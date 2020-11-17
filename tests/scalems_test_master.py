@@ -78,13 +78,9 @@ class ScaleMSMaster(rp.task_overlay.Master):
                     self._log.debug('=== work  %s' % base)
 
                     # read work description and submit as task
-                    requests = ru.read_json('%s/%s' % (pend, base))
-                    for request in requests:
-                        uid = ru.generate_id('work')
-                        request['base'] = base
-                        request['uid']  = uid
-                        request['data']['kwargs']['uid'] = uid
-                        self.request(request)
+                    request = ru.read_json('%s/%s' % (pend, base))
+                    request['data']['base'] = base
+                    self.request(request)
 
                     # that work is now active
                     ru.sh_callout('mv %s/%s %s/%s' % (pend, base, act, base))
@@ -116,12 +112,11 @@ class ScaleMSMaster(rp.task_overlay.Master):
 
         for r in requests:
 
-            print('result_cb %s: %s [%s]\n' %
-                  (r.uid, r.state, r.result))
+            print('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
 
-            # that work is now active
-            out, err, ret = ru.sh_callout('mv %s/%s.json %s/' % (act, r.base, done))
-            print(out, err, ret)
+            # that work is now don
+            base = r.work['data']['base']
+            ru.sh_callout('mv %s/%s %s/' % (act, base, done))
 
         # FIXME: we actually finish after first result is received
         self.stop()

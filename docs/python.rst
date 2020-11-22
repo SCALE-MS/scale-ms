@@ -71,10 +71,33 @@ Operations provide a ``run()`` method to force execution at the point of call.
     The mechanism (subscription, transfer of ownership, etc.) is a detail of the
     Context collaboration.
 
+Execution Modules
+=================
+
+Every SCALE-MS object reference belongs to a workflow managed by a WorkflowManager.
+Workflows may be executed through different means and with different resources
+through distinct modules. Different middleware implementations may be accessed
+directly, but we recommend selecting a management module when invoking Python
+from the command line with the ``-m`` option::
+
+    python3 -m scalems.local myscript.py
+
+scalems.local
+-------------
+
+.. automodule:: scalems.local
+
+``scalems.radical``
+-------------------
+
+.. automodule:: scalems.radical
+
 Basic functions
 ===============
 
 Core Function implementations provided with the SCALE-MS package.
+
+.. py:currentmodule:: scalems
 
 .. autofunction:: executable
 

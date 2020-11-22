@@ -1,2 +1,3 @@
+sphinxcontrib-napoleon
 sphinxcontrib-plantuml
 sphinx-rtd-theme

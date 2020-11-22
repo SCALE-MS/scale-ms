@@ -43,12 +43,20 @@ asyncio.set_event_loop(loop)
 # TODO: Can we support mixing invocation with pytest?
 exitcode = 0
 try:
-    with scalems.context.scope(scalems.local.AsyncWorkflowManager()):
+    with scalems.context.scope(scalems.local.AsyncWorkflowManager()) as context:
         try:
-            global_context = runpy.run_path(sys.argv[0])
+            globals_namespace = runpy.run_path(sys.argv[0])
             # TODO: Use a decorator to annotate which function(s) to run?
-            main = global_context['main']
-            cmd = scalems.run(main)
+            main = None
+            for name, ref in globals_namespace.items():
+                if isinstance(ref, scalems.ScriptEntryPoint):
+                    if main is not None:
+                        raise scalems.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
+                    main = ref
+                    ref.name = name
+            if main is None:
+                raise scalems.exceptions.DispatchError('No scalems.app callables found in script.')
+            cmd = scalems.run(main, context=context)
         except SystemExit as e:
             exitcode = e.code
 except Exception as e:

@@ -65,13 +65,12 @@ def modify_input(substitutions = {}, input_commands):
         if command.starts_with(k):
             input_commands[i] = f"{k} {input_commands[k]}"
 
-
 def simulate(input_commands,lammps_binary)
 
     # probably here want to take the array of commands and covert it into an input file.
 
     input_file = make_temp_file(input_commands)
-    simulation = scalems.commandline_operation(lammps_binary,input_files={'-in':input_file})
+    simulation = scalems.executable(lammps_binary,inputs={'-in':input_file})
     # output files are specified in the input file.  Should we parse the lammps file to
     # figure out these files, or just let lammps handle them
 
@@ -79,16 +78,10 @@ def internal_to_pdb(structure):
     # lammps doesn't have any files that handle processing cordinates.  That's done by other programs.
     # it can dump output with a larger number of output formats.  See:
     # https://lammps.sandia.gov/doc/dump.html
-    editconf = scalems.commandline_operation('gmx', 'editconf',
-                                             input_files={'-f': structure},
-                                             output_files={'-o': scalems.OutputFile(suffix='.pdb')})
-    # what exactly does the .output.files['-o'] do?
-    return editconf.output.files['-o']
-
+    return structure
 
 def collect_coordinates(trajectories):
-    # See internal_to_pdb.  lammps doesn't have coordinate analysis routines, so will have to be brought in some other way. 
-    allframes = scalems.commandline_operation('gmx', 'trajcat',
-                                              input_files={'-f': scalems.gather(trajectories)},
-                                              output_files={'-o': scalems.OutputFile(suffix='.trr')})
-    return allframes.output.file['-o']
+    # lammps doesn't have coordinate analysis routines, so right now, this is just a collector of trajectory names.
+    allframes = scalems.gather(trajectories)
+    return allframes
+

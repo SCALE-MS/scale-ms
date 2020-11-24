@@ -5,7 +5,6 @@ Preparation and output manipulation use command line tools.
 Simulation is executed with gmxapi.
 """
 
-import gmxapi
 import scalems
 
 # Declare the public interface of this wrapper module.

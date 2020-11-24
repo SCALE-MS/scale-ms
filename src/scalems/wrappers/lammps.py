@@ -5,11 +5,10 @@ Preparation and output manipulation use command line tools.
 Simulation is executed with gmxapi.
 """
 
-import gmxapi
 import scalems
 
 # Declare the public interface of this wrapper module.
-__all__ = ['make_input', 'internal_to_pdb', 'collect_coordinates', 'simulate', 'modify_input']
+__all__ = ['make_input', 'internal_to_xyz', 'collect_coordinates', 'simulate', 'modify_input']
 
 def expand_input(infile,include_files=[]) 
    '''
@@ -40,9 +39,10 @@ def expand_input(infile,include_files=[])
                        
     return all_lines
 
+    
 
 def make_input(simulation_parameters = ['input.in'],
-               include_files = [[]],
+               included_files = [[]],
                # could be a list of files, so will include_files need to be a list of lists?
                # will need to be properly managed with list comprehension.
                wrapper_name = 'lammps'):
@@ -54,6 +54,13 @@ def make_input(simulation_parameters = ['input.in'],
 
     return all_commands
 
+def modify_structure(structure,config):
+
+    for s, c in zip(structure,config):
+        
+
+
+    
 def modify_input(substitutions = {}, input_commands):
 
     # currently, I implement this just by looping over the commands and replacing each line
@@ -69,7 +76,12 @@ def simulate(input_commands,lammps_binary)
 
     # probably here want to take the array of commands and covert it into an input file.
 
-    input_file = make_temp_file(input_commands)
+    #MRS: LAMMPS can also take commands from STDIN, so it might make more sense to pass them in from
+    #STDIN. 
+
+    with open(input_file, "w") as outfile:
+        outfile.write("\n".join(itemlist))
+    
     simulation = scalems.executable(lammps_binary,inputs={'-in':input_file})
     # output files are specified in the input file.  Should we parse the lammps file to
     # figure out these files, or just let lammps handle them

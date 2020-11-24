@@ -224,7 +224,8 @@ def test_rp_scalems():
 
         umgr.wait_units()
 
-        pilot.stage_out('scalems_done/%s.json', uid)
+        # FIXME
+      # pilot.stage_out('scalems_done/%s.json', uid)
 
         assert task.exit_code == 0
 

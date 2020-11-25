@@ -34,6 +34,7 @@ import queue
 import warnings
 import weakref
 
+import typing
 from scalems.core.exceptions import DispatchError
 from scalems.core.exceptions import DuplicateKeyError
 from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
@@ -567,13 +568,15 @@ class DefaultContext(WorkflowManager):
         raise MissingImplementationError('Trivial work graph holder not yet implemented.')
 
 
-class Scope(collections.namedtuple('Scope', ('parent', 'current'))):
+class Scope(typing.NamedTuple):
     """Backward-linked list (potentially branching) to track nested context.
 
     There is not much utility to tracking the parent except for introspection
     during debugging. The previous state is more appropriately held within the
     closure of the context manager. This structure may be simplified without warning.
     """
+    parent: typing.Union[None, WorkflowManager]
+    current: WorkflowManager
 
 
 # Root workflow context for the interpreter process.
@@ -587,8 +590,7 @@ _interpreter_context = DefaultContext()
 # in terms of a parent context doing contextvars.copy_context().run(...)
 # I think we have to make sure not to nest scopes without a combination of copy_context and context managers,
 # so we don't need to track the parent scope. We should also be able to use weakrefs.
-current_scope = contextvars.ContextVar('current_context', default=Scope(None, None))
-current_scope.set(Scope(parent=None, current=_interpreter_context))
+current_scope = contextvars.ContextVar('current_context', default=Scope(None, _interpreter_context))
 
 
 def get_context():
@@ -635,7 +637,7 @@ def scope(context):
     )
     if token.var.get().parent is current:
         logger.warning('Unexpected re-entrance. Workflow is already managed by {}.'.format(repr(current)))
-    if token.old_value.current != token.var.get().parent:
+    if token.old_value is not token.MISSING and token.old_value.current != token.var.get().parent:
         raise ProtocolError('Unrecoverable race condition: multiple threads are updating global context unsafely.')
     # Try to confirm that current_scope is not already subject to modification by another
     #  context manager in a shared asynchronous context.

@@ -26,114 +26,32 @@ Invocation:
     to the documentation for particular WorkflowContexts.
 
 """
-import abc
-import contextlib
-import functools
-import logging
-import typing
 
-import scalems.exceptions as exceptions
+# Note: Even though `from scalems import *` is generally discouraged, the __all__ module attribute is useful
+# to document the intended public interface *and* to indicate sort order for tools like
+# https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html#directive-automodule
+__all__ = [
+    # core UI
+    'app',
+    # tools / commands
+    'executable',
+    # utilities and helpers
+    'get_context',
+    'run',
+    'wait',
+]
+
+import logging
+
+import scalems.core.exceptions as exceptions
+# Import the singleton early to avoid ambiguity under multi-threaded conditions.
+from .context import next_monotonic_integer as _next_int
 from .context import get_context
-from .subprocess import executable
+from .subprocess import executable, OutputFile
+from .core import app, run, wait
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-
-class ScriptEntryPoint(abc.ABC):
-    """Annotate a SCALE-MS entry point function.
-
-    An importable Python script may decorate a callable with scalems.app to
-    mark it for execution. This abstract base class provides SCALE-MS with a
-    way to identify callables marked for execution and is not intended to be
-    used directly.
-
-    See :py:func:`scalems.app`
-    """
-    name: typing.Optional[str]
-
-    @abc.abstractmethod
-    def __call__(self, *args, **kwargs):
-        ...
-
-
-def app(func: typing.Callable) -> typing.Callable:
-    """Annotate a callable for execution by SCALEMS.
-
-
-    """
-    class App(ScriptEntryPoint):
-        def __init__(self, func: typing.Callable):
-            if not callable(func):
-                raise ValueError('Needs a function or function object.')
-            self._callable = func
-            self.name = None
-
-        def __call__(self, *args, **kwargs):
-            return self._callable(*args, **kwargs)
-
-    decorated = functools.update_wrapper(App(func), wrapped=func)
-
-    return decorated
-
-
-ResultType = typing.TypeVar('ResultType')
-class WorkflowObject(typing.Generic[ResultType]): ...
-
-
-def wait(ref: WorkflowObject[ResultType], **kwargs) -> ResultType:
-    """Resolve a workflow reference to a local object.
-
-    ScaleMS commands return abstract references to work without waiting for the
-    work to execute. Other ScaleMS commands can operate on these references,
-    relying on the framework to manage data flow.
-
-    If you need to extract a concrete result, or otherwise force data flow resolution
-    (blocking the current code until execution and data transfer are complete),
-    you may use scalems.wait(ref) to convert a workflow reference to a concrete
-    local result.
-
-    Note that scalems.wait() can allow the current scope to yield to other tasks.
-    Developers should use scalems.wait() instead of native concurrency primitives
-    when coding for dynamic data flow.
-
-    .. todo:: Establish stable API/CPI for tasks that create other tasks or modify the data flow graph during execution.
-
-    scalems.wait() will produce an error if you have not configured and launched
-    an execution manager in the current scope.
-    """
-    from . import context
-    return context.wait(ref, **kwargs)
-
-
-def run(ref: WorkflowObject[ResultType], context=None, **kwargs) -> ResultType:
-    """Execute a workflow and return the results.
-
-    This call is not necessary if an execution manager is already running, such
-    as when a workflow script is invoked with `python -m scalems.<some_executor> workflow.py`,
-    when run in a Jupyter notebook (or other application with a compatible native event loop),
-    or when the execution manager is launched explicitly within the script.
-
-    `scalems.run()` may be useful if you want to embed a ScaleMS application in another
-    application, or as a short-hand for execution management with the Python
-    Context Manager syntax by which ScaleMS execution can be more explicitly directed.
-    `scalems.run()` is analogous to (and may simply wrap a call to) `asyncio.run()`.
-
-    As with `asyncio.run()`, `scalems.run()` is intended to be invoked (from the
-    main thread) exactly once in a Python interpreter process lifetime. It is
-    probably fine to call it more than once, but such a use case probably indicates
-    non-standard ScaleMS software design. Nested calls to `scalems.run()` have
-    unspecified behavior.
-    """
-    from .context import run
-
-    # Get asyncio event loop. Use existing event loop or get a new one.
-    # Dispatch according to the current WorkflowManager context.
-    # If specific work is not requested, scan the local scope for scalems tasks,
-    # dispatch them according to the current WorkflowManager context, and run
-    # all managed work.
-
-    return run(ref, context=context, **kwargs)
 
 
 def function_wrapper(output: dict = None):

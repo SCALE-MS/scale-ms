@@ -26,7 +26,7 @@ from typing import Any, Callable
 
 import scalems.context
 import typing
-from scalems.exceptions import DuplicateKeyError, InternalError, MissingImplementationError, ProtocolError
+from scalems.core.exceptions import DuplicateKeyError, InternalError, MissingImplementationError, ProtocolError
 from scalems.serialization import Encoder
 
 from . import operations
@@ -189,66 +189,6 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
         # Consider providing the consumer context when acquiring access.
         # Consider limiting the scope of access requested.
         return self.task_map[uid]
-
-    # def add_task(self, operation: str, bound_input):
-    def add_item(self, task_description) -> scalems.context.ItemView:
-        # # TODO: Resolve implementation details for *operation*.
-        # if operation != 'scalems.executable':
-        #     raise MissingImplementationError('No implementation for {} in {}'.format(operation, repr(self)))
-        # # Copy a static copy of the input.
-        # # TODO: Dispatch tasks addition, allowing negotiation of Context capabilities and subscription
-        # #  to resources owned by other Contexts.
-        # if not isinstance(bound_input, scalems.subprocess.SubprocessInput):
-        #     raise ValueError('Only scalems.subprocess.SubprocessInput objects supported as input.')
-        if not isinstance(task_description, scalems.subprocess.Subprocess):
-            raise MissingImplementationError('Operation not supported.')
-        uid = task_description.uid()
-        if uid in self.task_map:
-            # TODO: Consider decreasing error level to `warning`.
-            raise DuplicateKeyError('Task already present in workflow.')
-        logger.debug('Adding {} to {}'.format(str(task_description), str(self)))
-        record = {
-            'uid': task_description.uid().hex(),
-            'type': task_description.resource_type().scoped_identifier(),
-            'input': {}
-        }
-        task_input = task_description.input_collection()
-        for field in dataclasses.fields(task_input):
-            name = field.name
-            try:
-                # TODO: Need serialization typing.
-                record['input'][name] = getattr(task_input, name)
-            except AttributeError as e:
-                raise InternalError('Unexpected missing field.') from e
-        record = json.dumps(record, cls=Encoder)
-
-        # TODO: Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
-        item = scalems.context.Task(self, record)
-        # TODO: Check for ability to dispatch.
-
-        self.task_map[uid] = item
-
-        # TODO: Register task factory (dependent on executor).
-        # TODO: Register input factory (dependent on dispatcher and task factory / executor).
-        # TODO: Register results handler (dependent on dispatcher end points).
-        task_view = scalems.context.ItemView(context=self, uid=uid)
-
-        # TODO: Use an abstract event hook for `add_item` and other (decorated) methods.
-        # Internal functionality can probably explicitly register and unregister, accounting
-        # for the current details of thread safety. External access will need to be in
-        # terms of a concurrency framework, so we can use a scoped `async with event_subscription`
-        # to create an asynchronous iterator (with some means to externally end the subscription,
-        # either through the generator protocol directly or through logic in the provider of the iterator)
-        dispatcher_queue = self._queue
-        # self._queue may be removed by another thread before we add the item to it,
-        # but that is fine. There is nothing wrong with abandoning an unneeded queue.
-        if dispatcher_queue is not None:
-            logger.debug('Running dispatcher detected. Entering live dispatching hook.')
-            # Add the AddItem message to the queue.
-            assert isinstance(dispatcher_queue, queue.SimpleQueue)
-            dispatcher_queue.put({'add_item': task_description})
-
-        return task_view
 
     async def run(self, task=None, **kwargs):
         """Run the configured workflow.

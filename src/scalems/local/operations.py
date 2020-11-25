@@ -13,7 +13,9 @@ import tempfile
 import typing
 
 import scalems.subprocess
-from scalems.exceptions import DispatchError, InternalError
+from scalems import OutputFile
+from scalems.core.exceptions import DispatchError, InternalError, ProtocolError
+from scalems.context import next_monotonic_integer as _next_int
 
 
 @dataclasses.dataclass
@@ -66,7 +68,10 @@ async def subprocessCoroutine(signature: SubprocessInput):
 
 
 @contextlib.asynccontextmanager
-async def input_resource_scope(context, task_input: typing.Union[scalems.subprocess.SubprocessInput, typing.Awaitable[scalems.subprocess.SubprocessInput]]):
+async def input_resource_scope(context,
+                               task_input: typing.Union[
+                                   scalems.subprocess.SubprocessInput,
+                                   typing.Awaitable[scalems.subprocess.SubprocessInput]]):
     """Manage the actual execution context of the asyncio.subprocess.Process.
 
     Translate a scalems.subprocess.SubprocessInput to a local SubprocessInput instance.

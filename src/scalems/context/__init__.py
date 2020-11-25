@@ -30,7 +30,10 @@ import logging
 import warnings
 import weakref
 
-from scalems.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
+from scalems.core.exceptions import DispatchError
+from scalems.core.exceptions import DuplicateKeyError
+from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
+from scalems.serialization import Encoder
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -560,89 +563,3 @@ def scope(context):
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.
 
-
-def _run(*, work, context, **kwargs):
-    """Run in current scope."""
-    import asyncio
-    from asyncio.coroutines import iscoroutine, iscoroutinefunction
-
-    # TODO: Allow custom dispatcher hook.
-    if iscoroutinefunction(context.run):
-
-        logger.debug('Creating coroutine object for workflow dispatcher.')
-        # TODO: Handle in context.run() via full dispatcher implementation.
-        try:
-            if callable(work):
-                handle = work(**kwargs)
-        except Exception as e:
-            logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
-            raise e
-        # TODO:
-        # coro = context.run(work, **kwargs)
-        try:
-            coro = context.run()
-        except Exception as e:
-            logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
-            raise e
-
-        logger.debug('Starting asyncio.run()')
-        # Manage event loop directly, since asyncio.run() doesn't seem to always clean it up right.
-        # TODO: Check for existing event loop.
-        loop = asyncio.get_event_loop()
-        try:
-            task = loop.create_task(coro)
-            result = loop.run_until_complete(task)
-        finally:
-            loop.close()
-        assert loop.is_closed()
-
-        logger.debug('Finished asyncio.run()')
-    else:
-        logger.debug('Starting context.run() without asyncio wrapper')
-        result = context.run(work, **kwargs)
-        logger.debug('Finished context.run()')
-    return result
-
-
-def run(work, context=None, **kwargs):
-    """Execute the provided coroutine object.
-
-    Abstraction for :py:func:`asyncio.run()`
-
-    Note: If we want to go this route, we should integrate with the
-    asyncio event loop policy, or obtain an event loop instance and
-    use it w.r.t. run_in_executor and set_task_factory.
-
-    .. todo:: Coordinate with RP plans for event loop contexts and concurrency module executors.
-
-    See also https://docs.python.org/3/library/asyncio-dev.html#debug-mode
-    """
-    # Cases, likely in appropriate order of resolution:
-    # * work is a SCALEMS ItemView or Future
-    # * work is a asyncio.coroutine
-    # * work is a asyncio.coroutinefunction
-    # * work is a regular Python callable
-    # * work is None (get all work from current and/or parent workflow context)
-
-    # TODO: Check whether coroutine is already executing and where.
-    # if iscoroutine(coroutine):
-    #     return asyncio.run(coroutine, **kwargs)
-
-    # No automatic dispatching yet. Coroutine must be executable
-    # in the current or provided context.
-    try:
-        if context is None:
-            context = get_context()
-        if context is get_context():
-            result = _run(work=work, context=context, **kwargs)
-        else:
-            with scope(context):
-                result = _run(work=work, context=context, **kwargs)
-        return result
-    except Exception as e:
-        message = 'Uncaught exception in scalems.context.run(): {}'.format(str(e))
-        warnings.warn(message)
-        logger.warning(message)
-
-    # TODO: Consider generalized coroutines to be dispatched through
-    #     custom event loops or executors.

@@ -18,7 +18,7 @@ from typing import Any, Callable
 
 import scalems.context
 from scalems.context import ItemView
-from scalems.exceptions import DuplicateKeyError, MissingImplementationError
+from scalems.core.exceptions import DuplicateKeyError, MissingImplementationError
 
 from . import operations
 

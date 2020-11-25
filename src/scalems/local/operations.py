@@ -94,6 +94,50 @@ async def input_resource_scope(context,
         raise InternalError('Could not find executable. Input should be vetted before this point.')
     args = list(str(arg) for arg in task_input.argv[1:])
 
+    if task_input.inputs is not None and len(task_input.inputs) > 0:
+        for key, value in task_input.inputs.items():
+            try:
+                if not os.path.exists(value):
+                    raise ValueError('File not found: {}'.format(value))
+            except:
+                raise TypeError('Invalid input (expected file path): {}'.format(repr(value)))
+            args.extend([key, value])
+
+    if task_input.outputs is not None and len(task_input.inputs) > 0:
+        for i, (key, value) in enumerate(task_input.outputs.items()):
+            if isinstance(value, OutputFile):
+                if value.label is not None:
+                    # TODO: Add an item to the graph that depends on the task.
+                    ...
+                # Generate an appropriate output file name.
+                # Use the fingerprint of the task_input, the current operation type identifier,
+                # and the sequence number of this output file in the current command.
+
+                # Note that this means we need an additional interaction with the workflow manager
+                # in order to have enough context to associate the output with the operation that is
+                # consuming these input resources. Alternatively, we could broaden the scope of this
+                # context manager to represent all run-time resources, and not just the input resources.
+
+                # input_hash = hash(task_input)
+                # input_hash += hash('Subprocess')
+                # input_hash += hash(i)
+                # basename = hashlib.sha256(bytes(input_hash)).digest().hex()
+                # TODO: Handle working directory.
+                path = _next_int().to_bytes(32, 'big').hex() + value.suffix
+                if os.path.exists(path):
+                    raise ProtocolError('Output file already exists but reexecution has not been considered.')
+                # There is obviously a race condition / security hole between the time
+                # that we check an output file name and execute the command. This is
+                # unavoidable with process that expects to create a file with a user-provided name.
+            else:
+                try:
+                    path = os.fsencode(str(value))
+                    if os.path.exists(path):
+                        raise ValueError('Output file already exists: {}'.format(path))
+                except:
+                    raise TypeError('Invalid input (expected file path): {}'.format(repr(value)))
+            args.extend([key, path])
+
     # Warning: If subprocess.Popen receives *env* argument that is not None, it **replaces** the
     # default environment (a duplicate of the caller's environment). We might want to provide
     # fancier semantics to copy or reject select variables from the environment or to
@@ -146,7 +190,7 @@ async def input_resource_scope(context,
             # TODO: Create SubprocessInput with a coroutine so that we can yield an awaitable.
             subprocess_input = SubprocessInput(program, args, stdin=fh_in, stdout=fh_out, stderr=fh_err, env=get_env())
             # Provide resources to the implementation coroutine.
-            yield subprocess_input  # needs to be an awaitable... ?
+            yield subprocess_input
         finally:
             # Clean up scoped resources.
             # Deliver output files?

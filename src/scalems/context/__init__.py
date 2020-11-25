@@ -19,14 +19,18 @@ of a contextvars.copy_context().run(). scalems will try to flag misuse by raisin
 a ProtocolError, but please be sensible.
 """
 
+__all__ = ['WorkflowManager']
+
 import abc
 import asyncio
 import collections
 import contextlib
 import contextvars
+import dataclasses
 import functools
 import json
 import logging
+import queue
 import warnings
 import weakref
 
@@ -47,6 +51,26 @@ logger.debug('Importing {}'.format(__name__))
 # 3. run within the new Context.
 # 4. ensure the Context is destroyed (remove circular references)
 _dispatcher = contextvars.ContextVar('dispatcher', default=None)
+
+_monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)
+
+
+def next_monotonic_integer() -> int:
+    """Utility for generating a monotonic sequence of integers across an interpreter process.
+
+    Not thread-safe. However, threads may
+
+    * avoid race conditions by copying the contextvars context for non-root threads
+    * reproduce the sequence of the main thread by calling this function an equal
+      number of times.
+
+    Returns:
+        Next integer.
+
+    """
+    value = _monotonic_integer.get()
+    _monotonic_integer.set(value + 1)
+    return value
 
 
 class ResourceType:
@@ -170,7 +194,6 @@ class ItemView:
         except KeyError as e:
             raise
 
-
     def __init__(self, context, uid: bytes):
         self._context = weakref.ref(context)
         if isinstance(uid, bytes) and len(uid) == 32:
@@ -247,7 +270,7 @@ class Task:
         return self._result
 
     def description(self) -> Description:
-        decoded_record = json.loads(self._encoded)
+        decoded_record = json.loads(self._serialized_record)
         resource_type = ResourceType(tuple(decoded_record['type']))
         # TODO: Handle multidimensional references.
         shape = (1,)
@@ -266,19 +289,19 @@ class Task:
         # TODO: Manage internal state updates.
         # TODO: Respect different attribute type semantics.
         try:
-            decoded_record = json.loads(self._encoded)
+            decoded_record = json.loads(self._serialized_record)
             logger.debug('Decoded {}: {}'.format(type(decoded_record).__name__, str(decoded_record)))
             value = decoded_record[item]
         except json.JSONDecodeError as e:
             raise AttributeError('Problem retrieving "{}"'.format(item)) from e
         except KeyError as e:
-            logger.debug('Did not find "{}" in {}'.format(item, self._encoded))
+            logger.debug('Did not find "{}" in {}'.format(item, self._serialized_record))
             raise AttributeError('Problem retrieving "{}"'.format(item)) from e
         return value
 
-    def __init__(self, context, record):
-        self._encoded = str(record)
-        decoded_record = json.loads(self._encoded)
+    def __init__(self, context: 'WorkflowManager', record: str):
+        self._serialized_record = str(record)
+        decoded_record = json.loads(self._serialized_record)
 
         self._uid = bytes.fromhex(decoded_record['uid'])
         if not len(self._uid) == 256//8:
@@ -380,7 +403,7 @@ class WorkflowManager(abc.ABC):
         This allows intermediate updates to be propagated and could be a superset of the additem hook.
 
     """
-
+    task_map: dict
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
@@ -445,16 +468,90 @@ class WorkflowManager(abc.ABC):
     #     """
     #     ...
 
-    @abc.abstractmethod
-    def add_item(self, task_description):
-        """Add a task to the workflow.
+    def add_item(self, task_description) -> ItemView:
+        # # TODO: Resolve implementation details for *operation*.
+        # if operation != 'scalems.executable':
+        #     raise MissingImplementationError('No implementation for {} in {}'.format(operation, repr(self)))
+        # # Copy a static copy of the input.
+        # # TODO: Dispatch tasks addition, allowing negotiation of Context capabilities and subscription
+        # #  to resources owned by other Contexts.
+        # if not isinstance(bound_input, scalems.subprocess.SubprocessInput):
+        #     raise ValueError('Only scalems.subprocess.SubprocessInput objects supported as input.')
 
-        Returns:
-            Reference to the new task.
+        # TODO: Replace with type-based dispatching or some normative interface test.
+        from ..subprocess import Subprocess
+        if not isinstance(task_description, (Subprocess, dict)):
+            raise MissingImplementationError('Operation not supported.')
 
-        TODO: Resolve operation implementation to dispatch task configuration.
-        """
-        ...
+        if hasattr(task_description, 'uid'):
+            uid: bytes = task_description.uid()
+            if uid in self.task_map:
+                # TODO: Consider decreasing error level to `warning`.
+                raise DuplicateKeyError('Task already present in workflow.')
+            logger.debug('Adding {} to {}'.format(str(task_description), str(self)))
+            record = {
+                'uid': uid.hex(),
+                'type': task_description.resource_type().scoped_identifier(),
+                'input': {}
+            }
+            task_input = task_description.input_collection()
+            for field in dataclasses.fields(task_input):
+                name = field.name
+                try:
+                    # TODO: Need serialization typing.
+                    record['input'][name] = getattr(task_input, name)
+                except AttributeError as e:
+                    raise InternalError('Unexpected missing field.') from e
+        else:
+            assert isinstance(task_description, dict)
+            implementation_identifier = task_description.get('implementation', None)
+            if not isinstance(implementation_identifier, list):
+                raise DispatchError('Bug: bad schema checking?')
+            uid: bytes = task_description.get('uid', next_monotonic_integer().to_bytes(32, 'big'))
+
+            if uid in self.task_map:
+                # TODO: Consider decreasing error level to `warning`.
+                raise DuplicateKeyError('Task already present in workflow.')
+            logger.debug('Adding {} to {}'.format(str(task_description), str(self)))
+            record = {
+                'uid': uid.hex(),
+                'type': tuple(implementation_identifier),
+                'input': task_description
+            }
+        serialized_record = json.dumps(record, cls=Encoder)
+
+        # TODO: Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
+        item = Task(self, serialized_record)
+        # TODO: Check for ability to dispatch.
+        #  Note module dependencies, etc. and check in target execution environment
+        #  (e.g. https://docs.python.org/3/library/importlib.html#checking-if-a-module-can-be-imported)
+
+        self.task_map[uid] = item
+
+        task_view = ItemView(context=self, uid=uid)
+
+        # TODO: Register task factory (dependent on executor).
+        # TODO: Register input factory (dependent on dispatcher and task factory / executor).
+        # TODO: Register results handler (dependent on dispatcher end points).
+
+
+        # TODO: Use an abstract event hook for `add_item` and other (decorated) methods.
+        # Internal functionality can probably explicitly register and unregister, accounting
+        # for the current details of thread safety. External access will need to be in
+        # terms of a concurrency framework, so we can use a scoped `async with event_subscription`
+        # to create an asynchronous iterator (with some means to externally end the subscription,
+        # either through the generator protocol directly or through logic in the provider of the iterator)
+        dispatcher_queue = getattr(self, '_queue', None)
+        # During development, a WorkflowManager implementation may not have a self._queue.
+        # self._queue may be removed by another thread before we add the item to it,
+        # but that is fine. There is nothing wrong with abandoning an unneeded queue.
+        if dispatcher_queue is not None:
+            logger.debug('Running dispatcher detected. Entering live dispatching hook.')
+            # Add the AddItem message to the queue.
+            assert isinstance(dispatcher_queue, queue.SimpleQueue)
+            dispatcher_queue.put({'add_item': task_description})
+
+        return task_view
 
 
 class DefaultContext(WorkflowManager):

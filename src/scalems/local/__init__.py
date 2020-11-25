@@ -16,6 +16,7 @@ import concurrent.futures
 import contextlib
 import contextvars
 import dataclasses
+import importlib
 import json
 import logging
 import queue
@@ -35,8 +36,17 @@ logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
-class QueueItem:
+class QueueItem(typing.Dict[str, Any]):
     """Queue items are either workflow items or control messages."""
+
+    def _hexify(self):
+        for key, value in self.items():
+            if isinstance(value, bytes):
+                value = value.hex()
+            yield key, value
+
+    def __str__(self) -> str:
+        return str(dict(self._hexify()))
 
 
 # TO DO NEXT: Implement the queue, dispatcher, executor (and internal queue)
@@ -120,8 +130,8 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
             # Note: if there were a reason to decouple the executor lifetime from this scope,
             # we could consider a more object-oriented interface with it.
             executor_queue = asyncio.Queue()
-            for key in initial_task_list:
-                await executor_queue.put({'add_item': key})
+            for _task_id in initial_task_list:
+                await executor_queue.put(QueueItem({'add_item': _task_id}))
             executor = run_executor(source_context=self, command_queue=executor_queue)
 
             # 4. Bind a dispatcher to the executor_queue and the dispatcher_queue.
@@ -237,6 +247,7 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
     #     raise MissingImplementationError()
 
 
+# TODO: Consider explicitly decoupling client-facing workflow manager from executor-facing manager.
 async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyncio.Queue):
     """Process workflow messages until a stop message is received.
 
@@ -282,9 +293,15 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
     # Could also accept a "stop" Event object, but we would need some other way to yield
     # on an empty queue.
     while True:
-        command = await command_queue.get()
+        command: QueueItem = await command_queue.get()
+        # Developer note: The preceding line and the following try/finally block are coupled!
+        # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
+        # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block with a
+        # `finally` suite. Don't separate these without considering the Queue protocol.
         try:
-            logger.debug('Executor is handling {}'.format(repr(command)))
+            if not len(command.items()) == 1:
+                raise ProtocolError('Expected a single key-value pair.')
+            logger.debug('Executor is handling {}'.format(str(command)))
 
             # TODO: Use formal RPC protocol.
             if 'control' in command:
@@ -294,6 +311,7 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
                     raise ProtocolError('Unknown command: {}'.format(command['control']))
             if 'add_item' not in command:
                 raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
+
             key = command['add_item']
             item = source_context.item(key)
             if not isinstance(item, scalems.context.Task):
@@ -306,35 +324,46 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
 
             # TODO: Automatically resolve resource types.
             task_type_identifier = item.description().type().identifier()
-            if task_type_identifier != 'scalems.subprocess.SubprocessTask':
-                raise MissingImplementationError('Executor does not have an implementation for {}'.format(str(task_type_identifier)))
-            task_type = scalems.subprocess.SubprocessTask()
+            if task_type_identifier == 'scalems.subprocess.SubprocessTask':
+                task_type = scalems.subprocess.SubprocessTask()
 
-            # TODO: Use abstract input factory.
-            logger.debug('Resolving input for {}'.format(str(item)))
-            input_type = task_type.input_type()
-            input_record = input_type(**item.input)
-            input_resources = operations.input_resource_scope(context=source_context, task_input=input_record)
+                # TODO: Use abstract input factory.
+                logger.debug('Resolving input for {}'.format(str(item)))
+                input_type = task_type.input_type()
+                input_record = input_type(**item.input)
+                input_resources = operations.input_resource_scope(context=source_context, task_input=input_record)
 
-            # We need to provide a scope in which we guarantee the availability of resources,
-            # such as temporary files provided for input, or other internally-generated
-            # asyncio entities.
-            async with input_resources as subprocess_input:
-                logger.debug('Creating coroutine for {}'.format(task_type.__class__.__name__))
-                # TODO: Use abstract task factory.
-                coroutine = operations.subprocessCoroutine(subprocess_input)
-                logger.debug('Creating asyncio Task for {}'.format(repr(coroutine)))
-                awaitable = asyncio.create_task(coroutine)
+                # We need to provide a scope in which we guarantee the availability of resources,
+                # such as temporary files provided for input, or other internally-generated
+                # asyncio entities.
+                async with input_resources as subprocess_input:
+                    logger.debug('Creating coroutine for {}'.format(task_type.__class__.__name__))
+                    # TODO: Use abstract task factory.
+                    coroutine = operations.subprocessCoroutine(subprocess_input)
+                    logger.debug('Creating asyncio Task for {}'.format(repr(coroutine)))
+                    awaitable = asyncio.create_task(coroutine)
 
-                # TODO: Use abstract results handler.
-                logger.debug('Waiting for task to complete.')
-                result = await awaitable
-                subprocess_exception = awaitable.exception()
-                if subprocess_exception is not None:
-                    logger.exception('subprocess task raised exception {}'.format(str(subprocess_exception)))
-                    raise subprocess_exception
-                logger.debug('Setting result for {}'.format(str(item)))
-                item.set_result(result)
+                    # TODO: Use abstract results handler.
+                    logger.debug('Waiting for task to complete.')
+                    result = await awaitable
+                    subprocess_exception = awaitable.exception()
+                    if subprocess_exception is not None:
+                        logger.exception('subprocess task raised exception {}'.format(str(subprocess_exception)))
+                        raise subprocess_exception
+                    logger.debug('Setting result for {}'.format(str(item)))
+                    item.set_result(result)
+            else:
+                try:
+                    implementation = importlib.import_module(str(task_type_identifier))
+                except ImportError:
+                    # We should have already checked for this...
+                    implementation = None
+                helper = getattr(implementation, 'scalems_helper', None)
+                if not callable(helper):
+                    raise MissingImplementationError('Executor does not have an implementation for {}'.format(str(task_type_identifier)))
+                else:
+                    helper(item)
+
         finally:
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             command_queue.task_done()

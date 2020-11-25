@@ -19,6 +19,7 @@ import scalems.core.exceptions as exceptions
 from scalems.context import scope
 
 from ..context import get_context
+from ..context import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -118,7 +119,6 @@ def wait(ref):
     scalems.wait() will produce an error if you have not configured and launched
     an execution manager in the current scope.
     """
-    from ..context import get_context, WorkflowManager
     context = get_context()
     if context is None:
         # Bail out.

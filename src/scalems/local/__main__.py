@@ -45,6 +45,7 @@ exitcode = 0
 try:
     with scalems.context.scope(scalems.local.AsyncWorkflowManager()) as context:
         try:
+            # Check accessibility!
             globals_namespace = runpy.run_path(sys.argv[0])
             # TODO: Use a decorator to annotate which function(s) to run?
             main = None
@@ -60,8 +61,7 @@ try:
         except SystemExit as e:
             exitcode = e.code
 except Exception as e:
-    print('Exception')
-    print(repr(e))
+    print('Exception: {}'.format(repr(e)))
     if exitcode == 0:
         exitcode = 1
 raise SystemExit(exitcode)

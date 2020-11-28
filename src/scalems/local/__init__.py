@@ -19,6 +19,8 @@ import dataclasses
 import importlib
 import json
 import logging
+import os
+import pathlib
 import queue
 import threading
 import warnings
@@ -241,6 +243,27 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
             logger.debug('Leaving {}.run()'.format(type(self).__name__))
 
 
+class _ExecutionContext:
+    """Represent the run time environment for a managed workflow item."""
+    def __init__(self, manager: scalems.context.WorkflowManager, identifier: bytes):
+        self.workflow_manager: scalems.context.WorkflowManager = manager
+        self.identifier: bytes = identifier
+        try:
+            self.workflow_manager.item(self.identifier)
+        except:
+            raise InternalError('Unable to access managed item.')
+        self._task_directory = pathlib.Path(os.path.join(os.getcwd(), self.identifier.hex()))
+        # TODO: Find a canonical way to get the workflow directory.
+
+    @property
+    def task_directory(self) -> pathlib.Path:
+        return self._task_directory
+
+    def done(self) -> bool:
+        done_token = os.path.join(self.task_directory, 'done')
+        return os.path.exists(done_token)
+
+
 # TODO: Consider explicitly decoupling client-facing workflow manager from executor-facing manager.
 async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyncio.Queue):
     """Process workflow messages until a stop message is received.
@@ -325,16 +348,26 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
             # Note that we could insert resource management here. We could create
             # tasks until we run out of free resources, then switch modes to awaiting
             # tasks until resources become available, then switch back to placing tasks.
-            await _execute_item(task_type_identifier=task_type_identifier,
-                                item=item,
-                                execution_context=source_context)
+            execution_context = _ExecutionContext(source_context, key)
+            if execution_context.done():
+                if isinstance(key, bytes):
+                    id = key.hex()
+                else:
+                    id = str(key)
+                logger.info(f'Skipping task that is already done. ({id})')
+            if not execution_context.done():
+                await _execute_item(task_type_identifier=task_type_identifier,
+                                    item=item,
+                                    execution_context=execution_context)
+            # TODO: output handling
+            # TODO: failure handling
 
         finally:
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             command_queue.task_done()
 
 
-async def _execute_item(task_type_identifier, item, execution_context):
+async def _execute_item(task_type_identifier, item, execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
     if task_type_identifier == 'scalems.subprocess.SubprocessTask':
         task_type = scalems.subprocess.SubprocessTask()
@@ -351,7 +384,7 @@ async def _execute_item(task_type_identifier, item, execution_context):
         async with input_resources as subprocess_input:
             logger.debug('Creating coroutine for {}'.format(task_type.__class__.__name__))
             # TODO: Use abstract task factory.
-            coroutine = operations.subprocessCoroutine(subprocess_input)
+            coroutine = operations.subprocessCoroutine(context=execution_context, signature=subprocess_input)
             logger.debug('Creating asyncio Task for {}'.format(repr(coroutine)))
             awaitable = asyncio.create_task(coroutine)
 
@@ -365,14 +398,48 @@ async def _execute_item(task_type_identifier, item, execution_context):
             logger.debug('Setting result for {}'.format(str(item)))
             item.set_result(result)
     else:
+        # TODO: Process pool?
+        # The only way we can be sure that tasks will not detect and use the working
+        # directory of the main script's interpreter process is to actually
+        # change directories. However, there isn't a good way to do that with concurrency.
+        # We can either block concurrent execution within the changed directory,
+        # or we can do the directory changing in subprocesses.
+        #
+        # Here we use a non-asynchronous context manager to avoid yielding
+        # to the asyncio event loop. However, if there are other threads in the
+        # current process that release the GIL, this is not safe.
         try:
-            implementation = importlib.import_module(str(task_type_identifier))
-        except ImportError:
-            # We should have already checked for this...
-            implementation = None
-        helper = getattr(implementation, 'scalems_helper', None)
-        if not callable(helper):
-            raise MissingImplementationError(
-                'Executor does not have an implementation for {}'.format(str(task_type_identifier)))
-        else:
-            helper(item)
+            with scoped_chdir(execution_context.task_directory):
+                try:
+                    implementation = importlib.import_module(str(task_type_identifier))
+                except ImportError:
+                    # We should have already checked for this...
+                    implementation = None
+                helper = getattr(implementation, 'scalems_helper', None)
+                if not callable(helper):
+                    raise MissingImplementationError(
+                        'Executor does not have an implementation for {}'.format(str(task_type_identifier)))
+                else:
+                    helper(item)
+        except Exception as e:
+            logger.exception(f'Badly handled exception: {e}')
+            raise e
+
+
+@contextlib.contextmanager
+def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
+    """Restore original working directory when exiting the context manager.
+
+    Not thread safe.
+
+    Not compatible with concurrency patterns.
+    """
+    path = pathlib.Path(directory)
+    if not path.exists() or not path.is_dir():
+        raise ValueError(f'Not a valid directory: {directory}')
+    original_dir = os.getcwd()
+    try:
+        os.chdir(path)
+        yield path
+    finally:
+        os.chdir(original_dir)

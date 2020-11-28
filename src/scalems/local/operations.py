@@ -79,6 +79,7 @@ async def input_resource_scope(context,
     InputResource factory for *subprocess* based implementations.
 
     TODO: How should this be composed in terms of the context and (local) resource type?
+        Note that the (currently unused) *context* parameter is available for dispatching.
     """
     # Await the inputs.
     if inspect.isawaitable(task_input):

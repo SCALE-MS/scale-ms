@@ -368,6 +368,7 @@ def executable(*args, context=None, **kwargs):
     # workflow editing context. We could either block on acquiring the editor
     # context, use an async context manager, or hide the possible async
     # aspect by letting the return value of the director be awaitable.
+    # TODO: This would be more readable in a form like workflow.add_item(Subprocess, bound_input)
 
     try:
         task_view = director(input=bound_input)

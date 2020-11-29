@@ -3,8 +3,8 @@
 # It will take a few seconds to be ready for connections, after which
 # radical.pilot will be able to use pymongo to connect.
 # Example:
-#     docker build -t rp-complete -f rp-complete.dockerfile .
-#     docker run --rm --name rp_test -d rp-complete
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile .
+#     docker run --rm --name rp_test -d scalems/rp-complete
 #     # Either use '-d' with 'run' or issue the 'exec' in a separate terminal
 #     # after waiting a few seconds for the DB to be ready to accept connections.
 #     docker exec -ti -u rp rp_test bash -c "cd ~/radical.pilot && ~/rp-venv/bin/python -m pytest tests"
@@ -15,7 +15,7 @@
 #     # If '-d' was used with 'run', you can just kill the container when done.
 #     docker kill rp_test
 #
-# Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default v1.5.2)
+# Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default v1.5.7)
 #     docker build -t rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
 #
 
@@ -31,19 +31,19 @@ RUN apt-get update && \
         gcc \
         git \
         iputils-ping \
-        python3-dev \
-        python3-venv \
+        python3.8-dev \
+        python3.8-venv \
         vim \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
 RUN apt-get update && \
     apt-get install -y \
-        python3.7-dev \
-        python3.7-venv && \
+        python3.8-dev \
+        python3-venv && \
     rm -rf /var/lib/apt/lists/*
 
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.7 1
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
 
 USER rp
 
@@ -75,14 +75,14 @@ RUN . ~rp/rp-venv/bin/activate && \
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-ARG RPREF="v1.5.2"
+ARG RPREF="v1.5.7"
 RUN cd ~rp && \
     wget https://github.com/radical-cybertools/radical.pilot/archive/$RPREF.tar.gz && \
     tar zxvf $RPREF.tar.gz && \
     mv radical.pilot-* radical.pilot && \
     rm $RPREF.tar.gz
 
-# Install RP from whichever git ref is provided as `--build-arg RPREF=...` (default 1.5.2)
+# Install RP from whichever git ref is provided as `--build-arg RPREF=...` (default 1.5.7)
 RUN . ~rp/rp-venv/bin/activate && \
     cd ~rp/radical.pilot && \
     pip install .

@@ -5,7 +5,7 @@
 # Example:
 #     docker build -t radicalpilot -f radicalpilot.dockerfile .
 
-FROM ubuntu:bionic
+FROM ubuntu:focal
 
 RUN apt-get update && \
     apt-get install -y \
@@ -15,8 +15,8 @@ RUN apt-get update && \
         git \
         openssh-server \
         iputils-ping \
-        python3-dev \
-        python3-venv \
+        python3.8-dev \
+        python3.8-venv \
         vim && \
     rm -rf /var/lib/apt/lists/*
 

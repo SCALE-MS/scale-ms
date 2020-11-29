@@ -64,7 +64,7 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
     """
     def __init__(self):
         # Basic Context implementation details
-        self.task_map = dict()  # Map UIDs to task Futures.
+        self.task_map = {}  # Map UIDs to task Futures.
         # Note: We actually need multiple queues and a queue monitor to move
         # items between queues. The Executor will have a sense of "scope" for
         # tasks that are grouped by data locality or resource requirements, as
@@ -192,16 +192,6 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
             # Do we want to close the event loop here, as part of scalems.run(), or somewhere else?
             # loop.close()
 
-    def item(self, uid: bytes):
-        """Interact with a managed item.
-
-        In the initial implementation, this supports both client ItemViews and
-        executor updates, which may not be appropriate.
-        """
-        # Consider providing the consumer context when acquiring access.
-        # Consider limiting the scope of access requested.
-        return self.task_map[uid]
-
     async def run(self, task=None, **kwargs):
         """Run the configured workflow.
 
@@ -250,8 +240,8 @@ class _ExecutionContext:
         self.identifier: bytes = identifier
         try:
             self.workflow_manager.item(self.identifier)
-        except:
-            raise InternalError('Unable to access managed item.')
+        except Exception as e:
+            raise InternalError('Unable to access managed item.') from e
         self._task_directory = pathlib.Path(os.path.join(os.getcwd(), self.identifier.hex()))
         # TODO: Find a canonical way to get the workflow directory.
 
@@ -335,41 +325,43 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
                 raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
 
             key = command['add_item']
-            item = source_context.item(key)
-            if not isinstance(item, scalems.context.Task):
-                raise InternalError('Expected {}.item() to return a scalems.context.Task'.format(repr(source_context)))
+            with source_context.edit_item(key) as item:
+                if not isinstance(item, scalems.context.Task):
+                    raise InternalError('Expected {}.item() to return a scalems.context.Task'.format(repr(source_context)))
 
-            # TODO: Ensemble handling
-            item_shape = item.description().shape()
-            if len(item_shape) != 1 or item_shape[0] != 1:
-                raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
+                # TODO: Ensemble handling
+                item_shape = item.description().shape()
+                if len(item_shape) != 1 or item_shape[0] != 1:
+                    raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
 
-            task_type_identifier = item.description().type().identifier()
-            # Note that we could insert resource management here. We could create
-            # tasks until we run out of free resources, then switch modes to awaiting
-            # tasks until resources become available, then switch back to placing tasks.
-            execution_context = _ExecutionContext(source_context, key)
-            if execution_context.done():
-                if isinstance(key, bytes):
-                    id = key.hex()
-                else:
-                    id = str(key)
-                logger.info(f'Skipping task that is already done. ({id})')
-            if not execution_context.done():
-                await _execute_item(task_type_identifier=task_type_identifier,
-                                    item=item,
-                                    execution_context=execution_context)
-            # TODO: output handling
-            # TODO: failure handling
+                task_type: scalems.context.ResourceType = item.description().type()
+                # Note that we could insert resource management here. We could create
+                # tasks until we run out of free resources, then switch modes to awaiting
+                # tasks until resources become available, then switch back to placing tasks.
+                execution_context = _ExecutionContext(source_context, key)
+                if execution_context.done():
+                    if isinstance(key, bytes):
+                        id = key.hex()
+                    else:
+                        id = str(key)
+                    logger.info(f'Skipping task that is already done. ({id})')
+                if not execution_context.done():
+                    await _execute_item(task_type=task_type,
+                                        item=item,
+                                        execution_context=execution_context)
+                # TODO: output handling
+                # TODO: failure handling
 
         finally:
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             command_queue.task_done()
 
 
-async def _execute_item(task_type_identifier, item, execution_context: _ExecutionContext):
+async def _execute_item(task_type: scalems.context.ResourceType,
+                        item: scalems.context.Task,
+                        execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
-    if task_type_identifier == 'scalems.subprocess.SubprocessTask':
+    if task_type.identifier() == 'scalems.subprocess.SubprocessTask':
         task_type = scalems.subprocess.SubprocessTask()
 
         # TODO: Use abstract input factory.
@@ -409,17 +401,35 @@ async def _execute_item(task_type_identifier, item, execution_context: _Executio
         # to the asyncio event loop. However, if there are other threads in the
         # current process that release the GIL, this is not safe.
         try:
-            with scoped_chdir(execution_context.task_directory):
-                try:
-                    implementation = importlib.import_module(str(task_type_identifier))
-                except ImportError:
-                    # We should have already checked for this...
-                    implementation = None
+            task_dir = execution_context.task_directory
+            if not task_dir.exists():
+                task_dir.mkdir()
+            logger.debug(f'Entering {task_dir}')
+            with scoped_chdir(task_dir):
+                # TODO: Use implementation registry.
+                # We should have already checked for this...
+                namespace_end = len(task_type.as_tuple())
+                implementation = None
+                while namespace_end >= 1:
+                    try:
+                        module = '.'.join(task_type.as_tuple()[:namespace_end])
+                        logger.debug(f'Looking for importable module: {module}')
+                        implementation = importlib.import_module(module)
+                    except ImportError:
+                        implementation = None
+                    else:
+                        break
+                    # Try the parent namespace?
+                    namespace_end -= 1
+                if namespace_end < 1:
+                    raise InternalError('Bad task_type_identifier.')
+                logger.debug(f'Looking for "scalems_helper in {module}.')
                 helper = getattr(implementation, 'scalems_helper', None)
                 if not callable(helper):
                     raise MissingImplementationError(
-                        'Executor does not have an implementation for {}'.format(str(task_type_identifier)))
+                        'Executor does not have an implementation for {}'.format(str(task_type)))
                 else:
+                    logger.debug('Helper found. Passing item to helper for execution.')
                     helper(item)
         except Exception as e:
             logger.exception(f'Badly handled exception: {e}')

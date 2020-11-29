@@ -16,6 +16,7 @@ import typing
 import warnings
 
 import scalems.core.exceptions as exceptions
+from scalems.context import next_monotonic_integer
 from scalems.context import scope
 
 from ..context import get_context
@@ -73,6 +74,47 @@ ResultType = typing.TypeVar('ResultType')
 class WorkflowObject(typing.Generic[ResultType]): ...
 
 
+def _unpack_work(ref: dict):
+    """Temporary handler for ad hoc dict-based input.
+
+    Unpack and serialize the nested task descriptions.
+    """
+    assert isinstance(ref, dict)
+    implementation_identifier = ref.get('implementation', None)
+    message: dict = ref.get('message', None)
+    if not isinstance(implementation_identifier, list) or not isinstance(message, dict):
+        raise exceptions.DispatchError('Bug: bad schema checking?')
+    uid: bytes = ref.get('uid', next_monotonic_integer().to_bytes(32, 'big'))
+
+    command = implementation_identifier[-1]
+    # Temporary hack for ad hoc schema.
+    if command == 'Executable':
+        # generate Subprocess
+        from scalems.subprocess import SubprocessInput, Subprocess
+        input_node, task_node, output_node = message['Executable']
+        kwargs = {
+            'argv': input_node['data']['argv'],
+            'stdin': input_node['data']['stdin'],
+            'stdout': task_node['data']['stdout'],
+            'stderr': task_node['data']['stderr'],
+            'environment': input_node['data']['environment'],
+            'resources': task_node['input']['resources']
+        }
+        bound_input = SubprocessInput(**kwargs)
+        item = Subprocess(input=bound_input)
+        yield item
+    else:
+        # If record bundles dependencies, identify them and yield them first.
+        try:
+            depends = message[command]['input']
+        except AttributeError:
+            depends = None
+        if depends is not None:
+            yield from _unpack_work(depends)
+        # Then yield the dependent item.
+        yield ref
+
+
 @functools.singledispatch
 def _wait(ref, *, manager):
     """Use the indicated workflow manager to resolve a reference to a workflow item."""
@@ -84,10 +126,10 @@ def _wait(ref, *, manager):
 def _(ref: dict, *, manager):
     # First draft: monolithic implementation directs the workflow manager to add tasks and execute them.
     # TODO: Use a WorkflowManager interface from the core data model.
-    from ..context import WorkflowManager
     if not isinstance(manager, WorkflowManager):
         raise exceptions.ProtocolError('Provided manager does not implement the required interface.')
-    manager.add_item(ref)
+    for item in _unpack_work(ref):
+        manager.add_item(item)
     # TODO: If dispatcher is running, wait for the results.
     # TODO: If dispatcher is not running, can we trigger it?
 

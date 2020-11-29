@@ -79,7 +79,7 @@ class ResourceType:
         """Resource type identifier"""
         return '.'.join(self._identifier)
 
-    def as_strings(self) -> tuple:
+    def as_tuple(self) -> tuple:
         return self._identifier
 
     def __init__(self, type_identifier: tuple):
@@ -156,7 +156,7 @@ class ItemView:
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.item(self.uid()).done()
+        return context.task_map[self.uid()].done()
 
     def result(self):
         """Get a local object of the tasks's result type.
@@ -167,14 +167,17 @@ class ItemView:
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.item(self.uid()).result()
+        # TODO: What is the public interface to the task_map or completion status?
+        # Note: We want to keep the View object as lightweight as possible, such
+        # as storing just the weak ref to the manager, and the item identifier.
+        return context.task_map[self.uid()].result()
 
     def description(self) -> Description:
         """Get a description of the resource type."""
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.item(self.uid()).description()
+        return context.task_map[self.uid()].description()
 
     def __getattr__(self, item):
         """Proxy attribute accessor for special task members.
@@ -189,7 +192,7 @@ class ItemView:
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer available!')
-        task = context.item(self.uid())  # type: Task
+        task = context.task_map[self.uid()]  # type: Task
         try:
             return getattr(task, item)
         except KeyError as e:
@@ -329,6 +332,8 @@ class Task:
     #     ...
 
 
+# USE SINGLEDISPATCHMETHOD?
+
 # TODO: Incorporate into WorkflowContext interface.
 # Design note: WorkflowContext classes could cache implementation details for item types,
 # but (since we acknowledge that work may be defined before instantiating the context to
@@ -349,6 +354,7 @@ def workflow_item_director_factory(item, *, context, label: str = None):
     raise MissingImplementationError('No registered implementation for {} in {}'.format(repr(item), repr(context)))
 
 
+# TODO: Do we really want to handle dispatching on type _or_ instance args?
 @workflow_item_director_factory.register
 def _(item_type: type, *, context, label: str = None):
     # When dispatching on a class instead of an instance, just construct an
@@ -404,14 +410,37 @@ class WorkflowManager(abc.ABC):
         This allows intermediate updates to be propagated and could be a superset of the additem hook.
 
     """
-    task_map: dict
+    task_map: typing.Dict[bytes, Task]
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
-    # TODO: Reference a generic interface for return type.
-    @abc.abstractmethod
     def item(self, identifier) -> ItemView:
-        """Access an item in the managed workflow."""
+        """Access an item in the managed workflow.
+        """
+        # Consider providing the consumer context when acquiring access.
+        # Consider limiting the scope of access requested.
+        item_view = ItemView(context=self, uid=identifier)
+
+        return item_view
+
+    @contextlib.contextmanager
+    def edit_item(self, identifier) -> Task:
+        """Scoped workflow item editor.
+
+        Grant the caller full access to the managed task.
+
+        """
+        # TODO: Use a proxy object that is easier to inspect and roll back.
+        item = self.task_map[identifier]
+
+        # We can add a lot more sophistication here.
+        # For instance,
+        # * we should lock items for editing
+        # * we can update state metadata at each phase of the contextmanager protocol
+        # * we can execute hooks based on the state change detected when the client
+        #   releases the editor context.
+
+        yield item
 
 
     # TODO: Consider helper functionality and `label` support.
@@ -527,6 +556,8 @@ class WorkflowManager(abc.ABC):
         #  Note module dependencies, etc. and check in target execution environment
         #  (e.g. https://docs.python.org/3/library/importlib.html#checking-if-a-module-can-be-imported)
 
+        # TODO: Provide a data descriptor and possibly a more formal Workflow class.
+        # We do not yet check that the derived classes actually initialize self.task_map.
         self.task_map[uid] = item
 
         task_view = ItemView(context=self, uid=uid)

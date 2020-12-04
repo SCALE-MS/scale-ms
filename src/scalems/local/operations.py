@@ -86,8 +86,6 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
             stderr = pathlib.Path(os.path.abspath(signature.stderr.name))
             # What do we return for a failed task? Maybe raise?
             result = scalems.subprocess.SubprocessResult(exitcode=returncode, stdout=stdout, stderr=stderr, file={})
-            done_token = pathlib.Path(os.path.join(task_directory, 'done'))
-            done_token.touch()
             return result
         else:
             raise InternalError('No handler for failed tasks.')
@@ -116,9 +114,10 @@ async def input_resource_scope(context: _ExecutionContext,
     # TODO: What sort of validation or normalization do we want to do for the executable name?
     if not isinstance(task_input, scalems.subprocess.SubprocessInput):
         raise InternalError('Unexpected input type.')
-    program = pathlib.Path(shutil.which(task_input.argv[0]))
-    if not program.exists():
+    path = shutil.which(task_input.argv[0])
+    if path is None or not os.path.exists(path):
         raise InternalError('Could not find executable. Input should be vetted before this point.')
+    program = pathlib.Path(shutil.which(task_input.argv[0]))
     args = list(str(arg) for arg in task_input.argv[1:])
 
     task_directory = os.path.abspath(context.identifier.hex())

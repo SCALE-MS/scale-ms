@@ -37,12 +37,12 @@ import weakref
 import typing
 from scalems.core.exceptions import DispatchError
 from scalems.core.exceptions import DuplicateKeyError
-from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
+from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, \
+    ScopeError
 from scalems.serialization import Encoder
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
 
 # Identify an asynchronous Context. Non-asyncio-aware functions may need to behave
 # differently when we know that asynchronous context switching could happen.
@@ -134,6 +134,7 @@ class ItemView:
     .. todo:: Allows proxied access to future results through attribute access.
 
     """
+
     def uid(self) -> bytes:
         """Get the canonical unique identifier for this task.
 
@@ -203,7 +204,7 @@ class ItemView:
         if isinstance(uid, bytes) and len(uid) == 32:
             self._uid = uid
         else:
-            raise ProtocolError('uid should be a 32-byte binary digest (bytes).')
+            raise ProtocolError(f'uid should be a 32-byte binary digest (bytes). Got {uid}')
 
 
 class WorkflowView:
@@ -219,12 +220,12 @@ class WorkflowItemRecord:
     """Encapsulate the management of an item record in a BasicWorkflowManager."""
 
 
-
 class BasicWorkflowManager:
     """Reference implementation for a workflow manager.
 
     Support addition and querying of items.
     """
+
     def __init__(self):
         self._items = dict()
 
@@ -268,6 +269,7 @@ class Task:
         is likely limited to how the task is dispatched and how the Futures are
         fulfilled, which seem very pluggable.
     """
+
     def result(self):
         if not self.done():
             raise InvalidStateError('Called result() on a Task that is not done.')
@@ -308,7 +310,7 @@ class Task:
         decoded_record = json.loads(self._serialized_record)
 
         self._uid = bytes.fromhex(decoded_record['uid'])
-        if not len(self._uid) == 256//8:
+        if not len(self._uid) == 256 // 8:
             raise ProtocolError('UID is supposed to be a 256-bit hash digest. Got {}'.format(repr(self._uid)))
         self._done = asyncio.Event()
         self._result = None
@@ -328,8 +330,9 @@ class Task:
     # def deserialize(cls, context, record: str):
     #     item_view = context.add_item(record)
     #     return item_view
-    # def serialize(self):
-    #     ...
+
+    def serialize(self):
+        return self._serialized_record
 
 
 # USE SINGLEDISPATCHMETHOD?
@@ -363,10 +366,12 @@ def _(item_type: type, *, context, label: str = None):
     # TODO: Consider how best to register operations and manage their state.
     def constructor_proxy_director(*args, **kwargs):
         if not isinstance(item_type, type):
-            raise ProtocolError('This function is intended for a dispatching path on which *item_type* is a `type` object.')
+            raise ProtocolError(
+                'This function is intended for a dispatching path on which *item_type* is a `type` object.')
         item = item_type(*args, **kwargs)
         director = workflow_item_director_factory(item, context=context, label=label)
         return director()
+
     return constructor_proxy_director
 
 
@@ -411,6 +416,7 @@ class WorkflowManager(abc.ABC):
 
     """
     task_map: typing.Dict[bytes, Task]
+
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
@@ -419,6 +425,12 @@ class WorkflowManager(abc.ABC):
         """
         # Consider providing the consumer context when acquiring access.
         # Consider limiting the scope of access requested.
+        logger.debug('Looking for {} in ({})'.format(
+            identifier.hex(),
+            ', '.join(key.hex() for key in self.task_map.keys())
+        ))
+        if identifier not in self.task_map:
+            raise KeyError(f'WorkflowManager does not have item {identifier}')
         item_view = ItemView(context=self, uid=identifier)
 
         return item_view
@@ -442,14 +454,12 @@ class WorkflowManager(abc.ABC):
 
         yield item
 
-
     # TODO: Consider helper functionality and `label` support.
     # def find(self, label: str = None):
     #     """Try to locate a workflow object.
     #
     #     Find reference by label. Find owner of non-local resource, if known.
     #     """
-
 
     def default_dispatcher(self):
         """Get a default dispatcher instance, if available.
@@ -534,10 +544,11 @@ class WorkflowManager(abc.ABC):
                     raise InternalError('Unexpected missing field.') from e
         else:
             assert isinstance(task_description, dict)
+            assert 'uid' in task_description
+            uid = task_description['uid']
             implementation_identifier = task_description.get('implementation', None)
             if not isinstance(implementation_identifier, list):
                 raise DispatchError('Bug: bad schema checking?')
-            uid: bytes = task_description.get('uid', next_monotonic_integer().to_bytes(32, 'big'))
 
             if uid in self.task_map:
                 # TODO: Consider decreasing error level to `warning`.
@@ -565,7 +576,6 @@ class WorkflowManager(abc.ABC):
         # TODO: Register task factory (dependent on executor).
         # TODO: Register input factory (dependent on dispatcher and task factory / executor).
         # TODO: Register results handler (dependent on dispatcher end points).
-
 
         # TODO: Use an abstract event hook for `add_item` and other (decorated) methods.
         # Internal functionality can probably explicitly register and unregister, accounting
@@ -692,4 +702,3 @@ def scope(context):
         else:
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.
-

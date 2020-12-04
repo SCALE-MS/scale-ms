@@ -78,15 +78,17 @@ def _unpack_work(ref: dict):
     """Temporary handler for ad hoc dict-based input.
 
     Unpack and serialize the nested task descriptions.
+
+    Note: this assumes work is nested, with only one item per "layer".
     """
     assert isinstance(ref, dict)
     implementation_identifier = ref.get('implementation', None)
     message: dict = ref.get('message', None)
     if not isinstance(implementation_identifier, list) or not isinstance(message, dict):
         raise exceptions.DispatchError('Bug: bad schema checking?')
-    uid: bytes = ref.get('uid', next_monotonic_integer().to_bytes(32, 'big'))
 
     command = implementation_identifier[-1]
+    logger.debug(f'Unpacking a {command}')
     # Temporary hack for ad hoc schema.
     if command == 'Executable':
         # generate Subprocess
@@ -103,16 +105,30 @@ def _unpack_work(ref: dict):
         bound_input = SubprocessInput(**kwargs)
         item = Subprocess(input=bound_input)
         yield item
+        return item.uid()
     else:
         # If record bundles dependencies, identify them and yield them first.
         try:
-            depends = message[command]['input']
+            depends = ref['message'][command]['input']
         except AttributeError:
             depends = None
         if depends is not None:
-            yield from _unpack_work(depends)
+            logger.debug(f'Recursively unpacking {depends}')
+            dependency: typing.Optional[bytes] = yield from _unpack_work(depends)
+        else:
+            dependency = None
+        if 'uid' not in ref:
+            ref['uid'] = next_monotonic_integer().to_bytes(32, 'big')
+        uid: bytes = ref['uid']
+        if dependency is not None:
+            logger.debug('Replacing explicit input in {} with reference: {}'.format(
+                uid.hex(),
+                dependency.hex()
+            ))
+            ref['message'][command]['input'] = dependency
         # Then yield the dependent item.
         yield ref
+        return uid
 
 
 @functools.singledispatch
@@ -129,7 +145,10 @@ def _(ref: dict, *, manager):
     if not isinstance(manager, WorkflowManager):
         raise exceptions.ProtocolError('Provided manager does not implement the required interface.')
     for item in _unpack_work(ref):
-        manager.add_item(item)
+        view = manager.add_item(item)
+        logger.debug('Added {}: {}'.format(
+            view.uid().hex(),
+            str(item)))
     # TODO: If dispatcher is running, wait for the results.
     # TODO: If dispatcher is not running, can we trigger it?
 
@@ -160,6 +179,9 @@ def wait(ref):
 
     scalems.wait() will produce an error if you have not configured and launched
     an execution manager in the current scope.
+
+    .. todo:: Acquire asyncio event loop from WorkflowManager.
+        scalems.wait is primarily intended as an abstraction from https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete and an alternative to `await`.
     """
     context = get_context()
     if context is None:

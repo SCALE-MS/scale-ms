@@ -249,8 +249,13 @@ class _ExecutionContext:
     def task_directory(self) -> pathlib.Path:
         return self._task_directory
 
-    def done(self) -> bool:
+    def done(self, set_value: bool = None) -> bool:
         done_token = os.path.join(self.task_directory, 'done')
+        if set_value is not None:
+            if set_value:
+                pathlib.Path(done_token).touch(exist_ok=True)
+            else:
+                pathlib.Path(done_token).unlink(missing_ok=True)
         return os.path.exists(done_token)
 
 
@@ -345,7 +350,10 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
                     else:
                         id = str(key)
                     logger.info(f'Skipping task that is already done. ({id})')
-                if not execution_context.done():
+                    # TODO: Update local status and results.
+                else:
+                    assert not item.done()
+                    assert not source_context.item(key).done()
                     await _execute_item(task_type=task_type,
                                         item=item,
                                         execution_context=execution_context)
@@ -357,6 +365,7 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
             command_queue.task_done()
 
 
+# TODO: return an execution status object?
 async def _execute_item(task_type: scalems.context.ResourceType,
                         item: scalems.context.Task,
                         execution_context: _ExecutionContext):
@@ -389,6 +398,8 @@ async def _execute_item(task_type: scalems.context.ResourceType,
                 raise subprocess_exception
             logger.debug('Setting result for {}'.format(str(item)))
             item.set_result(result)
+            # TODO: Need rigorous task state machine.
+            execution_context.done(item.done())
     else:
         # TODO: Process pool?
         # The only way we can be sure that tasks will not detect and use the working
@@ -430,7 +441,14 @@ async def _execute_item(task_type: scalems.context.ResourceType,
                         'Executor does not have an implementation for {}'.format(str(task_type)))
                 else:
                     logger.debug('Helper found. Passing item to helper for execution.')
-                    helper(item)
+                    # Note: we need more of a hook for two-way interaction here.
+                    try:
+                        local_resources = execution_context.workflow_manager
+                        result = helper(item, context=local_resources)
+                        item.set_result(result)
+                    except Exception as e:
+                        raise e
+                    execution_context.done(item.done())
         except Exception as e:
             logger.exception(f'Badly handled exception: {e}')
             raise e

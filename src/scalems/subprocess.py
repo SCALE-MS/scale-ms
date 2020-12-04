@@ -21,6 +21,8 @@ import os
 import typing
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
+from scalems.context import next_monotonic_integer
+
 from .serialization import Encoder
 from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError
 from . import context as _context
@@ -145,9 +147,13 @@ class Subprocess:
         # model and to allow for future contextual information, such as shape.
         return SubprocessTask()
 
-    def __init__(self, input: SubprocessInput):
+    # TODO: Remove uid parameter. It should be calculated.
+    def __init__(self, input: SubprocessInput, uid=None):
         self._bound_input = input
         self._result = None
+        self._uid = uid
+        if self._uid is None:
+            self._uid = next_monotonic_integer().to_bytes(32, 'big')
 
     def input_collection(self):
         return self._bound_input
@@ -159,11 +165,7 @@ class Subprocess:
         ...
 
     def uid(self):
-        # Make a fake 256-bit digest.
-        value = b'\x00'*32
-        if not len(value) == 256//8:
-            raise ProtocolError('UID is supposed to be a 256-bit hash digest.')
-        return value
+        return self._uid
 
     def serialize(self) -> str:
         """Encode the task as a JSON record.

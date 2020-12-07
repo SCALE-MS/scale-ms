@@ -37,7 +37,7 @@ import weakref
 import typing
 from scalems.core.exceptions import DispatchError
 from scalems.core.exceptions import DuplicateKeyError
-from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, \
+from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSError, \
     ScopeError
 from scalems.serialization import Encoder
 
@@ -230,7 +230,7 @@ class BasicWorkflowManager:
         self._items = dict()
 
 
-class InvalidStateError(ScaleMSException):
+class InvalidStateError(ScaleMSError):
     """Object state is not compatible with attempted access.
 
     May result from a temporarily unserviceable request or an inappropriate

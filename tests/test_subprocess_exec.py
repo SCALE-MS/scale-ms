@@ -11,7 +11,7 @@ import pytest
 
 import scalems.context
 import scalems.local
-from scalems.core.exceptions import MissingImplementationError
+from scalems.exceptions import MissingImplementationError
 import scalems.local_immediate
 from scalems.subprocess import executable
 

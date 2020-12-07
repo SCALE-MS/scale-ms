@@ -39,7 +39,7 @@ from typing import Any, Callable, Optional, Tuple
 
 import scalems.context
 from scalems.context import ItemView
-from scalems.core.exceptions import DispatchError, DuplicateKeyError, MissingImplementationError, ProtocolError
+from scalems.exceptions import DispatchError, DuplicateKeyError, MissingImplementationError, ProtocolError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

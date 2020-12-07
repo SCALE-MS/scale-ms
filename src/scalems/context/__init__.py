@@ -23,7 +23,6 @@ __all__ = ['WorkflowManager']
 
 import abc
 import asyncio
-import collections
 import contextlib
 import contextvars
 import dataclasses
@@ -31,14 +30,16 @@ import functools
 import json
 import logging
 import queue
-import warnings
+import typing
 import weakref
 
-import typing
-from scalems.core.exceptions import DispatchError
-from scalems.core.exceptions import DuplicateKeyError
-from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSError, \
-    ScopeError
+from scalems.exceptions import DispatchError
+from scalems.exceptions import DuplicateKeyError
+from scalems.exceptions import InternalError
+from scalems.exceptions import MissingImplementationError
+from scalems.exceptions import ProtocolError
+from scalems.exceptions import ScaleMSError
+from scalems.exceptions import ScopeError
 from scalems.serialization import Encoder
 
 logger = logging.getLogger(__name__)
@@ -52,26 +53,6 @@ logger.debug('Importing {}'.format(__name__))
 # 3. run within the new Context.
 # 4. ensure the Context is destroyed (remove circular references)
 _dispatcher = contextvars.ContextVar('dispatcher', default=None)
-
-_monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)
-
-
-def next_monotonic_integer() -> int:
-    """Utility for generating a monotonic sequence of integers across an interpreter process.
-
-    Not thread-safe. However, threads may
-
-    * avoid race conditions by copying the contextvars context for non-root threads
-    * reproduce the sequence of the main thread by calling this function an equal
-      number of times.
-
-    Returns:
-        Next integer.
-
-    """
-    value = _monotonic_integer.get()
-    _monotonic_integer.set(value + 1)
-    return value
 
 
 class ResourceType:

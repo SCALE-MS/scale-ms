@@ -29,10 +29,8 @@ import typing
 from typing import Sequence
 
 from scalems.context import WorkflowManager
-from scalems.core.exceptions import InternalError
-from scalems.core.exceptions import MissingImplementationError
-from scalems.context import next_monotonic_integer as _next_int
-from scalems.subprocess import SubprocessResult
+from scalems.exceptions import MissingImplementationError
+from scalems.utility import next_monotonic_integer as _next_int
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

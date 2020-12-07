@@ -14,18 +14,20 @@ In the first iteration, we can use dataclasses.dataclass to define input/output 
 in terms of standard types. In a follow-up, we can use a scalems metaclass to define them
 in terms of Data Descriptors that support mixed scalems.Future and native constant data types.
 """
+
+__all__ = ['executable', 'Subprocess', 'SubprocessInput', 'SubprocessResult']
+
 import dataclasses
 import json
 import logging
-import os
 import typing
-from pathlib import Path # We probably need a scalems abstraction for Path.
+from pathlib import Path  # We probably need a scalems abstraction for Path.
 
-from scalems.context import next_monotonic_integer
+from scalems.exceptions import InternalError
+from scalems.serialization import Encoder
+from scalems.utility import next_monotonic_integer
 
-from .serialization import Encoder
-from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError
-from . import context as _context
+from .. import context as _context
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -62,6 +64,7 @@ class OutputFile(dict):
 
 # TODO: what is the mechanism for registering a command implementation in a new Context?
 # TODO: What is the relationship between the command factory and the command type? Which parts need to be importable?
+
 
 # TODO: input data typing.
 @dataclasses.dataclass

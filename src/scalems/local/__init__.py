@@ -12,25 +12,21 @@ Example:
 
 
 import asyncio
-import concurrent.futures
 import contextlib
-import contextvars
-import dataclasses
 import importlib
-import json
 import logging
 import os
 import pathlib
 import queue
-import threading
-import warnings
+import typing
 import weakref
-from typing import Any, Callable
+from typing import Any
 
 import scalems.context
-import typing
-from scalems.core.exceptions import DuplicateKeyError, InternalError, MissingImplementationError, ProtocolError
-from scalems.serialization import Encoder
+from scalems.core.exceptions import InternalError
+from scalems.core.exceptions import MissingImplementationError
+from scalems.core.exceptions import ProtocolError
+from scalems.subprocess._subprocess import SubprocessTask
 
 from . import operations
 
@@ -371,7 +367,7 @@ async def _execute_item(task_type: scalems.context.ResourceType,
                         execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
     if task_type.identifier() == 'scalems.subprocess.SubprocessTask':
-        task_type = scalems.subprocess.SubprocessTask()
+        task_type = SubprocessTask()
 
         # TODO: Use abstract input factory.
         logger.debug('Resolving input for {}'.format(str(item)))

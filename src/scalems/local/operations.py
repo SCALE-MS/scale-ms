@@ -9,13 +9,13 @@ import inspect
 import os
 import pathlib
 import shutil
-import tempfile
 import typing
 
 import scalems.subprocess
-from scalems import OutputFile
-from scalems.core.exceptions import DispatchError, InternalError, ProtocolError
 from scalems.context import next_monotonic_integer as _next_int
+from scalems.core.exceptions import InternalError
+from scalems.core.exceptions import ProtocolError
+from scalems.subprocess._subprocess import OutputFile
 
 
 @dataclasses.dataclass

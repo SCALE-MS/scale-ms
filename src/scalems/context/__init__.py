@@ -23,7 +23,6 @@ __all__ = ['WorkflowManager']
 
 import abc
 import asyncio
-import collections
 import contextlib
 import contextvars
 import dataclasses
@@ -31,15 +30,17 @@ import functools
 import json
 import logging
 import queue
-import warnings
+import typing
 import weakref
 
-import typing
 from scalems.core.exceptions import DispatchError
 from scalems.core.exceptions import DuplicateKeyError
-from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSError, \
-    ScopeError
-from scalems.serialization import Encoder
+from scalems.core.exceptions import InternalError
+from scalems.core.exceptions import MissingImplementationError
+from scalems.core.exceptions import ProtocolError
+from scalems.core.exceptions import ScaleMSError
+from scalems.core.exceptions import ScopeError
+from scalems.core.support.serialization import Encoder
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

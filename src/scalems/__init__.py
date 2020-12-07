@@ -47,7 +47,7 @@ import scalems.core.exceptions as exceptions
 # Import the singleton early to avoid ambiguity under multi-threaded conditions.
 from .context import next_monotonic_integer as _next_int
 from .context import get_context
-from .subprocess import executable, OutputFile
+from .subprocess import executable
 from .core import app, run, wait
 
 logger = logging.getLogger(__name__)

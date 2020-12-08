@@ -19,18 +19,26 @@ of a contextvars.copy_context().run(). scalems will try to flag misuse by raisin
 a ProtocolError, but please be sensible.
 """
 
+__all__ = ['WorkflowManager']
+
 import abc
 import asyncio
 import collections
 import contextlib
 import contextvars
+import dataclasses
 import functools
 import json
 import logging
+import queue
 import warnings
 import weakref
 
-from scalems.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
+import typing
+from scalems.core.exceptions import DispatchError
+from scalems.core.exceptions import DuplicateKeyError
+from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
+from scalems.serialization import Encoder
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -44,6 +52,26 @@ logger.debug('Importing {}'.format(__name__))
 # 3. run within the new Context.
 # 4. ensure the Context is destroyed (remove circular references)
 _dispatcher = contextvars.ContextVar('dispatcher', default=None)
+
+_monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)
+
+
+def next_monotonic_integer() -> int:
+    """Utility for generating a monotonic sequence of integers across an interpreter process.
+
+    Not thread-safe. However, threads may
+
+    * avoid race conditions by copying the contextvars context for non-root threads
+    * reproduce the sequence of the main thread by calling this function an equal
+      number of times.
+
+    Returns:
+        Next integer.
+
+    """
+    value = _monotonic_integer.get()
+    _monotonic_integer.set(value + 1)
+    return value
 
 
 class ResourceType:
@@ -167,7 +195,6 @@ class ItemView:
         except KeyError as e:
             raise
 
-
     def __init__(self, context, uid: bytes):
         self._context = weakref.ref(context)
         if isinstance(uid, bytes) and len(uid) == 32:
@@ -244,7 +271,7 @@ class Task:
         return self._result
 
     def description(self) -> Description:
-        decoded_record = json.loads(self._encoded)
+        decoded_record = json.loads(self._serialized_record)
         resource_type = ResourceType(tuple(decoded_record['type']))
         # TODO: Handle multidimensional references.
         shape = (1,)
@@ -263,19 +290,19 @@ class Task:
         # TODO: Manage internal state updates.
         # TODO: Respect different attribute type semantics.
         try:
-            decoded_record = json.loads(self._encoded)
+            decoded_record = json.loads(self._serialized_record)
             logger.debug('Decoded {}: {}'.format(type(decoded_record).__name__, str(decoded_record)))
             value = decoded_record[item]
         except json.JSONDecodeError as e:
             raise AttributeError('Problem retrieving "{}"'.format(item)) from e
         except KeyError as e:
-            logger.debug('Did not find "{}" in {}'.format(item, self._encoded))
+            logger.debug('Did not find "{}" in {}'.format(item, self._serialized_record))
             raise AttributeError('Problem retrieving "{}"'.format(item)) from e
         return value
 
-    def __init__(self, context, record):
-        self._encoded = str(record)
-        decoded_record = json.loads(self._encoded)
+    def __init__(self, context: 'WorkflowManager', record: str):
+        self._serialized_record = str(record)
+        decoded_record = json.loads(self._serialized_record)
 
         self._uid = bytes.fromhex(decoded_record['uid'])
         if not len(self._uid) == 256//8:
@@ -377,7 +404,7 @@ class WorkflowManager(abc.ABC):
         This allows intermediate updates to be propagated and could be a superset of the additem hook.
 
     """
-
+    task_map: dict
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
@@ -442,16 +469,90 @@ class WorkflowManager(abc.ABC):
     #     """
     #     ...
 
-    @abc.abstractmethod
-    def add_item(self, task_description):
-        """Add a task to the workflow.
+    def add_item(self, task_description) -> ItemView:
+        # # TODO: Resolve implementation details for *operation*.
+        # if operation != 'scalems.executable':
+        #     raise MissingImplementationError('No implementation for {} in {}'.format(operation, repr(self)))
+        # # Copy a static copy of the input.
+        # # TODO: Dispatch tasks addition, allowing negotiation of Context capabilities and subscription
+        # #  to resources owned by other Contexts.
+        # if not isinstance(bound_input, scalems.subprocess.SubprocessInput):
+        #     raise ValueError('Only scalems.subprocess.SubprocessInput objects supported as input.')
 
-        Returns:
-            Reference to the new task.
+        # TODO: Replace with type-based dispatching or some normative interface test.
+        from ..subprocess import Subprocess
+        if not isinstance(task_description, (Subprocess, dict)):
+            raise MissingImplementationError('Operation not supported.')
 
-        TODO: Resolve operation implementation to dispatch task configuration.
-        """
-        ...
+        if hasattr(task_description, 'uid'):
+            uid: bytes = task_description.uid()
+            if uid in self.task_map:
+                # TODO: Consider decreasing error level to `warning`.
+                raise DuplicateKeyError('Task already present in workflow.')
+            logger.debug('Adding {} to {}'.format(str(task_description), str(self)))
+            record = {
+                'uid': uid.hex(),
+                'type': task_description.resource_type().scoped_identifier(),
+                'input': {}
+            }
+            task_input = task_description.input_collection()
+            for field in dataclasses.fields(task_input):
+                name = field.name
+                try:
+                    # TODO: Need serialization typing.
+                    record['input'][name] = getattr(task_input, name)
+                except AttributeError as e:
+                    raise InternalError('Unexpected missing field.') from e
+        else:
+            assert isinstance(task_description, dict)
+            implementation_identifier = task_description.get('implementation', None)
+            if not isinstance(implementation_identifier, list):
+                raise DispatchError('Bug: bad schema checking?')
+            uid: bytes = task_description.get('uid', next_monotonic_integer().to_bytes(32, 'big'))
+
+            if uid in self.task_map:
+                # TODO: Consider decreasing error level to `warning`.
+                raise DuplicateKeyError('Task already present in workflow.')
+            logger.debug('Adding {} to {}'.format(str(task_description), str(self)))
+            record = {
+                'uid': uid.hex(),
+                'type': tuple(implementation_identifier),
+                'input': task_description
+            }
+        serialized_record = json.dumps(record, cls=Encoder)
+
+        # TODO: Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
+        item = Task(self, serialized_record)
+        # TODO: Check for ability to dispatch.
+        #  Note module dependencies, etc. and check in target execution environment
+        #  (e.g. https://docs.python.org/3/library/importlib.html#checking-if-a-module-can-be-imported)
+
+        self.task_map[uid] = item
+
+        task_view = ItemView(context=self, uid=uid)
+
+        # TODO: Register task factory (dependent on executor).
+        # TODO: Register input factory (dependent on dispatcher and task factory / executor).
+        # TODO: Register results handler (dependent on dispatcher end points).
+
+
+        # TODO: Use an abstract event hook for `add_item` and other (decorated) methods.
+        # Internal functionality can probably explicitly register and unregister, accounting
+        # for the current details of thread safety. External access will need to be in
+        # terms of a concurrency framework, so we can use a scoped `async with event_subscription`
+        # to create an asynchronous iterator (with some means to externally end the subscription,
+        # either through the generator protocol directly or through logic in the provider of the iterator)
+        dispatcher_queue = getattr(self, '_queue', None)
+        # During development, a WorkflowManager implementation may not have a self._queue.
+        # self._queue may be removed by another thread before we add the item to it,
+        # but that is fine. There is nothing wrong with abandoning an unneeded queue.
+        if dispatcher_queue is not None:
+            logger.debug('Running dispatcher detected. Entering live dispatching hook.')
+            # Add the AddItem message to the queue.
+            assert isinstance(dispatcher_queue, queue.SimpleQueue)
+            dispatcher_queue.put({'add_item': task_description})
+
+        return task_view
 
 
 class DefaultContext(WorkflowManager):
@@ -467,13 +568,15 @@ class DefaultContext(WorkflowManager):
         raise MissingImplementationError('Trivial work graph holder not yet implemented.')
 
 
-class Scope(collections.namedtuple('Scope', ('parent', 'current'))):
+class Scope(typing.NamedTuple):
     """Backward-linked list (potentially branching) to track nested context.
 
     There is not much utility to tracking the parent except for introspection
     during debugging. The previous state is more appropriately held within the
     closure of the context manager. This structure may be simplified without warning.
     """
+    parent: typing.Union[None, WorkflowManager]
+    current: WorkflowManager
 
 
 # Root workflow context for the interpreter process.
@@ -487,8 +590,7 @@ _interpreter_context = DefaultContext()
 # in terms of a parent context doing contextvars.copy_context().run(...)
 # I think we have to make sure not to nest scopes without a combination of copy_context and context managers,
 # so we don't need to track the parent scope. We should also be able to use weakrefs.
-current_scope = contextvars.ContextVar('current_context', default=Scope(None, None))
-current_scope.set(Scope(parent=None, current=_interpreter_context))
+current_scope = contextvars.ContextVar('current_context', default=Scope(None, _interpreter_context))
 
 
 def get_context():
@@ -535,7 +637,7 @@ def scope(context):
     )
     if token.var.get().parent is current:
         logger.warning('Unexpected re-entrance. Workflow is already managed by {}.'.format(repr(current)))
-    if token.old_value.current != token.var.get().parent:
+    if token.old_value is not token.MISSING and token.old_value.current != token.var.get().parent:
         raise ProtocolError('Unrecoverable race condition: multiple threads are updating global context unsafely.')
     # Try to confirm that current_scope is not already subject to modification by another
     #  context manager in a shared asynchronous context.
@@ -560,89 +662,3 @@ def scope(context):
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.
 
-
-def _run(*, work, context, **kwargs):
-    """Run in current scope."""
-    import asyncio
-    from asyncio.coroutines import iscoroutine, iscoroutinefunction
-
-    # TODO: Allow custom dispatcher hook.
-    if iscoroutinefunction(context.run):
-
-        logger.debug('Creating coroutine object for workflow dispatcher.')
-        # TODO: Handle in context.run() via full dispatcher implementation.
-        try:
-            if callable(work):
-                handle = work(**kwargs)
-        except Exception as e:
-            logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
-            raise e
-        # TODO:
-        # coro = context.run(work, **kwargs)
-        try:
-            coro = context.run()
-        except Exception as e:
-            logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
-            raise e
-
-        logger.debug('Starting asyncio.run()')
-        # Manage event loop directly, since asyncio.run() doesn't seem to always clean it up right.
-        # TODO: Check for existing event loop.
-        loop = asyncio.get_event_loop()
-        try:
-            task = loop.create_task(coro)
-            result = loop.run_until_complete(task)
-        finally:
-            loop.close()
-        assert loop.is_closed()
-
-        logger.debug('Finished asyncio.run()')
-    else:
-        logger.debug('Starting context.run() without asyncio wrapper')
-        result = context.run(work, **kwargs)
-        logger.debug('Finished context.run()')
-    return result
-
-
-def run(work, context=None, **kwargs):
-    """Execute the provided coroutine object.
-
-    Abstraction for :py:func:`asyncio.run()`
-
-    Note: If we want to go this route, we should integrate with the
-    asyncio event loop policy, or obtain an event loop instance and
-    use it w.r.t. run_in_executor and set_task_factory.
-
-    .. todo:: Coordinate with RP plans for event loop contexts and concurrency module executors.
-
-    See also https://docs.python.org/3/library/asyncio-dev.html#debug-mode
-    """
-    # Cases, likely in appropriate order of resolution:
-    # * work is a SCALEMS ItemView or Future
-    # * work is a asyncio.coroutine
-    # * work is a asyncio.coroutinefunction
-    # * work is a regular Python callable
-    # * work is None (get all work from current and/or parent workflow context)
-
-    # TODO: Check whether coroutine is already executing and where.
-    # if iscoroutine(coroutine):
-    #     return asyncio.run(coroutine, **kwargs)
-
-    # No automatic dispatching yet. Coroutine must be executable
-    # in the current or provided context.
-    try:
-        if context is None:
-            context = get_context()
-        if context is get_context():
-            result = _run(work=work, context=context, **kwargs)
-        else:
-            with scope(context):
-                result = _run(work=work, context=context, **kwargs)
-        return result
-    except Exception as e:
-        message = 'Uncaught exception in scalems.context.run(): {}'.format(str(e))
-        warnings.warn(message)
-        logger.warning(message)
-
-    # TODO: Consider generalized coroutines to be dispatched through
-    #     custom event loops or executors.

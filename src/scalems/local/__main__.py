@@ -49,17 +49,19 @@ try:
             # TODO: Use a decorator to annotate which function(s) to run?
             main = None
             for name, ref in globals_namespace.items():
-                if isinstance(ref, scalems.ScriptEntryPoint):
+                if isinstance(ref, scalems.core.ScriptEntryPoint):
                     if main is not None:
-                        raise scalems.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
+                        raise scalems.core.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
                     main = ref
                     ref.name = name
             if main is None:
-                raise scalems.exceptions.DispatchError('No scalems.app callables found in script.')
+                raise scalems.core.exceptions.DispatchError('No scalems.app callables found in script.')
             cmd = scalems.run(main, context=context)
         except SystemExit as e:
             exitcode = e.code
 except Exception as e:
     print('Exception')
     print(repr(e))
+    if exitcode == 0:
+        exitcode = 1
 raise SystemExit(exitcode)

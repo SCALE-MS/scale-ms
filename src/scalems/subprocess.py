@@ -22,12 +22,40 @@ import typing
 from pathlib import Path # We probably need a scalems abstraction for Path.
 
 from .serialization import Encoder
-
-from .exceptions import InternalError, MissingImplementationError, ProtocolError
+from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError
 from . import context as _context
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
+
+
+class OutputFile(dict):
+    """Placeholder for output files.
+
+    The initial implementation of OutputFile does not provide access to the
+    created output file.
+
+    The actual filename is managed by SCALE-MS to avoid namespace collisions.
+
+    Arguments:
+        label (str): Optional user-friendly identifier for locating a reference in the managed workflow.
+        suffix (str): Optional filename suffix for the generated filename.
+
+    In a future implementation, we may allow instances of OutputFile to transform
+    into workflow references that are dependent on the task under construction.
+    """
+    def __init__(self, label=None, suffix=''):
+        super().__init__()
+        self['label'] = label
+        self['suffix'] = suffix
+
+    @property
+    def label(self):
+        return self.get('label', None)
+
+    @property
+    def suffix(self):
+        return self.get('suffix', '')
 
 
 # TODO: what is the mechanism for registering a command implementation in a new Context?
@@ -39,7 +67,7 @@ class SubprocessInput:
     # TODO: Move input documentation to Input class docs.
     argv: typing.Sequence[str]
     inputs: typing.Mapping[str, Path] = dataclasses.field(default_factory=dict)
-    outputs: typing.Mapping[str, Path] = dataclasses.field(default_factory=dict)
+    outputs: typing.Mapping[str, OutputFile] = dataclasses.field(default_factory=dict)
     stdin: typing.Iterable[str] = ()
     environment: typing.Mapping[str, typing.Union[str, None]] = dataclasses.field(default_factory=dict)
     # For now, let's just always enable stdout/stderr

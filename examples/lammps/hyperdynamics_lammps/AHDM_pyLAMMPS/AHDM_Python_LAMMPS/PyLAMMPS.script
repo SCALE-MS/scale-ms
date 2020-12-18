@@ -1,0 +1,29 @@
+#PBS -N AHDM  # name of your job
+#PBS -j oe
+# PBS -m bae
+# PBS -l pmem=4gb
+#PBS -l nodes=1:ppn=20:stmem
+#PBS -l walltime=48:00:00
+#PBS -A open
+#    PBS -A kaf2_a_g_sc_default
+cd $PBS_O_WORKDIR
+
+echo " "
+echo "Starting job on `hostname` at `date`"
+echo " "
+
+module load intel/16.0.3 
+module load impi/5.1.3
+module load mkl/11.3.3
+module load tbb/4.4.4
+module load python/3.6.3-anaconda5.0.1
+source activate base-env
+
+cd /storage/home/jxc2104/scratch/test
+python AHDM.py
+
+source deactivate
+
+echo " "
+echo "Completing job on `hostname` at `date`"
+echo " "

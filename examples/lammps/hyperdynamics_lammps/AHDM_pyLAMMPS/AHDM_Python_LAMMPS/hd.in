@@ -1,0 +1,20 @@
+log log.lammps
+
+units 			metal
+boundary 		p p p 
+atom_style 		full
+neigh_modify    delay 5 every 5 check yes
+pair_style 		eam/fs 
+
+read_data	min.data
+pair_coeff 		* * AgX1.0.eam.alloy  Ag
+
+group Boost id 501
+group NonBoost subtract all Boost
+
+fix 1 all langevin 600.0 600.0 1000.0 305363
+fix 2 all nve
+compute event all event/displace 1.2
+fix diffusion Boost hyper/global 3.32 0.3 0.30 600
+fix 3 all momentum 1 linear 1 1 1 angular
+hyper 500000 100 diffusion event

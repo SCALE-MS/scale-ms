@@ -10,7 +10,7 @@ import scalems
 # Declare the public interface of this wrapper module.
 __all__ = ['make_input', 'internal_to_xyz', 'collect_coordinates', 'simulate', 'modify_input']
 
-def expand_input(infile,include_files=[]) 
+def expand_input(infile,include_files=[]): 
    '''
    parameters
    
@@ -27,9 +27,10 @@ def expand_input(infile,include_files=[])
            for line in ifile:
                if line.startswith("input"):
                    vals = line.split()
-                   try vals[1] in input_files:
-                       more_lines = expand_input(vals[1],input_files.remove(vals[1]))
-                       all_lines.extend(more_lines)
+                   try:
+                       for vals[1] in input_files:
+                          more_lines = expand_input(vals[1],input_files.remove(vals[1]))
+                          all_lines.extend(more_lines)
                    except:
                        BaseException(f"{vals[1]} in include command not given in list of include files")
                else:    
@@ -37,7 +38,7 @@ def expand_input(infile,include_files=[])
    except:
        BaseException(f"{infile} does not exist")
                        
-    return all_lines
+   return all_lines
 
     
 
@@ -55,13 +56,13 @@ def make_input(simulation_parameters = ['input.in'],
     return all_commands
 
 def modify_structure(structure,config):
-
-    for s, c in zip(structure,config):
+   return 0
+   #for s, c in zip(structure,config):
         
 
 
     
-def modify_input(substitutions = {}, input_commands):
+def modify_input(substitutions = {}, input_commands={}):
 
     # currently, I implement this just by looping over the commands and replacing each line
     # with the key:value pair from the dictionary.  I'm sure there is a better way to do this.
@@ -69,10 +70,10 @@ def modify_input(substitutions = {}, input_commands):
     # some of the commands that start the same.
     for i,command in enumerate(input_commands):
         for k in substitutions:
-        if command.starts_with(k):
-            input_commands[i] = f"{k} {input_commands[k]}"
+           if command.starts_with(k):
+              input_commands[i] = f"{k} {input_commands[k]}"
 
-def simulate(input_commands,lammps_binary)
+def simulate(input_commands,lammps_binary):
 
     # probably here want to take the array of commands and covert it into an input file.
 

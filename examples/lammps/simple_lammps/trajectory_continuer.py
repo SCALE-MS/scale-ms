@@ -5,12 +5,11 @@ Set up a SCALE-MS compatible operation implementation and export it as the
 module function `trajectory_continuer`.
 """
 
-import scalems
+#import scalems
 import pathlib
 from pathlib import Path
 import MDAnalysis
 from MDAnalysis.lib.formats.libdcd import DCDFile
-import pdb
 
 class TrajectoryContinuer:
     """
@@ -18,15 +17,19 @@ class TrajectoryContinuer:
     have more flexibility for other types of analysis.
     """
 
-    def __init__(self, input_config, max_iterations=10):
+    def __init__(self, max_iterations=10):
         
         self.iterations = 0
         self.max_iterations = max_iterations
-        self._save_start_data(input_config)
-        
+        # this should be in make_input
+        #self._save_start_data(input_config)
+
+
+    #This below should be in make_input     
+    '''    
     def _save_start_data(self,input_config):
 
-        f = open(input_config,"w")
+        f = open(input_config,"r")
         # we basically save the whole file, except what is in the atoms
         self.initial_input_file = dict()
         lines = f.readlines()
@@ -40,13 +43,16 @@ class TrajectoryContinuer:
             vals = line.split()
             if vals[3] == 'xlo' and vals[4] == 'xhi':
                 self.initial_input_file['box_start'] =  i
-            
+    '''
+    
     def is_converged(self):
-        return self.iterations < self.max_iterations
+        return self.iterations >= self.max_iterations
 
-    def _insert_new_configurations(positions,boxes):
+    # this should probably be in modify_input; it's the code tht takes coordinates, and makes new files.
+    '''
+    def _insert_new_configurations(positions,unitcells):
         newfiles = list()
-        for position, box in zip(positions,boxes):
+        for position, box in zip(positions,unitcells):
             input_file = self.initial_input_file
             natoms = input_file['n_atoms']
             lines = input_file['lines']
@@ -65,37 +71,50 @@ class TrajectoryContinuer:
                     newfile.append(lines[i])
             newfiles.append(newfile)
         return(newfiles)
-            
-    def _get_last_configuration(self, trajectory):
+    '''
+
+    # not clear if this should operate on a single trajectory, or a set of trajectories. 
+    # Or both? Eric, guidance?
+    def _get_last_configurations(self, trajectory):
         if len(trajectory) > 0:
             trajectories = trajectory # it's a list of files
         else:
             trajectories = [trajectory]
 
-        end_configs = dict()
+        end_configs = list()
+        end_config = dict()
         for trj in trajectories:
             try:
                 Path(trj).suffix == '.dcd'
-                with DCDFile(trajectory) as dcd:
-                    dcd.seek(-1)
-                    dcdframe = dcd.read()
-                    end_configs['positions'] = dcframe.positions()
-                    end_configs['unitcells'] = dcframe.box()
-                # some
             except:
-                Exception("Can't handle LAMMPS file types other than dcd")
+                Exception("Can't currently handle LAMMPS file types other than dcd")
+            try:
+                with DCDFile(trj) as dcd:
+                    n_frames = dcd.n_frames
+                    dcd.seek(n_frames-1)  # because of numbering, we want one less.
+                    dcdframe = dcd.read()
+                    end_config['unitcell'] = dcdframe.unitcell
+                    end_config['positions'] = dcdframe.xyz
+            except:
+                Exception("Can't extract configurations from the trajectory file")
+            end_configs.append(end_config)    
+
         return end_configs
 
     def generate_new_configurations(self,trajectory):
+        #  takes a trajectory, and generates a coordinates of the last frame of the trajectory
+        
+        # identify the last configurations, in terms of an array of 3D variables and a box vector.
+        end_configs = self._get_last_configurations(trajectory)
 
-        # identify the last configurations
-        end_config = self._get_last_configurations(trajectory)
-
-        # generate new inputs
+        return end_configs
+    
+        # This below should be in modify_input
+        # where one takes the coordinates, and writes new files.
+        '''
         new_inputs = self._insert_new_configurations(end_config)
-
         outfiles = list()
-        # create the files
+         create the files
         for i, new_input in enumerate(new_inputs):
             fname = f'temp.{i}.lmp'
             f = open(fname,'w')
@@ -103,7 +122,8 @@ class TrajectoryContinuer:
             f.close()
             outfiles.append(fname)
         return outfiles
-    
+        '''
+        
     def increment_iteration(self):
         self.iterations += 1
 

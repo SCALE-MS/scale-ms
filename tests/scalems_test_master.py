@@ -21,20 +21,20 @@ import radical.pilot as rp
 
 # ------------------------------------------------------------------------------
 #
-class ScaleMSMaster(rp.task_overlay.Master):
+class ScaleMSMaster(rp.raptor.Master):
 
     # --------------------------------------------------------------------------
     #
     def __init__(self, cfg):
 
-        rp.task_overlay.Master.__init__(self, cfg=cfg)
+        rp.raptor.Master.__init__(self, cfg=cfg)
 
-        sbox = os.environ['RP_PILOT_SANDBOX']
+        self._log = ru.Logger(self.uid, ns='radical.pilot')
 
-        self._dir_new     = '%s/scalems_new'     % sbox
-        self._dir_pending = '%s/scalems_pending' % sbox
-        self._dir_active  = '%s/scalems_active'  % sbox
-        self._dir_done    = '%s/scalems_done'    % sbox
+        self._dir_new     = './new'
+        self._dir_pending = './pending'
+        self._dir_active  = './active'
+        self._dir_done    = './done'
 
         ru.rec_makedir(self._dir_new)
         ru.rec_makedir(self._dir_pending)
@@ -57,6 +57,8 @@ class ScaleMSMaster(rp.task_overlay.Master):
             new  = self._dir_new
             pend = self._dir_pending
             act  = self._dir_active
+            done = self._dir_done
+            stop = False
 
             while not self._term.is_set():
 
@@ -66,6 +68,18 @@ class ScaleMSMaster(rp.task_overlay.Master):
                 for fname in glob.glob('%s/*.json' % new):
 
                     self._log.debug('=== found %s' % fname)
+
+                    work = ru.read_json(fname)
+                    if work.get('cmd') == 'stop':
+                        print('stopping')
+                        stop = True
+                        ru.sh_callout('mv %s %s' % (fname, done))
+                        continue
+
+                    if stop:
+                        self._log.debug('=== ignore %s' % fname)
+                        ru.sh_callout('mv %s %s' % (fname, done))
+                        continue
 
                     # find incoming work requests
                     # FIXME: ensure that write is complete
@@ -90,6 +104,7 @@ class ScaleMSMaster(rp.task_overlay.Master):
                     time.sleep(1)
 
         except:
+            self.stop()
             self._log.exception('ingest thread failed')
             raise
 
@@ -116,7 +131,8 @@ class ScaleMSMaster(rp.task_overlay.Master):
 
             # that work is now don
             base = r.work['data']['base']
-            ru.sh_callout('mv %s/%s %s/' % (act, base, done))
+            ru.write_json(r.as_dict(), '%s/%s.json' % (done, base))
+            ru.sh_callout('rm %s/%s' % (act,  base))
 
         # FIXME: we actually finish after first result is received
         self.stop()
@@ -133,16 +149,9 @@ if __name__ == '__main__':
                   cores=cfg.cpn, gpus=cfg.gpn)
 
     master.start()
-
-    print('master started')
-
-    while master.alive():
-        print('master alive')
-        time.sleep(5)
-
-    print('master stopped')
-
-    # FIXME: clean up workers on termination
+    master.join()
+    time.sleep(100)
+    master.stop()
 
 
 # ------------------------------------------------------------------------------

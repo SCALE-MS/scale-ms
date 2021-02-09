@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 """Dispatch scalems.exec through RADICAL Pilot.
 
 In the first draft, we keep the tests simpler by assuming we are invoked in an
@@ -9,17 +11,24 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 """
 
 import os
+import time
+import json
 import warnings
 
 import pytest
+from radical.pilot.states import AGENT_EXECUTING
 import scalems
 import scalems.context
 import scalems.radical
 
+
 # ------------------------------------------------------------------------------
 #
 def get_rp_decorator():
-    """Decorator for tests that should be run in a RADICAL Pilot environment only."""
+    '''
+    Decorator for tests that should be run in a RADICAL Pilot environment only.
+    '''
+
     try:
         import radical.pilot as rp
         import radical.utils as ru
@@ -29,8 +38,8 @@ def get_rp_decorator():
         ru = None
 
     with_radical_only = pytest.mark.skipif(
-        rp is None or \
-        ru is None or \
+        rp is None or
+        ru is None or
         not os.environ.get('RADICAL_PILOT_DBURL'),
         reason="Test requires RADICAL environment.")
 
@@ -41,18 +50,21 @@ def get_rp_decorator():
     with_radical_only = pytest.mark.skipif(False,
                                            reason="RP should be available.")
 
-    # The above logic may not be sufficient to mark the usability of the RP environment.
+    # The above logic may not be sufficient to mark the usability
+    # of the RP environment.
   # if rp is not None and not os.environ('RADICAL_PILOT_DBURL'):
   #     try:
-  #         # Note: radical.pilot.Session creation causes several deprecation warnings.
-  #         # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+  #         # Note: radical.pilot.Session creation causes several
+  #         #       deprecation warnings.
+  #         # Ref:  https://github.com/radical-cybertools/radical.pilot/\
+  #         #       issues/2185
   #         with warnings.catch_warnings():
   #             warnings.simplefilter('ignore', category=DeprecationWarning)
   #             with rp.Session():
   #                 with_radical_only = pytest.mark.skipif(False,
-  #                                                        reason="RP should be available.")
+  #                                            reason="RP should be available.")
   #     except:
-  #         with_radical_only = pytest.mark.skip(reason="Cannot create radical.pilot.Session")
+  #         with_radical_only = pytest.mark.skip(reason="Can't load rp.Session")
 
     return with_radical_only
 
@@ -74,7 +86,8 @@ with_radical_only = get_rp_decorator()
 #     The 'resource' key in a Pilot Description must name a key that the Session
 #     can use to get default values for the execution environment.
 #     """
-#     # Ref: https://radicalpilot.readthedocs.io/en/stable/machconf.html#customizing-resource-configurations-programatically
+#     # Ref: https://radicalpilot.readthedocs.io/en/stable/ \
+#     #      machconf.html#customizing-resource-configurations-programatically
 #     import radical.pilot as rp
 #     import radical.utils as ru
 #     # TODO: Resolve usage error.
@@ -93,9 +106,10 @@ with_radical_only = get_rp_decorator()
 #     # Ref: https://github.com/radical-cybertools/radical.pilot/blob/ \
 #     #         devel/src/radical/pilot/configs/resource_local.json
 #     #
-#     # TODO: Is there a more canonical way to programmatically generate a valid config?
-#     # Ref: https://radicalpilot.readthedocs.io/en/stable/machconf.html\
-      #              #writing-a-custom-resource-configuration-file
+#     # TODO: Is there a more canonical way to programmatically generate a
+#     #       valid config?
+#     # Ref:  https://radicalpilot.readthedocs.io/en/stable/machconf.html\
+#     #              #writing-a-custom-resource-configuration-file
 #     # TODO: Set a sensible number of cores / threads / GPUs.
 #     return dict(config=cfg, rp=rp, ru=ru)
 
@@ -106,8 +120,8 @@ with_radical_only = get_rp_decorator()
 def test_rp_import():
     """Confirm availability of RADICAL Pilot infrastructure.
 
-    Tests here may be too cumbersome to run in every invocation of a pytest fixture,
-    so let's just run them once in this unit test.
+    Tests here may be too cumbersome to run in every invocation of a
+    pytest fixture, so let's just run them once in this unit test.
     """
 
     # FIXME: this test is not useful if `if_radical_only` applies - that
@@ -139,7 +153,7 @@ def test_rp_basic_task():
 
     # Note: Session creation will fail with a FileNotFound error unless venv
     #       is explicitly `activate`d.
-    # TODO: Figure out what `activate` does that `rp-venv/bin/python` doesn't do.
+    # TODO: what does `activate` do that `rp-venv/bin/python` doesn't do?
     # NOTE: an RP session does not need 'activation' - or I misunderstand
     #       what the `activate` refers to? (AM)
     with rp.Session() as session:
@@ -152,20 +166,20 @@ def test_rp_basic_task():
         #       should be a *static* description of the target resource and
         #       should not need any changing. (AM)
         pd = rp.ComputePilotDescription({'resource': 'local.localhost',
-                                         'cores'   : 16,
+                                         'cores'   : 32,
                                          'gpus'    : 1})
 
-        td = rp.ComputeUnitDescription({'executable'   : '/bin/date',
-                                        'cpu_processes': 1})
+        td = rp.TaskDescription({'executable'   : '/bin/date',
+                                 'cpu_processes': 1})
 
         pmgr  = rp.PilotManager(session=session)
-        umgr  = rp.UnitManager(session=session)
+        tmgr  = rp.TaskManager(session=session)
 
         pilot = pmgr.submit_pilots(pd)
-        task  = umgr.submit_units(td)
+        task  = tmgr.submit_units(td)
 
-        umgr.add_pilots(pilot)
-        umgr.wait_units()
+        tmgr.add_pilots(pilot)
+        tmgr.wait_units()
 
         assert task.exit_code == 0
 
@@ -182,52 +196,64 @@ def test_rp_basic_task():
 def test_rp_scalems():
 
     import radical.pilot as rp
-    import radical.utils as ru
 
     with rp.Session() as session:
 
-        pwd   = os.path.dirname(__file__)
-
-        pd    = rp.ComputePilotDescription(
+        # define a pilot and launch it
+        pd    = rp.PilotDescription(
                    {'resource': 'local.localhost',
-                    'cores'   : 16,
+                    'cores'   : 32,
                     'gpus'    : 1})
 
-        td    = rp.ComputeUnitDescription(
-                   {'executable'   :  '%s/scalems_test_master.py' % pwd,
+        pmgr  = rp.PilotManager(session=session)
+        tmgr  = rp.TaskManager(session=session)
+        pilot = pmgr.submit_pilots(pd)
+        tmgr.add_pilots(pilot)
+
+        # define a raptor.scalems master and launch it within the pilot
+        pwd   = os.path.dirname(__file__)
+        td    = rp.TaskDescription(
+                {
+                    'uid'          :  'raptor.scalems',
+                    'executable'   :  '%s/scalems_test_master.py' % pwd,
                     'arguments'    : ['%s/scalems_test_cfg.json'  % pwd],
                     'input_staging': ['%s/scalems_test_cfg.json'  % pwd,
-                                      '%s/scalems_test_worker.py' % pwd]})
-
-        pmgr  = rp.PilotManager(session=session)
-        umgr  = rp.UnitManager(session=session)
-
-        pilot = pmgr.submit_pilots(pd)
-        task  = umgr.submit_units(td)
-
-        umgr.add_pilots(pilot)
-
-        # submit work items
-
-        uid  =  'request.000000'
-        work = {'uid'    :  uid,
-                'mode'   :  'call',
-                'cores'  :  1,
-                'timeout':  100,
-                'data'   : {'method': 'hello',
-                            'kwargs': {'count': 1,
-                                       'uid'  : uid}}}
-        tmp = '/tmp/%s.json' % uid
-        ru.write_json(tmp, work)
-
-        pilot.stage_in('%s > scalems_new/%s.json' % (tmp, uid))
-
-        umgr.wait_units()
+                                      '%s/scalems_test_master.py' % pwd,
+                                      '%s/scalems_test_worker.py' % pwd]
+                })
+        scheduler = tmgr.submit_tasks(td)
 
         # FIXME
-      # pilot.stage_out('scalems_done/%s.json', uid)
+        # tmgr.wait_tasks(uids=master.uid, state=rp.AGENT_EXECUTING)
 
-        assert task.exit_code == 0
+        # define raptor.scalems tasks and submit them to the master
+        tds = list()
+        for i in range(10):
+            uid  = 'scalems.%06d' % i
+            # ------------------------------------------------------------------
+            # work serialization goes here
+            work = json.dumps({'mode'      :  'call',
+                               'cores'     :  1,
+                               'timeout'   :  100,
+                               'data'      : {'method': 'hello',
+                                              'kwargs': {'world': uid}}})
+            # ------------------------------------------------------------------
+            tds.append(rp.TaskDescription({
+                               'uid'       : uid,
+                               'executable': 'scalems',
+                               'scheduler' : 'raptor.scalems',
+                               'arguments' : [work]}))
+
+        tasks = tmgr.submit_tasks(tds)
+
+        # wait for *those* tasks to complete and report results
+        tmgr.wait_tasks(uids=[t.uid for t in tasks])
+        for t in tasks:
+            print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
+
+        tmgr.cancel_tasks(uids=scheduler.uid)
+        tmgr.wait_tasks()
+
 
     assert session.closed
 
@@ -243,13 +269,24 @@ def test_rp_scalems():
 async def test_exec_rp():
     original_context = scalems.context.get_context()
     # Test RPDispatcher context
-    # Note that a coroutine object created from an `async def` function is only awaitable once.
+    # Note that a coroutine object created from an `async def` function is
+    # only awaitable once.
     context = scalems.radical.RPWorkflowContext()
     async with context as session:
-        cmd = scalems.executable(('/bin/echo',))
+        scalems.executable(('/bin/date',))
         await session.run()
     # Test active context scoping.
     assert scalems.context.get_context() is original_context
+
+
+# ------------------------------------------------------------------------------
+#
+if __name__ == '__main__':
+
+  # import asyncio
+  # asyncio.run(test_exec_rp())
+
+    test_rp_scalems()
 
 
 # ------------------------------------------------------------------------------

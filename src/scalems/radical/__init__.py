@@ -97,7 +97,7 @@ class RPWorkflowContext(scalems.context.AbstractWorkflowContext):
             'project': None,
             'queue': None,
             'schema': None,
-            'cores': 1,
+            'cores': 32,
             'gpus': 0
         })
         pilot_description = dict(resource=resource,

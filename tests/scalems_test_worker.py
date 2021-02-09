@@ -4,7 +4,7 @@ import sys
 import time
 
 import radical.pilot as rp
-import radical.pilot.task_overlay as rpt
+import radical.pilot.raptor as rpt
 
 
 # ------------------------------------------------------------------------------
@@ -16,10 +16,9 @@ class ScaleMSWorker(rpt.Worker):
     #
     def __init__(self, cfg):
 
-        rp.task_overlay.Worker.__init__(self, cfg)
+        rp.raptor.Worker.__init__(self, cfg)
 
         self.register_mode('gmx',   self._gmx)
-      # self.register_call('hello', self.hello)
 
 
     # --------------------------------------------------------------------------
@@ -45,7 +44,9 @@ class ScaleMSWorker(rpt.Worker):
 if __name__ == '__main__':
 
     worker = ScaleMSWorker(sys.argv[1])
-    worker.run()
+    worker.start()
+    time.sleep(100)
+    worker.join()
 
 
 # ------------------------------------------------------------------------------

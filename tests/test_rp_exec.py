@@ -165,9 +165,9 @@ def test_rp_basic_task():
         # NOTE: a session does not have a spec, really - the resource config
         #       should be a *static* description of the target resource and
         #       should not need any changing. (AM)
-        pd = rp.ComputePilotDescription({'resource': 'local.localhost',
-                                         'cores'   : 32,
-                                         'gpus'    : 1})
+        pd = rp.PilotDescription({'resource': 'local.localhost',
+                                  'cores'   : 32,
+                                  'gpus'    : 1})
 
         td = rp.TaskDescription({'executable'   : '/bin/date',
                                  'cpu_processes': 1})

@@ -2,72 +2,197 @@
 Specialize implementations of ScaleMS operations.
 
 """
+import asyncio
+import contextlib
+import dataclasses
+import inspect
+import os
+import pathlib
+import shutil
+import tempfile
+import typing
+
 import scalems.subprocess
-from scalems.exceptions import DispatchError
+from scalems import OutputFile
+from scalems.core.exceptions import DispatchError, InternalError, ProtocolError
+from scalems.context import next_monotonic_integer as _next_int
 
 
-def local_exec(task_description: dict):
-    argv = task_description['args']
-    assert isinstance(argv, (list, tuple))
-    assert len(argv) > 0
-    import subprocess
-    # TODO: Consider whether we want to support buffered I/O streams (pipes).
-    return subprocess.run(argv)
+@dataclasses.dataclass
+class SubprocessInput:
+    """Implementation-specific form of input for scalems.subprocess.Subprocess."""
+    program: pathlib.Path
+    args: typing.Sequence[str]
+    stdin: typing.Union[None, typing.TextIO]
+    stdout: typing.Union[None, typing.TextIO]
+    stderr: typing.Union[None, typing.TextIO]
+    env: typing.Union[None, typing.Mapping[str, str]]
 
 
-def make_subprocess_args(context, task_input: scalems.subprocess.SubprocessInput):
-    """InputResource factory for *subprocess* based implementations.
+async def subprocessCoroutine(signature: SubprocessInput):
+    """Implement Subprocess in the local execution context.
+
+    Use this coroutine as the basis for a Task that will provide the Future[SubprocessResult] interface.
     """
-    # subprocess.Popen and asyncio.create_subprocess_exec have approximately compatible arguments.
-    # from scalems.context.local import AbstractLocalContext
-    # if not isinstance(context, AbstractLocalContext):
-    #     raise ValueError('This resource factory is for subprocess-based execution per scalems.context.local')
-    # TODO: await the arguments.
-    args = list([arg for arg in task_input.argv])
-
-    # TODO: stream based input with PIPE.
     kwargs = {
-        'stdin': None,
-        'stdout': None,
-        'stderr': None,
+
+        'stdin': signature.stdin,
+        'stdout': signature.stdout,
+        'stderr': signature.stderr,
         'env': None
     }
-    return {'args': args, 'kwargs': kwargs}
+    if signature.env is not None:
+        kwargs['env'] = {key: value for key, value in signature.env.items()}
 
-
-async def get_coroutine(task_description: dict):
-    """Create and execute a subprocess task in the context."""
-    import asyncio
-    argv = task_description['args']
-    assert isinstance(argv, (list, tuple))
-    assert len(argv) > 0
-    # Get callable.
-    process = await asyncio.create_subprocess_exec(*argv)
+    # TODO: Institute some checks that the implementation is not using more resources
+    #  than it was allocated.
+    # TODO: Institute checks that the implementation is not generating workflow dependencies
+    #  for itself that cannot be scheduled. (Consider a primitive allowing a task to surrender
+    #  its resources and suspend itself, to be reconsidered for scheduling eligibility after
+    #  its new dependencies have been evaluated.)
+    process = await asyncio.create_subprocess_exec(
+        os.fsencode(signature.program),
+        *signature.args,
+        stdin=signature.stdin,
+        stdout=signature.stdout,
+        stderr=signature.stderr,
+        env=signature.env
+    )
     returncode = await process.wait()
-    result = scalems.subprocess.SubprocessResult(exitcode=returncode, stdout=None, stderr=None, file={})
-    # TODO: We should yield in here, somehow, to allow cancellation of the subprocess.
-    # Suggest splitting runner into separate launch/resolve phases or representing this
-    # long-running function as a stateful object. Note: this is properly a run-time Task.
-    # TODO: Split current Context implementations into two components: run time and dispatcher?
-    # Or is that just the Context / Session division?
-    # Run time needs to allow for task management (asynchronous where applicable) and can
-    # be confined to an environment with a running event loop (where applicable) and/or
-    # active executor.
-    # Dispatcher would be able to insulate callers / collaborators from event loop details.
-    assert result.exitcode is not None
+
+    # TODO: How to do the output file staging?
+    stdout = pathlib.Path(os.path.abspath(signature.stdout.name))
+    stderr = pathlib.Path(os.path.abspath(signature.stderr.name))
+    result = scalems.subprocess.SubprocessResult(exitcode=returncode, stdout=stdout, stderr=stderr, file={})
     return result
 
 
-def executable(context, task: scalems.subprocess.Subprocess):
-    # Make inputs.
-    # Translate SubprocessInput to the Python subprocess function signature.
-    subprocess_input = make_subprocess_args(context=context, task_input=task.input_collection())
-    # Run subprocess.
-    if isinstance(context, scalems.local.ImmediateExecutionContext):
-        handle = local_exec(subprocess_input)
-    elif isinstance(context, scalems.local.AsyncWorkflowContext):
-        handle = get_coroutine(subprocess_input)
-    else:
-        raise DispatchError('Cannot dispatch for context {}'.format(repr(context)))
-    # Return SubprocessResult object.
-    return handle
+@contextlib.asynccontextmanager
+async def input_resource_scope(context,
+                               task_input: typing.Union[
+                                   scalems.subprocess.SubprocessInput,
+                                   typing.Awaitable[scalems.subprocess.SubprocessInput]]):
+    """Manage the actual execution context of the asyncio.subprocess.Process.
+
+    Translate a scalems.subprocess.SubprocessInput to a local SubprocessInput instance.
+
+    InputResource factory for *subprocess* based implementations.
+
+    TODO: How should this be composed in terms of the context and (local) resource type?
+        Note that the (currently unused) *context* parameter is available for dispatching.
+    """
+    # Await the inputs.
+    if inspect.isawaitable(task_input):
+        task_input = await task_input
+    # TODO: Use an awaitable to deliver the SubprocessInput providing the arguments.
+    # Consider providing generic awaitable behavior through a decorator or base class
+    # so we don't need to do extra checks and can just await all scalems objects.
+    # TODO: What sort of validation or normalization do we want to do for the executable name?
+    if not isinstance(task_input, scalems.subprocess.SubprocessInput):
+        raise InternalError('Unexpected input type.')
+    program = pathlib.Path(shutil.which(task_input.argv[0]))
+    if not program.exists():
+        raise InternalError('Could not find executable. Input should be vetted before this point.')
+    args = list(str(arg) for arg in task_input.argv[1:])
+
+    if task_input.inputs is not None and len(task_input.inputs) > 0:
+        for key, value in task_input.inputs.items():
+            try:
+                if not os.path.exists(value):
+                    raise ValueError('File not found: {}'.format(value))
+            except:
+                raise TypeError('Invalid input (expected file path): {}'.format(repr(value)))
+            args.extend([key, value])
+
+    if task_input.outputs is not None and len(task_input.inputs) > 0:
+        for i, (key, value) in enumerate(task_input.outputs.items()):
+            if isinstance(value, OutputFile):
+                if value.label is not None:
+                    # TODO: Add an item to the graph that depends on the task.
+                    ...
+                # Generate an appropriate output file name.
+                # Use the fingerprint of the task_input, the current operation type identifier,
+                # and the sequence number of this output file in the current command.
+
+                # Note that this means we need an additional interaction with the workflow manager
+                # in order to have enough context to associate the output with the operation that is
+                # consuming these input resources. Alternatively, we could broaden the scope of this
+                # context manager to represent all run-time resources, and not just the input resources.
+
+                # input_hash = hash(task_input)
+                # input_hash += hash('Subprocess')
+                # input_hash += hash(i)
+                # basename = hashlib.sha256(bytes(input_hash)).digest().hex()
+                # TODO: Handle working directory.
+                path = _next_int().to_bytes(32, 'big').hex() + value.suffix
+                if os.path.exists(path):
+                    raise ProtocolError('Output file already exists but reexecution has not been considered.')
+                # There is obviously a race condition / security hole between the time
+                # that we check an output file name and execute the command. This is
+                # unavoidable with process that expects to create a file with a user-provided name.
+            else:
+                try:
+                    path = os.fsencode(str(value))
+                    if os.path.exists(path):
+                        raise ValueError('Output file already exists: {}'.format(path))
+                except:
+                    raise TypeError('Invalid input (expected file path): {}'.format(repr(value)))
+            args.extend([key, path])
+
+    # Warning: If subprocess.Popen receives *env* argument that is not None, it **replaces** the
+    # default environment (a duplicate of the caller's environment). We might want to provide
+    # fancier semantics to copy or reject select variables from the environment or to
+    # dynamically read the default environment at execution time (note that the results of
+    # such an operation would not represent a unique result!)
+    get_env = lambda : None
+
+    get_stdin = lambda : None
+    if task_input.stdin is not None:
+        # TODO: Strengthen the typing for stdin parameter.
+        if not isinstance(task_input.stdin, (os.PathLike, str, list, tuple)):
+            # Note: this is an internal error indicating a bug in SCALEMS.
+            raise InternalError('No handler for stdin argument of this form.' + repr(task_input.stdin))
+        if isinstance(task_input.stdin, (list, tuple)):
+            # TODO: Assign appropriate responsibility for maintaining filesystem artifacts.
+            infile = 'stdin'
+            with open(infile, 'w') as fp:
+                # Normalize line endings for local environment.
+                fp.writelines([line.rstrip() for line in task_input.stdin])
+        else:
+            infile = task_input.stdin
+        get_stdin = lambda path=os.fsencode(infile): open(os.path.abspath(path), 'r')
+
+    stdout = task_input.stdout
+    if stdout is None:
+        stdout = 'stdout'
+    if not isinstance(task_input.stdout, (os.PathLike, str)):
+        # Note: this is an internal error indicating a bug in SCALEMS.
+        raise InternalError('No handler for stdout argument of this form. ' + repr(task_input.stdout))
+    if os.path.exists(stdout):
+        raise InternalError('Dirty working directory is not recoverable in current implementation.')
+    get_stdout = lambda path=os.path.abspath(stdout) : open(path, 'w')
+
+    stderr = task_input.stderr
+    if stderr is None:
+        stderr = 'stderr'
+    if not isinstance(task_input.stderr, (os.PathLike, str)):
+        # Note: this is an internal error indicating a bug in SCALEMS.
+        raise InternalError('No handler for stderr argument of this form.' + repr(task_input.stderr))
+    if os.path.exists(stderr):
+        raise InternalError('Dirty working directory is not recoverable in current implementation.')
+    get_stderr = lambda path=os.path.abspath(stderr) : open(path, 'w')
+
+    # Create scoped resources. This depends somewhat on the input.
+    # For each non-None stdio stream, we need to provide an open file-like handle.
+    # Note: there may be a use case for scoped run-time determination of *env*,
+    # but we have not yet allowed for that.
+    with get_stdin() as fh_in, get_stdout() as fh_out, get_stderr() as fh_err:
+        try:
+            # TODO: Create SubprocessInput with a coroutine so that we can yield an awaitable.
+            subprocess_input = SubprocessInput(program, args, stdin=fh_in, stdout=fh_out, stderr=fh_err, env=get_env())
+            # Provide resources to the implementation coroutine.
+            yield subprocess_input
+        finally:
+            # Clean up scoped resources.
+            # Deliver output files?
+            ...

@@ -5,11 +5,14 @@ TODO: Consider whether we can reimplement as a parameterized test over the
 """
 
 import asyncio
+import logging
 
 import pytest
+
 import scalems.context
 import scalems.local
-from scalems.exceptions import MissingImplementationError
+from scalems.core.exceptions import MissingImplementationError
+import scalems.local_immediate
 from scalems.subprocess import executable
 
 
@@ -30,8 +33,8 @@ def test_exec_default():
 
 def test_exec_immediate():
     # Test immediate execution.
-    context = scalems.local.ImmediateExecutionContext()
-    with context as session:
+    context = scalems.local_immediate.ImmediateExecutionContext()
+    with scalems.context.scope(context) as session:
         # TODO: Automatic context subscription so `cmd` can be obtained before non-default context.
         # Cross-context dispatching with the root context is not an important core feature now,
         # but it is a trivial test case for important cross-context dispatching in the near term,
@@ -43,16 +46,32 @@ def test_exec_immediate():
 
 
 @pytest.mark.asyncio
-async def test_exec_local():
+async def test_exec_local(cleandir):
     # Test local execution with standard deferred launch.
     # TODO: The `with` block should be equivalent to a `-m scalems.local` invocation. Test.
-    context = scalems.local.AsyncWorkflowContext()
+    context = scalems.local.AsyncWorkflowManager()
+    asyncio.get_event_loop().set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Note that a coroutine object created from an `async def` function is only awaitable once.
-    with context as session:
-        cmd = executable(('/bin/echo',))
-        # session.run(cmd)
-        await session.run()
-
+    with scalems.context.scope(context):
+        # TODO: Input type checking.
+        try:
+            cmd = executable(('/bin/cat', '-'), stdin=('hi there\n',), stdout='stdout.txt')
+        except Exception as e:
+            raise
+        assert isinstance(cmd, scalems.context.ItemView)
+        # TODO: Future interface allows client to force resolution of dependencies.
+        # cmd.result()
+        # TODO:
+        # scalems.run(cmd)
+        # TODO: Remove Session.run() from public interface (use scalems.run())
+        # await context.run()
+        async with context.dispatch():
+            ...
+        result = cmd.result()  # type: scalems.subprocess.SubprocessResult
+        assert result.stdout.name == 'stdout.txt'
+        with open(result.stdout) as fh:
+            assert fh.read().startswith('hi there')
 
 # Currently in test_rp_exec.py
 # def test_exec_rp():

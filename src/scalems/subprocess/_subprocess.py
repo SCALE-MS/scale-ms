@@ -24,9 +24,8 @@ import typing
 from pathlib import Path  # We probably need a scalems abstraction for Path.
 
 from scalems.exceptions import InternalError
-from scalems.serialization import Encoder
+from scalems.serialization import encode
 from scalems.utility import next_monotonic_integer
-
 from .. import context as _context
 
 logger = logging.getLogger(__name__)
@@ -184,7 +183,7 @@ class Subprocess:
         record['input'] = dataclasses.asdict(self._bound_input) # reference
         record['result'] = dataclasses.asdict(self._result) # reference
         try:
-            serialized = json.dumps(record, cls=Encoder)
+            serialized = json.dumps(record, default=encode)
         except TypeError as e:
             logger.critical('Missing encoding logic for scalems data. Encoder says ' + str(e))
             raise InternalError('Missing serialization support.') from e

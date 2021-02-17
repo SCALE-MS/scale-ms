@@ -40,7 +40,7 @@ from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from scalems.exceptions import ScopeError
-from scalems.serialization import Encoder
+from scalems.serialization import encode
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -540,7 +540,7 @@ class WorkflowManager(abc.ABC):
                 'type': tuple(implementation_identifier),
                 'input': task_description
             }
-        serialized_record = json.dumps(record, cls=Encoder)
+        serialized_record = json.dumps(record, default=encode)
 
         # TODO: Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
         item = Task(self, serialized_record)

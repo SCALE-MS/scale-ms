@@ -8,6 +8,7 @@
 FROM ubuntu:focal
 
 RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
         curl \
         dnsutils \
@@ -16,7 +17,7 @@ RUN apt-get update && \
         openssh-server \
         iputils-ping \
         python3.8-dev \
-        python3.8-venv \
+        python3-venv \
         vim && \
     rm -rf /var/lib/apt/lists/*
 
@@ -52,21 +53,32 @@ RUN (cd ~rp && \
         pylint \
         pymongo \
         pytest \
+        pytest-asyncio \
         python-hostlist \
         setproctitle \
         )
 
 RUN . ~rp/rp-venv/bin/activate && \
     pip install --upgrade \
-        'radical.saga>=1.0' \
-        'radical.utils>=1.1'
+        'radical.saga>=1.5.2' \
+        'radical.utils>=1.5.2'
+
+ARG RPREF="project/scalems"
+
+#RUN (cd ~rp && \
+#    . ~rp/rp-venv/bin/activate && \
+#    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
 
 RUN (cd ~rp && \
     . ~rp/rp-venv/bin/activate && \
-    git clone --depth=1 -b devel https://github.com/radical-cybertools/radical.pilot.git && \
+    git clone -b project/scalems --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     cd radical.pilot && \
-    ~rp/rp-venv/bin/pip install .)
-
+    pip install -e . \
+    )
+#
+#RUN echo 'bash -c ". ~rp/rp-venv/bin/activate; python3 $@"' \
+#        >> ~rp/venv-python-wrapper && \
+#    chmod a+x ~rp/venv-python-wrapper
 
 USER root
 
@@ -80,3 +92,5 @@ USER root
 ENV RADICAL_PILOT_DBURL="mongodb://root:password@mongo:27017/admin"
 
 RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
+
+RUN echo "rp\nrp" | passwd rp

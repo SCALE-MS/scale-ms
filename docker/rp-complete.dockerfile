@@ -31,8 +31,6 @@ RUN apt-get update && \
         gcc \
         git \
         iputils-ping \
-        python3.8-dev \
-        python3.8-venv \
         vim \
         wget && \
     rm -rf /var/lib/apt/lists/*
@@ -69,27 +67,27 @@ RUN (cd ~rp && \
 
 RUN . ~rp/rp-venv/bin/activate && \
     pip install --upgrade \
-        'radical.saga>=1.0' \
-        'radical.utils>=1.1'
+        'radical.saga>=1.5.2' \
+        'radical.utils>=1.5.2'
 
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-ARG RPREF="v1.5.7"
-RUN cd ~rp && \
-    wget https://github.com/radical-cybertools/radical.pilot/archive/$RPREF.tar.gz && \
-    tar zxvf $RPREF.tar.gz && \
-    mv radical.pilot-* radical.pilot && \
-    rm $RPREF.tar.gz
+#ARG RPREF="v1.5.7"
+ARG RPREF="project/scalems"
+#RUN cd ~rp && \
+#    wget https://github.com/radical-cybertools/radical.pilot/archive/$RPREF.tar.gz && \
+#    tar zxvf $RPREF.tar.gz && \
+#    mv radical.pilot-* radical.pilot && \
+#    rm $RPREF.tar.gz
 
 # Install RP from whichever git ref is provided as `--build-arg RPREF=...` (default 1.5.7)
 RUN . ~rp/rp-venv/bin/activate && \
-    cd ~rp/radical.pilot && \
-    pip install .
-# OR
-## Install official version from PyPI
+    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
+# OR first get sources, then
 #RUN . ~rp/rp-venv/bin/activate && \
-#    pip install radical.pilot
+#    cd ~rp/radical.pilot && \
+#    pip install .
 
 
 # Allow RADICAL Pilot to provide more useful behavior during testing,

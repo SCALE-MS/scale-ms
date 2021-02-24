@@ -22,26 +22,22 @@
 FROM mongo:bionic
 # Reference https://github.com/docker-library/mongo/blob/master/4.2/Dockerfile
 
-RUN groupadd -r radical && useradd -r -g radical -m rp
-
 RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
         curl \
         dnsutils \
         gcc \
         git \
+        openssh-server \
         iputils-ping \
+        python3.8-dev \
+        python3-venv \
         vim \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && \
-    apt-get install -y \
-        python3.8-dev \
-        python3-venv && \
-    rm -rf /var/lib/apt/lists/*
-
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1
+RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 
 USER rp
 
@@ -61,6 +57,7 @@ RUN (cd ~rp && \
         pylint \
         pymongo \
         pytest \
+        pytest-asyncio \
         python-hostlist \
         setproctitle \
         )
@@ -75,19 +72,23 @@ RUN . ~rp/rp-venv/bin/activate && \
 # match the branch or tag name, so we use a glob to try to normalize the name.
 #ARG RPREF="v1.5.7"
 ARG RPREF="project/scalems"
-#RUN cd ~rp && \
-#    wget https://github.com/radical-cybertools/radical.pilot/archive/$RPREF.tar.gz && \
-#    tar zxvf $RPREF.tar.gz && \
-#    mv radical.pilot-* radical.pilot && \
-#    rm $RPREF.tar.gz
-
-# Install RP from whichever git ref is provided as `--build-arg RPREF=...` (default 1.5.7)
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
+# Note: radical.pilot does not work properly with an "editable install"
+#RUN (cd ~rp && \
+#    . ~rp/rp-venv/bin/activate && \
+#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+#    cd radical.pilot && \
+#    pip install -e . \
+#    )
+# We want the sources for the examples and unit tests.
+#RUN (cd ~rp && \
+#    . ~rp/rp-venv/bin/activate && \
+#    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
 # OR first get sources, then
-#RUN . ~rp/rp-venv/bin/activate && \
-#    cd ~rp/radical.pilot && \
-#    pip install .
+RUN cd ~rp && \
+    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+    . ~rp/rp-venv/bin/activate && \
+    cd ~rp/radical.pilot && \
+    pip install .
 
 
 # Allow RADICAL Pilot to provide more useful behavior during testing,
@@ -108,3 +109,9 @@ ENV MONGO_INITDB_ROOT_PASSWORD=password
 # tell RP to use the same.
 # Note that the default mongodb port number is 27017.
 ENV RADICAL_PILOT_DBURL="mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROOT_PASSWORD@localhost:27017/admin"
+
+RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
+
+RUN echo "rp\nrp" | passwd rp
+
+WORKDIR /home/rp

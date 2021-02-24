@@ -29,7 +29,7 @@ services:
       ME_CONFIG_MONGODB_ADMINUSERNAME: root
       ME_CONFIG_MONGODB_ADMINPASSWORD: password
   login:
-    image: radicalpilot
+    image: scalems/radicalpilot
     restart: always
     ports:
       - "127.0.0.1:2345:22"

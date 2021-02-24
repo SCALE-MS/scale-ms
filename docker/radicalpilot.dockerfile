@@ -3,7 +3,7 @@
 # When a container is launched from this image with no arguments, the container
 # will run an sshd daemon.
 # Example:
-#     docker build -t radicalpilot -f radicalpilot.dockerfile .
+#     docker build -t scalems/radicalpilot -f radicalpilot.dockerfile .
 
 FROM ubuntu:focal
 
@@ -65,20 +65,17 @@ RUN . ~rp/rp-venv/bin/activate && \
 
 ARG RPREF="project/scalems"
 
+# Note: radical.pilot does not work properly with an "editable install"
 #RUN (cd ~rp && \
 #    . ~rp/rp-venv/bin/activate && \
-#    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
+#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+#    cd radical.pilot && \
+#    pip install -e . \
+#    )
 
 RUN (cd ~rp && \
     . ~rp/rp-venv/bin/activate && \
-    git clone -b project/scalems --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
-    cd radical.pilot && \
-    pip install -e . \
-    )
-#
-#RUN echo 'bash -c ". ~rp/rp-venv/bin/activate; python3 $@"' \
-#        >> ~rp/venv-python-wrapper && \
-#    chmod a+x ~rp/venv-python-wrapper
+    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
 
 USER root
 

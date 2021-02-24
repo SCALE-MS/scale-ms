@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
     worker = ScaleMSWorker(sys.argv[1])
     worker.start()
-    time.sleep(100)
+    time.sleep(5)
     worker.join()
 
 

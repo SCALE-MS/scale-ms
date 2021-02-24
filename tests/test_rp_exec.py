@@ -129,8 +129,8 @@ def test_rp_scalems():
         # define a pilot and launch it
         pd    = rp.PilotDescription(
                    {'resource': 'local.localhost',
-                    'cores'   : 32,
-                    'gpus'    : 1})
+                    'cores'   : 4,
+                    'gpus'    : 0})
 
         pmgr  = rp.PilotManager(session=session)
         tmgr  = rp.TaskManager(session=session)
@@ -145,8 +145,8 @@ def test_rp_scalems():
         td    = rp.TaskDescription(
                 {
                     'uid'          :  'raptor.scalems',
-                    'executable'   :  '%s/scalems_test_master.py' % pwd,
-                    'arguments'    : ['%s/scalems_test_cfg.json'  % pwd],
+                    'executable'   :  'python',
+                    'arguments'    : ['./scalems_test_master.py', '%s/scalems_test_cfg.json'  % pwd],
                     'input_staging': ['%s/scalems_test_cfg.json'  % pwd,
                                       '%s/scalems_test_master.py' % pwd,
                                       '%s/scalems_test_worker.py' % pwd]
@@ -158,14 +158,14 @@ def test_rp_scalems():
 
         # define raptor.scalems tasks and submit them to the master
         tds = list()
-        for i in range(10):
+        for i in range(2):
             uid  = 'scalems.%06d' % i
             # ------------------------------------------------------------------
             # work serialization goes here
             # This dictionary is interpreted by rp.raptor.Master.
             work = json.dumps({'mode'      :  'call',
                                'cores'     :  1,
-                               'timeout'   :  100,
+                               'timeout'   :  10,
                                'data'      : {'method': 'hello',
                                               'kwargs': {'world': uid}}})
             # ------------------------------------------------------------------
@@ -177,6 +177,7 @@ def test_rp_scalems():
             }))
 
         tasks = tmgr.submit_tasks(tds)
+        assert len(tasks) == len(tds)
         # 'arguments' gets wrapped in a Request at the Master by _receive, then
         # picked up by the Worker in _request_cb. Then picked up in forked interpreter
         # by Worker._dispatch, which checks the *mode* of the Request and dispatches
@@ -187,14 +188,15 @@ def test_rp_scalems():
 
         # wait for *those* tasks to complete and report results
         tmgr.wait_tasks(uids=[t.uid for t in tasks])
-        for t in tasks:
-            print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-            assert t.exit_code == 0
-            assert t.state ==rp.states.DONE
 
         # Cancel the master.
         tmgr.cancel_tasks(uids=scheduler.uid)
         tmgr.wait_tasks([scheduler.uid])
+
+        for t in tasks:
+            print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
+            assert t.state == rp.states.DONE
+            assert t.exit_code == 0
 
 
     assert session.closed

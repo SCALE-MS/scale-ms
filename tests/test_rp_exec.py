@@ -138,9 +138,12 @@ def test_rp_scalems():
         tmgr.add_pilots(pilot)
 
         # TODO: How can we recover successful workflow stages from previous failed Sessions?
-        #    The client needs to note the sandbox locations from runs. SCALEMS can
-        #    then manage / maintain state tracking or state discovery to optimize workflow recovery.
-        #    Resumed workflows can make reference to sandboxes from previous sessions (RCT work in progress).
+        #
+        # The client needs to note the sandbox locations from runs. SCALEMS can
+        # then manage / maintain state tracking or state discovery to optimize workflow recovery.
+        # Resumed workflows can make reference to sandboxes from previous sessions
+        # (RCT work in progress: https://github.com/radical-cybertools/radical.pilot/tree/feature/sandboxes
+        # slated for merge in 2021 Q2 to support `sandbox://` URIs).
 
         # define a raptor.scalems master and launch it within the pilot
         pwd   = os.path.dirname(__file__)

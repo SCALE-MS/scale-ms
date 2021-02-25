@@ -22,7 +22,7 @@ jobs:
       script:
         - pytest tests -s
     - name: "RP dispatching"
-      env: RPREF="v1.5.7"
+      env: RPREF="project/scalems"
       services:
         - docker
       install:
@@ -36,7 +36,7 @@ jobs:
         - docker run --rm --name scalems_test -u root -d scalems-rp
         - docker ps
         - sleep 5
-        - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
+        - docker exec -ti scalems_test bash -c "cd && . rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
         # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
         - docker kill scalems_test
     - name: "RP master dependency"
@@ -53,7 +53,7 @@ jobs:
         - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/misc/task_overlay.py radical.pilot/examples/misc/task_overlay.cfg"
         - docker kill rp_test
     - name: "RP master dispatching"
-      env: RPREF="master"
+      env: RPREF="project/scalems"
       services:
         - docker
       install:

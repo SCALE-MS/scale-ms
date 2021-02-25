@@ -16,11 +16,13 @@
 #     docker kill rp_test
 #
 # Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default v1.5.7)
-#     docker build -t rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
 #
 
 FROM mongo:bionic
 # Reference https://github.com/docker-library/mongo/blob/master/4.2/Dockerfile
+
+USER root
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
@@ -37,11 +39,19 @@ RUN apt-get update && \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y \
+        python3.8-venv \
+         && \
+    rm -rf /var/lib/apt/lists/*
+
+
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 
 USER rp
 
-RUN (cd ~rp && python3 -m venv rp-venv)
+RUN (cd ~rp && python3.8 -m venv rp-venv)
 
 RUN (cd ~rp && \
     rp-venv/bin/pip install --upgrade \

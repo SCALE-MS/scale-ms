@@ -14,8 +14,9 @@ RUN apt-get update && \
         dnsutils \
         gcc \
         git \
-        openssh-server \
         iputils-ping \
+        openmpi-bin \
+        openssh-server \
         python3.8-dev \
         python3-venv \
         vim && \

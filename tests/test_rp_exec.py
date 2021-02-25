@@ -145,7 +145,7 @@ def test_rp_scalems():
         td    = rp.TaskDescription(
                 {
                     'uid'          :  'raptor.scalems',
-                    'executable'   :  'python',
+                    'executable'   :  'python3',
                     'arguments'    : ['./scalems_test_master.py', '%s/scalems_test_cfg.json'  % pwd],
                     'input_staging': ['%s/scalems_test_cfg.json'  % pwd,
                                       '%s/scalems_test_master.py' % pwd,
@@ -191,13 +191,15 @@ def test_rp_scalems():
 
         # Cancel the master.
         tmgr.cancel_tasks(uids=scheduler.uid)
-        tmgr.wait_tasks([scheduler.uid])
+        # Cancel blocks until the task is done so the following wait it currently redundant,
+        # but there is a ticket open to change this behavior.
+        # See https://github.com/radical-cybertools/radical.pilot/issues/2336
+        # tmgr.wait_tasks([scheduler.uid])
 
         for t in tasks:
             print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-            # TODO: Fix!
-            # assert t.state == rp.states.DONE
-            # assert t.exit_code == 0
+            assert t.state == rp.states.DONE
+            assert t.exit_code == 0
 
 
     assert session.closed

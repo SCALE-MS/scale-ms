@@ -31,8 +31,9 @@ RUN apt-get update && \
         dnsutils \
         gcc \
         git \
-        openssh-server \
         iputils-ping \
+        openmpi-bin \
+        openssh-server \
         python3.8-dev \
         python3-venv \
         vim \
@@ -62,6 +63,7 @@ RUN (cd ~rp && \
         coverage \
         flake8 \
         'mock==2.0.0' \
+        mpi \
         netifaces \
         ntplib \
         pylint \

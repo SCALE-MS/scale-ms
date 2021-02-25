@@ -3,20 +3,22 @@
 # When a container is launched from this image with no arguments, the container
 # will run an sshd daemon.
 # Example:
-#     docker build -t radicalpilot -f radicalpilot.dockerfile .
+#     docker build -t scalems/radicalpilot -f radicalpilot.dockerfile .
 
 FROM ubuntu:focal
 
 RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
         curl \
         dnsutils \
         gcc \
         git \
-        openssh-server \
         iputils-ping \
+        openmpi-bin \
+        openssh-server \
         python3.8-dev \
-        python3.8-venv \
+        python3-venv \
         vim && \
     rm -rf /var/lib/apt/lists/*
 
@@ -52,21 +54,29 @@ RUN (cd ~rp && \
         pylint \
         pymongo \
         pytest \
+        pytest-asyncio \
         python-hostlist \
         setproctitle \
         )
 
 RUN . ~rp/rp-venv/bin/activate && \
     pip install --upgrade \
-        'radical.saga>=1.0' \
-        'radical.utils>=1.1'
+        'radical.saga>=1.5.2' \
+        'radical.utils>=1.5.2'
+
+ARG RPREF="project/scalems"
+
+# Note: radical.pilot does not work properly with an "editable install"
+#RUN (cd ~rp && \
+#    . ~rp/rp-venv/bin/activate && \
+#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+#    cd radical.pilot && \
+#    pip install -e . \
+#    )
 
 RUN (cd ~rp && \
     . ~rp/rp-venv/bin/activate && \
-    git clone --depth=1 -b devel https://github.com/radical-cybertools/radical.pilot.git && \
-    cd radical.pilot && \
-    ~rp/rp-venv/bin/pip install .)
-
+    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
 
 USER root
 
@@ -80,3 +90,5 @@ USER root
 ENV RADICAL_PILOT_DBURL="mongodb://root:password@mongo:27017/admin"
 
 RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
+
+RUN echo "rp\nrp" | passwd rp

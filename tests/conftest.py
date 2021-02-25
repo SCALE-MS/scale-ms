@@ -9,11 +9,18 @@ except ImportError:
 
 import os
 import shutil
+import sys
 import tempfile
 import warnings
 from contextlib import contextmanager
 
 import pytest
+
+# Work around RADICAL assumption that the Python virtual environment root is on the executable search path.
+_PATH_orig = str(os.environ['PATH'])
+_py_bin_path = os.path.join(sys.exec_prefix, 'bin')
+if _py_bin_path not in _PATH_orig.split(os.pathsep):
+    os.environ['PATH'] = os.pathsep.join([_py_bin_path, _PATH_orig])
 
 
 @contextmanager

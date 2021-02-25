@@ -51,7 +51,7 @@ jobs:
         - docker ps
         - sleep 5
         - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
-        - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/misc/task_overlay.py radical.pilot/examples/misc/task_overlay.cfg"
+        - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/misc/raptor.py radical.pilot/examples/misc/raptor.cfg"
         - docker kill rp_test
 #    - name: "RP master dispatching"
 #      env: RPREF="master"

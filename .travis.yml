@@ -21,7 +21,7 @@ jobs:
         - pip install .
       script:
         - pytest tests -s
-    - name: "RP dispatching"
+    - name: "RP dispatching (containerized)"
       env: RPREF="project/scalems"
       services:
         - docker
@@ -53,6 +53,7 @@ jobs:
         - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
         - docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/misc/raptor.py radical.pilot/examples/misc/raptor.cfg"
         - docker kill rp_test
+# TODO: Enable when rp/raptor is released.
 #    - name: "RP master dispatching"
 #      env: RPREF="master"
 #      services:
@@ -66,8 +67,6 @@ jobs:
 #        - sleep 5
 #        - docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
 #        - docker kill scalems_test
-  allow_failures:
-    - env: RPREF="master"
 
 before_install:
   - uname -a

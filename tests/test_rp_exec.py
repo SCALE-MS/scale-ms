@@ -137,8 +137,10 @@ def test_rp_scalems():
         pilot = pmgr.submit_pilots(pd)
         tmgr.add_pilots(pilot)
 
-        # TODO: How can we recover successful components of previous failed Sessions?
-        #    Need to reference sandboxes from other sessions (RCT work in progrees).
+        # TODO: How can we recover successful workflow stages from previous failed Sessions?
+        #    The client needs to note the sandbox locations from runs. SCALEMS can
+        #    then manage / maintain state tracking or state discovery to optimize workflow recovery.
+        #    Resumed workflows can make reference to sandboxes from previous sessions (RCT work in progress).
 
         # define a raptor.scalems master and launch it within the pilot
         pwd   = os.path.dirname(__file__)
@@ -152,9 +154,6 @@ def test_rp_scalems():
                                       '%s/scalems_test_worker.py' % pwd]
                 })
         scheduler = tmgr.submit_tasks(td)
-
-        # FIXME
-        # tmgr.wait_tasks(uids=master.uid, state=rp.AGENT_EXECUTING)
 
         # define raptor.scalems tasks and submit them to the master
         tds = list()

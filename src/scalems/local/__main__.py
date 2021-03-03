@@ -50,7 +50,7 @@ try:
             # TODO: Use a decorator to annotate which function(s) to run?
             main = None
             for name, ref in globals_namespace.items():
-                if isinstance(ref, scalems.core.ScriptEntryPoint):
+                if isinstance(ref, scalems.ScriptEntryPoint):
                     if main is not None:
                         raise scalems.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
                     main = ref
@@ -61,7 +61,8 @@ try:
         except SystemExit as e:
             exitcode = e.code
 except Exception as e:
-    print('Exception: {}'.format(repr(e)))
+    print('scalems.local encountered Exception: {}'.format(repr(e)))
     if exitcode == 0:
         exitcode = 1
-raise SystemExit(exitcode)
+if exitcode != 0:
+    raise SystemExit(exitcode)

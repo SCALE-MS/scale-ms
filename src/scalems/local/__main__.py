@@ -43,7 +43,7 @@ asyncio.set_event_loop(loop)
 # TODO: Can we support mixing invocation with pytest?
 exitcode = 0
 try:
-    with scalems.context.scope(scalems.local.AsyncWorkflowManager()) as context:
+    with scalems.context.scope(scalems.local.AsyncWorkflowManager(loop)) as context:
         try:
             # Check accessibility!
             globals_namespace = runpy.run_path(sys.argv[0])

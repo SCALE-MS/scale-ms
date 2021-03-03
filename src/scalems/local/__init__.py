@@ -58,7 +58,9 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
 
     There is no implicit OS level multithreading or multiprocessing.
     """
-    def __init__(self):
+    def __init__(self, loop):
+        super(AsyncWorkflowManager, self).__init__(loop)
+
         # Basic Context implementation details
         self.task_map = {}  # Map UIDs to task Futures.
         # Note: We actually need multiple queues and a queue monitor to move

@@ -597,19 +597,6 @@ class WorkflowManager(abc.ABC):
         return task_view
 
 
-class DefaultContext(WorkflowManager):
-    """Manage workflow data and metadata, but defer execution to sub-contexts.
-
-    Not yet implemented or used.
-    """
-
-    def add_item(self, task_description):
-        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
-
-    def item(self, identifier) -> ItemView:
-        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
-
-
 class Scope(typing.NamedTuple):
     """Backward-linked list (potentially branching) to track nested context.
 

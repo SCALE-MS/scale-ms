@@ -16,6 +16,7 @@ import scalems.local_immediate
 from scalems.subprocess import executable
 
 
+@pytest.mark.xfail(reason='There is currently no default executor. See also #53, #55, #82')
 def test_exec_default():
     # Check for expected behavior of the default context
     with pytest.raises(MissingImplementationError):
@@ -31,25 +32,26 @@ def test_exec_default():
             session.run(cmd)
 
 
-def test_exec_immediate():
-    # Test immediate execution.
-    context = scalems.local_immediate.ImmediateExecutionContext()
-    with scalems.context.scope(context) as session:
-        # TODO: Automatic context subscription so `cmd` can be obtained before non-default context.
-        # Cross-context dispatching with the root context is not an important core feature now,
-        # but it is a trivial test case for important cross-context dispatching in the near term,
-        # and would be necessary for automated dispatching based on run-time environment, if we
-        # were to pursue that in the future.
-        cmd = scalems.executable(('/bin/echo',))
-        # TODO: Check output
-        session.run(cmd)
+# This does not currently seem to be on the road map.
+# def test_exec_immediate():
+#     # Test immediate execution.
+#     context = scalems.local_immediate.ImmediateExecutionContext()
+#     with scalems.context.scope(context) as session:
+#         # TODO: Automatic context subscription so `cmd` can be obtained before non-default context.
+#         # Cross-context dispatching with the root context is not an important core feature now,
+#         # but it is a trivial test case for important cross-context dispatching in the near term,
+#         # and would be necessary for automated dispatching based on run-time environment, if we
+#         # were to pursue that in the future.
+#         cmd = scalems.executable(('/bin/echo',))
+#         # TODO: Check output
+#         session.run(cmd)
 
 
 @pytest.mark.asyncio
 async def test_exec_local(cleandir):
     # Test local execution with standard deferred launch.
     # TODO: The `with` block should be equivalent to a `-m scalems.local` invocation. Test.
-    context = scalems.local.AsyncWorkflowManager()
+    context = scalems.local.AsyncWorkflowManager(asyncio.get_event_loop())
     asyncio.get_event_loop().set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Note that a coroutine object created from an `async def` function is only awaitable once.
@@ -62,7 +64,7 @@ async def test_exec_local(cleandir):
         assert isinstance(cmd, scalems.context.ItemView)
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
-        # TODO:
+        # TODO: #82
         # scalems.run(cmd)
         # TODO: Remove Session.run() from public interface (use scalems.run())
         # await context.run()
@@ -72,12 +74,3 @@ async def test_exec_local(cleandir):
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
             assert fh.read().startswith('hi there')
-
-# Currently in test_rp_exec.py
-# def test_exec_rp():
-#     # Test RPDispatcher context
-#     # Note that a coroutine object created from an `async def` function is only awaitable once.
-#     cmd = executable(('/bin/echo',))
-#     context = sms_context.RPDispatcher()
-#     with context as session:
-#         session.run(cmd)

@@ -278,6 +278,8 @@ def _run(*, work, context, **kwargs):
             # This is supposed to either get a coroutine object from *work* or allow
             # *work* the opportunity to interact with the workflow manager before dispatching begins.
             try:
+                # Note that with the current scalems.utility.app, we don't have a convention for
+                # the callable to return anything, so *handle* is None (and unused).
                 handle = work(**kwargs)
             except Exception as e:
                 logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
@@ -308,12 +310,49 @@ def _run(*, work, context, **kwargs):
 
         logger.debug('Finished asyncio.run()')
     else:
-        logger.debug('Starting context.run() without asyncio wrapper')
-        result = context.run(work, **kwargs)
-        logger.debug('Finished context.run()')
+        raise NotImplementedError('scalems workflow management requires an active event loop.')
+        # logger.debug('Starting context.run() without asyncio wrapper')
+        # result = context.run(work, **kwargs)
+        # logger.debug('Finished context.run()')
     return result
 
 
+def deprecated(explanation: str):
+    """Mark a deprecated definition.
+
+    Wraps a callable to issue a DeprecationWarning when called.
+
+    Use as a parameterized decorator::
+
+        @deprecated("func is deprecated because...")
+        def func():
+            ...
+
+    """
+    try:
+        _message = str(explanation)
+        assert len(_message) > 0
+    except Exception as e:
+        raise ValueError('`deprecated` decorator needs a *explanation*.') from e
+
+    def decorator(func: typing.Callable):
+        import functools
+
+        def deprecation(message):
+            import warnings
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            deprecation(_message)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+@deprecated('scalems.run() is not currently supported. See https://github.com/SCALE-MS/scale-ms/issues/82')
 def run(work, context=None, **kwargs):
     """Execute a workflow and return the results.
 
@@ -369,6 +408,7 @@ def run(work, context=None, **kwargs):
         message = 'Uncaught exception in scalems.context.run(): {}'.format(str(e))
         warnings.warn(message)
         logger.warning(message)
+        return None
 
     # TODO: Consider generalized coroutines to be dispatched through
     #     custom event loops or executors.

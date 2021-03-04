@@ -401,6 +401,26 @@ class WorkflowManager(abc.ABC):
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        """
+        The event loop for the program should be launched in the root thread, preferably early in the application launch.
+        Whether the WorkflowManager uses it directly, it is useful to require the client to provide the event loop,
+        if for no other reason than to ensure that one exists.
+
+        Args:
+            loop: event loop, such as from asyncio.new_event_loop()
+        """
+        # We are moving towards a composed rather than a derived WorkflowManager Context.
+        # Note that we can require the super().__init__() to be called in derived classes,
+        # so it is not non-sensical for an abc.ABC to have an __init__ method.
+        if not isinstance(loop, asyncio.AbstractEventLoop):
+            raise TypeError('Workflow manager requires an event loop object compatible with asyncio.AbstractEventLoop.')
+        if loop.is_closed():
+            raise ProtocolError('Event loop does not appear to be ready to use.')
+        logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.')
+        self._asyncio_even_loop = loop
+
+
     def item(self, identifier) -> ItemView:
         """Access an item in the managed workflow.
         """
@@ -577,19 +597,6 @@ class WorkflowManager(abc.ABC):
         return task_view
 
 
-class DefaultContext(WorkflowManager):
-    """Manage workflow data and metadata, but defer execution to sub-contexts.
-
-    Not yet implemented or used.
-    """
-
-    def add_item(self, task_description):
-        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
-
-    def item(self, identifier) -> ItemView:
-        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
-
-
 class Scope(typing.NamedTuple):
     """Backward-linked list (potentially branching) to track nested context.
 
@@ -600,9 +607,12 @@ class Scope(typing.NamedTuple):
     parent: typing.Union[None, WorkflowManager]
     current: WorkflowManager
 
-
-# Root workflow context for the interpreter process.
-_interpreter_context = DefaultContext()
+# If we require an event loop to be provided to the WorkflowManager, then
+# we should not instantiate a default context on module import. We don't really
+# want to hold an event loop object at module scope, and we want to give as much
+# opportunity as possible for the caller to provide an event loop.
+# # Root workflow context for the interpreter process.
+# _interpreter_context = DefaultContext()
 
 # Note: Scope indicates the hierarchy of "active" WorkflowManager instances (related by dispatching).
 # This is separate from WorkflowManager lifetime and ownership. WorkflowManagers should track their
@@ -612,7 +622,7 @@ _interpreter_context = DefaultContext()
 # in terms of a parent context doing contextvars.copy_context().run(...)
 # I think we have to make sure not to nest scopes without a combination of copy_context and context managers,
 # so we don't need to track the parent scope. We should also be able to use weakrefs.
-current_scope = contextvars.ContextVar('current_context', default=Scope(None, _interpreter_context))
+current_scope = contextvars.ContextVar('current_scope')
 
 
 def get_context():
@@ -628,11 +638,17 @@ def get_context():
     # Async coroutines can safely use get_context(), but should not use the
     # non-async workflow_scope() context manager for nested scopes without wrapping
     # in a contextvars.run().
-    scope = current_scope.get().current
-    # This check is in case we use weakref.ref:
-    if scope is None:
-        raise ProtocolError('Context for current scope seems to have disappeared.')
-    return scope
+    try:
+        _scope: Scope = current_scope.get()
+        current_context = _scope.current
+        logger.debug(f'Scope queried with get_context() {repr(current_context)}')
+        # This check is in case we use weakref.ref:
+        if current_context is None:
+            raise ProtocolError('Context for current scope seems to have disappeared.')
+    except LookupError:
+        logger.debug('Scope was queried, but has not yet been set.')
+        current_context = None
+    return current_context
 
 
 @contextlib.contextmanager

@@ -420,6 +420,29 @@ class WorkflowManager(abc.ABC):
         logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.')
         self._asyncio_even_loop = loop
 
+        # Basic Context implementation details
+        self.task_map = {}  # Map UIDs to task Futures.
+
+        # Note: We actually need multiple queues and a queue monitor to move
+        # items between queues. The Executor will have a sense of "scope" for
+        # tasks that are grouped by data locality or resource requirements, as
+        # well as sub-graph scope. We also need queue(s) for responses from the
+        # executor with which to update the local work graph state.
+        # When the executor is launched, we can spool the current work graph into
+        # a queue and install a hook for client-side work graph modifications to
+        # also go into the queue. When the executor stops, we need to uninstall that
+        # hook and drain the response queue. I think we need a second async task
+        # to move items from a queue.SimpleQueue to a asyncio.Queue to support the hook.
+        # It might be elegant to do this by calling the `add_item` of the ExecutionContext.
+        # Instead of (at least part of) the return queue, we could proxy asyncio.Task.add_done_callback
+        # with the returned ItemView.
+        # TODO: Consider a more abstract event hook.
+        self._queue: typing.Union[queue.Queue, None] = None
+
+        self._dispatcher: typing.Union[weakref.ref, None] = None
+        self._dispatcher_lock = asyncio.Lock()
+        # Rely on the GIL to provide a simple event hook.
+        # self._event_hooks = {'add_item': {}}
 
     def item(self, identifier) -> ItemView:
         """Access an item in the managed workflow.

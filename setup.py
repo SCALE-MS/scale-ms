@@ -14,7 +14,8 @@ setup(
     package_dir={'': 'src'},
     package_data={
         # Enable PEP-561 style type hinting and .pyi type hinting files.
-        'scalems': ['py.typed']
+        # Bundle some non-package scripts and config files.
+        'scalems': ['py.typed', 'radical/data/*.py', 'radical/data/*.json']
     },
     url='https://github.com/SCALE-MS/scale-ms/',
     license='',

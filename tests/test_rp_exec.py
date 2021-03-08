@@ -118,8 +118,8 @@ def test_rp_basic_task(rpsession):
 
 
 @with_radical_only
-def test_rp_scalems(rpsession):
-
+def test_rp_raptor(rpsession):
+    """Test the core RADICAL Pilot functionality that we rely on."""
     import radical.pilot as rp
 
     # define a pilot and launch it
@@ -216,11 +216,15 @@ async def test_exec_rp():
     # Test RPDispatcher context
     context = scalems.radical.RPWorkflowContext(loop)
     with scalems.context.scope(context):
-        ...
+        assert not loop.is_closed()
+        # Enter the async context manager for the default dispatcher
+        async with context.dispatch():
+            ...
+
         # TODO: re-enable test for basic executable wrapper.
         # async with context.dispatch():
         #     cmd = scalems.executable(('/bin/echo',))
 
-
     # Test active context scoping.
     assert scalems.context.get_context() is original_context
+    assert not loop.is_closed()

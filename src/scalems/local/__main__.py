@@ -21,7 +21,6 @@ import scalems.local
 #     Consider generalizing this boilerplate.
 
 # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
-from scalems.utility import _run
 
 logger = scalems.local.logger
 

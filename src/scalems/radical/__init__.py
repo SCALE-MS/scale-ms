@@ -44,6 +44,7 @@ from concurrent.futures import Future
 from pathlib import Path
 from types import TracebackType
 from typing import Any, Callable, Optional, Tuple
+from urllib.parse import urlparse
 
 import pkg_resources
 
@@ -302,7 +303,64 @@ class RPDispatchingExecutor:
     _queue_runner_task: asyncio.Task
 
     async def __aenter__(self):
+        # Get a lock while the state is changing.
+        async with self._dispatcher_lock:
+            self._connect_rp()
+
+            # Launch queue processor (proxy executor).
+            self._queue_runner_task = self.start()
+            assert isinstance(self._queue_runner_task, asyncio.Task)
+
+        # Note: it would probably be most useful to return something with a WorkflowManager
+        # interface...
+        return self
+
+    def _connect_rp(self):
+        """Establish the RP Session.
+
+        Acquire as many re-usable resources as possible. The scope established by
+        this function is as broad as it can be within the life of this instance.
+
+        Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to clean
+        up resources. Use the async context manager behavior of the instance to automatically
+        follow this protocol. I.e. instead of calling ``instance._connect_rp(); ...; instance._disconnect_rp()``,
+        use::
+            async with instance:
+                ...
+
+        """
         # Note that we cannot resolve the full _resource config until we have a Session object.
+
+        #
+        # Start the Session.
+        #
+
+        # We cannot get the default session config until after creating the Session,
+        # so we don't have a template for allowed, required, or default values.
+        # Question: does the provided *cfg* need to be complete? Or will it be merged
+        # with default values from some internal definition, such as by dict.update()?
+        # I don't remember what the use cases are for overriding the default session config.
+        session_config = None
+        # At some point soon, we need to track Session ID for the workflow metadata.
+        # We may also want Session ID to be deterministic (or to be re-used?).
+        session_id = None
+
+        # Note: the current implementation implies that only one Task for the dispatcher
+        # will exist at a time. We are further assuming that there will probably only
+        # be one Task per the lifetime of the dispatcher object.
+        # We could choose another approach and change our assumptions, if appropriate.
+        if self.session is not None:
+            raise ProtocolError('Dispatching context is not reentrant.')
+        logger.debug('Entering RP dispatching context.')
+
+        # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
+        self.session = rp.Session(uid=session_id, cfg=session_config)
+        session_id = self.session.uid
+        session_config = copy.deepcopy(self.session.cfg.as_dict())
+
+        #
+        # Get a Pilot
+        #
 
         # # TODO: Describe (link to) configuration points.
         # resource_config['local.localhost'].update({
@@ -322,90 +380,178 @@ class RPDispatchingExecutor:
         #                          gpus=resource_config[_resource]['gpus'])
 
         # TODO: How to specify PilotDescription?
-        # Where should this actually be coming from? We need to inspect both the HPC allocation and the work load, I think,
+        # Where should this actually be coming from?
+        # We need to inspect both the HPC allocation and the work load, I think,
         # and combine with user-provided preferences.
         self._pilot_description = rp.PilotDescription(
                {'resource': 'local.localhost',
                 'cores'   : 4,
                 'gpus'    : 0})
 
-        assert pkg_resources.resource_exists(__name__, 'data/scalems_test_master.py')
-        master_script = Path(pkg_resources.resource_filename(__name__, 'data/scalems_test_master.py'))
-        assert pkg_resources.resource_exists(__name__, 'data/scalems_test_master.py')
-        worker_script = Path(pkg_resources.resource_filename(__name__, 'data/scalems_test_worker.py'))
-        assert pkg_resources.resource_exists(__name__, 'data/scalems_test_master.py')
-        config_file = Path(pkg_resources.resource_filename(__name__, 'data/scalems_test_cfg.json'))
-        assert master_script.exists()
-        assert worker_script.exists()
-        assert config_file.exists()
-        assert isinstance(config_file.name, str)
+        # We can launch an initial Pilot, but we may have to run further Pilots
+        # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
+        # to handle dynamic work load requirements.
+        # Optionally, we could refrain from launching the pilot here, at all,
+        # but it seems like a good chance to start bootstrapping the agent environment.
+        self._pilot_manager = rp.PilotManager(session=self.session)
+
+        # How and when should we update pilot description?
+        self.pilot = self._pilot_manager.submit_pilots(self._pilot_description)
+
+        # Note that the task description for the master (and worker) can specify a *named_env* attribute to use
+        # a venv prepared via Pilot.prepare_env
+        # E.g.         pilot.prepare_env({'numpy_env' : {'type'   : 'virtualenv',
+        #                                           'version': '3.6',
+        #                                           'setup'  : ['numpy']}})
+        #   td.named_env = 'numpy_env'
+        # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg: dict) or
+        # the task will wait indefinitely to be scheduled.
+        # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
+        # in the TaskDescription.pre_exec list.
+
+        # self.pilot.prepare_env(
+        #     {
+        #         'scalems_env': {
+        #             'type': 'virtualenv',
+        #             'version': '3.8',
+        #             'setup': [
+        #                 # TODO: Generalize scalems dependency resolution.
+        #                 # Ideally, we would check the current API version requirement, map that to a package version,
+        #                 # and specify >=min_version, allowing cached archives to satisfy the dependency.
+        #                 # 'file:///tmp/pycharm_project_147',
+        #                 'scalems @ git+https://github.com/SCALE-MS/scale-ms.git@sms-54',
+        #                 'radical.pilot @ git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
+        #             ]}})
+        # # Could we stage in archive distributions directly?
+        # # self.pilot.stage_in()
+
+        self._task_manager = rp.TaskManager(session=self.session)
+        # Question: when should we remove the pilot from the task manager?
+        self._task_manager.add_pilots(self.pilot)
+
+
+        pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
+        venv = os.path.join(pilot_sandbox, 'scalems_venv')
+        task = self._task_manager.submit_tasks(
+            rp.TaskDescription(
+                {
+                    'executable': 'python3',
+                    'arguments': ['-m', 'venv', venv]
+                }
+            )
+        )
+        if self._task_manager.wait_tasks(uids=[task.uid])[0] == rp.states.DONE and task.exit_code == 0:
+            py_venv = os.path.join(venv, 'bin', 'python3')
+            task = self._task_manager.submit_tasks(
+                rp.TaskDescription(
+                    {
+                        'executable': py_venv,
+                        'arguments': ['-m', 'pip', 'install', '--upgrade',
+                                      'scalems @ git+https://github.com/SCALE-MS/scale-ms.git@sms-54'
+                                      ]
+                    }
+                )
+            )
+        else:
+            raise DispatchError('Could not create venv.')
+        if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
+            raise DispatchError('Could not install execution environment.')
+
+        # Verify usable SCALEMS RP connector.
+        rp_check = self._task_manager.submit_tasks(
+            rp.TaskDescription(
+                {
+                    'executable': 'python3',
+                    'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
+                }
+            )
+        )
+        sms_check = self._task_manager.submit_tasks(
+            rp.TaskDescription(
+                {
+                    'executable': py_venv,
+                    'arguments': ['-c',
+                                  "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))"],
+                }
+            )
+        )
+        if self._task_manager.wait_tasks(uids=[rp_check.uid])[0] != rp.states.DONE or rp_check.exit_code != 0:
+            raise DispatchError('Could not verify RP in execution environment.')
+        if rp_check.stdout != '1.6.0\n':
+            raise DispatchError('Could not get a valid execution environment.')
+
+        scalems_is_installed = self._task_manager.wait_tasks(uids=[sms_check.uid])[0] == rp.states.DONE and sms_check.exit_code == 0
+        if not scalems_is_installed:
+            raise DispatchError('Could not verify scalems in execution environment.')
+
+        # # Verify usable SCALEMS RP connector.
+        # task = self._task_manager.submit_tasks(
+        #     rp.TaskDescription(
+        #         {
+        #             'executable': 'python3',
+        #             'arguments': ['-c', "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))"],
+        #             'named_env': 'scalems_env'
+        #         }
+        #     )
+        # )
+        # # Check whether scalems is installed in the target execution environment.
+        # scalems_is_installed = self._task_manager.wait_tasks(uids=[task.uid])[0] == rp.states.DONE and task.exit_code == 0
+
+        # TODO: Check for compatible installed scalems API version.
+
+        #
+        # Get a scheduler task.
+        #
+        config_file = sms_check.stdout.rstrip()
+        # master_script = pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_agent').name
+        master_script = 'scalems_rp_agent'
+        # worker_script = pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_worker').name
+        worker_script = 'scalems_rp_worker'
+
+        # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_rp_agent.py')
+        # master_script = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_rp_agent.py'))
+        # assert master_script.exists()
+        #
+        # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_rp_worker.py')
+        # worker_script = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_rp_worker.py'))
+        # assert worker_script.exists()
+        #
+        # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_test_cfg.json')
+        # config_file = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))
+        # assert config_file.exists()
+        # assert isinstance(config_file.name, str)
+
+        # # TODO: When we can assert that the scalems package is installed in the agent venv,
+        # #    we don't need to stage the files anymore.
+        # self._task_description = rp.TaskDescription(
+        #     {
+        #         'uid'          :  'raptor.scalems',
+        #         'executable'   :  'python3',
+        #         'arguments'    : ['./scalems_rp_master.py', 'scalems_test_cfg.json'],
+        #         'input_staging': [config_file.name,
+        #                           master_script.name,
+        #                           worker_script.name]
+        #     })
         self._task_description = rp.TaskDescription(
             {
                 'uid'          :  'raptor.scalems',
-                'executable'   :  'python3',
-                'arguments'    : ['./scalems_test_master.py', 'scalems_test_cfg.json'],
-                'input_staging': [config_file.name,
-                                  master_script.name,
-                                  worker_script.name]
+                'executable'   :  master_script,
+                'arguments'    : [config_file],
+                'input_staging': [],
+                'pre_exec': ['. {}'.format(os.path.join(venv, 'bin', 'activate'))]
             })
 
-        # Get a lock while the state is changing.
-        async with self._dispatcher_lock:
-            # We cannot get the default session config until after creating the Session,
-            # so we don't have a template for allowed, required, or default values.
-            # Question: does the provided *cfg* need to be complete? Or will it be merged
-            # with default values from some internal definition, such as by dict.update()?
-            # I don't remember what the use cases are for overriding the default session config.
-            session_config = None
-            # At some point soon, we need to track Session ID for the workflow metadata.
-            # We may also want Session ID to be deterministic (or to be re-used?).
-            session_id = None
+        # Launch main (scheduler) RP task.
+        try:
+            task = self._task_manager.submit_tasks(self._task_description)
+            if isinstance(task, rp.Task):
+                self.scheduler = task
+            else:
+                raise InternalError(f'Expected a Task. Got {repr(task)}.')
+        except Exception as e:
+            raise DispatchError('Failed to launch SCALE-MS master task.') from e
 
-            # Note: the current implementation implies that only one Task for the dispatcher
-            # will exist at a time. We are further assuming that there will probably only
-            # be one Task per the lifetime of the dispatcher object.
-            # We could choose another approach and change our assumptions, if appropriate.
-            if self.session is not None:
-                raise ProtocolError('Dispatching context is not reentrant.')
-            logger.debug('Entering RP dispatching context.')
-
-            # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
-            self.session = rp.Session(uid=session_id, cfg=session_config)
-            session_id = self.session.uid
-            session_config = copy.deepcopy(self.session.cfg.as_dict())
-
-            # We can launch an initial Pilot, but we may have to run further Pilots
-            # during __aexit__ (or while servicing scalems.wait() within the with block)
-            # to handle dynamic work load requirements.
-            # Optionally, we could refrain from launching the pilot here, at all,
-            # but it seems like a good chance to start bootstrapping the agent environment.
-            self._pilot_manager = rp.PilotManager(session=self.session)
-            self._task_manager = rp.TaskManager(session=self.session)
-
-            # How and when should we update pilot description?
-            self.pilot = self._pilot_manager.submit_pilots(self._pilot_description)
-            # Question: when should we remove the pilot from the task manager?
-            self._task_manager.add_pilots(self.pilot)
-
-            # Launch main (scheduler) RP task.
-            try:
-                task = self._task_manager.submit_tasks(self._task_description)
-                if isinstance(task, rp.Task):
-                    self.scheduler = task
-                else:
-                    raise InternalError(f'Expected a Task. Got {repr(task)}.')
-            except Exception as e:
-                raise DispatchError('Failed to launch SCALE-MS master task.') from e
-
-            # Launch queue processor (proxy executor).
-            self._queue_runner_task = await self.start()
-            assert isinstance(self._queue_runner_task, asyncio.Task)
-
-        # Note: it would probably be most useful to return something with a WorkflowManager
-        # interface...
-        return self
-
-    async def start(self) -> asyncio.Task:
+    def start(self) -> asyncio.Task:
         """Start the queue processor.
 
         Launch an asyncio task to process the queue.
@@ -449,6 +595,13 @@ class RPDispatchingExecutor:
 
     async def _queue_runner(self):
         while True:
+            # Note: If the function exits at this line, the queue may be missing a call
+            #  to task_done() and should not be `join()`ed. It does not seem completely
+            #  clear whether the `get()` will have completed if the task for this function
+            #  is canceled or a Task.send() or Task.throw() is used. Alternatively, we could
+            #  include the `get()` in the `try` block and catch a possible ValueError at the
+            #  task_done() call, in case we arrive there without Queue.get() having completed.
+            #  However, that could allow a Queue.join() to complete early by accident.
             command: QueueItem = await self.command_queue.get()
             try:
                 # TODO: Use formal RPC protocol.
@@ -502,9 +655,22 @@ class RPDispatchingExecutor:
             return False
 
     async def stop(self):
+        """Shut down the queuing and processing of commands.
+
+        Stop accepting new items and drain the queue.
+        """
+        # We are able to make start() a non-async method. We may be able to do the
+        # same for stop() if there were a task that we could loop.run_until_complete().
+        # Doing so might force us to make sure that the concurrency regions in our code
+        # are clean, and it may simplify debugging, but I'm not sure it is worthwhile.
+
         # Stop the executor.
         logger.debug('Stopping the SCALEMS RP dispatching executor.')
+        # TODO: Make sure that nothing else will be adding items to the queue from this point.
+        # We should establish some assurance that the next line represents the last thing
+        # that we will put in the queue.
         self.command_queue.put_nowait({'control': 'stop'})
+
         # TODO: Check that we were actually started and running!
         # If the queue is not being processed, join() will never return.
         await self.command_queue.join()

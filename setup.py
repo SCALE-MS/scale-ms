@@ -15,8 +15,17 @@ setup(
     package_data={
         # Enable PEP-561 style type hinting and .pyi type hinting files.
         # Bundle some non-package scripts and config files.
-        'scalems': ['py.typed', 'radical/data/*.py', 'radical/data/*.json']
+        'scalems': ['py.typed',
+                    'radical/data/*.json'],
     },
+    entry_points={
+        'console_scripts': [
+            'scalems_rp_agent=scalems.radical.scalems_rp_agent:main',
+            'scalems_rp_worker=scalems.radical.scalems_rp_worker:main',
+        ],
+    },
+    # Somehow, this breaks the RP prepare_env:
+    install_requires=['radical.pilot @ git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'],
     url='https://github.com/SCALE-MS/scale-ms/',
     license='',
     author='SCALE-MS team',

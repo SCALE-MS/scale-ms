@@ -1,39 +1,33 @@
-#!/usr/bin/env python3
+"""Provide the entry point for SCALE-MS execution management under RADICAL Pilot."""
 
 import sys
 
 import radical.utils as ru
 import radical.pilot as rp
 
+import logging
 
-# ------------------------------------------------------------------------------
-#
+logger = logging.getLogger('scalems_rp_agent')
+
+
 class ScaleMSMaster(rp.raptor.Master):
 
-    # --------------------------------------------------------------------------
-    #
     def __init__(self, cfg):
 
         rp.raptor.Master.__init__(self, cfg=cfg)
 
         self._log = ru.Logger(self.uid, ns='radical.pilot')
 
-
-    # --------------------------------------------------------------------------
-    #
     def result_cb(self, requests):
 
         for r in requests:
 
             r['task']['stdout'] = r['out']
 
-            print('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
+            logger.info('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
 
 
-# ------------------------------------------------------------------------------
-#
-if __name__ == '__main__':
-
+def main():
     cfg    = ru.Config(cfg=ru.read_json(sys.argv[1]))
     master = ScaleMSMaster(cfg)
 
@@ -45,5 +39,12 @@ if __name__ == '__main__':
     master.stop()
 
 
-# ------------------------------------------------------------------------------
+if __name__ == '__main__':
+    # For additional console logging, create and attach a stream handler.
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch = logging.StreamHandler()
+    ch.setFormatter(formatter)
+    logging.getLogger().addHandler(ch)
+    # Should we be interacting with the RP logger?
 
+    sys.exit(main())

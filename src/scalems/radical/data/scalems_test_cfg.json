@@ -5,16 +5,16 @@
     "n_masters"   :  1,
     "n_workers"   :  1,
 
-    "master"      : "scalems_test_master.py",
-    "worker"      : "scalems_test_worker.py",
+    "master"      : "scalems_rp_agent.py",
+    "worker"      : "scalems_rp_worker.py",
 
     "pilot_descr" : {
         "runtime"     : 30,
         "resource"    : "local.localhost"
     },
     "worker_descr": {
-        "executable"  : "`which python3`",
-        "arguments"   : ["scalems_test_worker.py"]
+        "executable"  : "scalems_rp_worker",
+        "arguments"   : []
     }
 }
 

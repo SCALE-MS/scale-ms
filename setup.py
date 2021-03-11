@@ -25,7 +25,7 @@ setup(
         ],
     },
     # Somehow, this breaks the RP prepare_env:
-    install_requires=['radical.pilot @ git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'],
+    install_requires=['radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'],
     url='https://github.com/SCALE-MS/scale-ms/',
     license='',
     author='SCALE-MS team',

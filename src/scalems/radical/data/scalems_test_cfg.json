@@ -13,8 +13,8 @@
         "resource"    : "local.localhost"
     },
     "worker_descr": {
-        "executable"  : "scalems_rp_worker",
-        "arguments"   : []
+        "executable"  : "python3",
+        "arguments"   : ["-m", "scalems.radical.scalems_rp_worker"]
     }
 }
 

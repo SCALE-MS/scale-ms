@@ -26,6 +26,8 @@ Executor:
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
 # Note that we import RP early to allow it to monkey-patch some modules early.
+import shlex
+
 import radical.pilot as rp
 
 import asyncio
@@ -431,29 +433,38 @@ class RPDispatchingExecutor:
 
 
         pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
+
+        # I can't figure out another way to avoid the Pilot venv...
+        py_base = '/usr/bin/python3'
+
         venv = os.path.join(pilot_sandbox, 'scalems_venv')
         task = self._task_manager.submit_tasks(
             rp.TaskDescription(
                 {
-                    'executable': 'python3',
-                    'arguments': ['-m', 'venv', venv]
+                    'executable': py_base,
+                    'arguments': ['-m', 'venv', venv],
+                    'environment': {}
                 }
             )
         )
-        if self._task_manager.wait_tasks(uids=[task.uid])[0] == rp.states.DONE and task.exit_code == 0:
-            py_venv = os.path.join(venv, 'bin', 'python3')
-            task = self._task_manager.submit_tasks(
-                rp.TaskDescription(
-                    {
-                        'executable': py_venv,
-                        'arguments': ['-m', 'pip', 'install', '--upgrade',
-                                      'scalems @ git+https://github.com/SCALE-MS/scale-ms.git@sms-54'
-                                      ]
-                    }
-                )
-            )
-        else:
+        if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
             raise DispatchError('Could not create venv.')
+
+        py_venv = os.path.join(venv, 'bin', 'python3')
+        task = self._task_manager.submit_tasks(
+            rp.TaskDescription(
+                {
+                    'executable': py_venv,
+                    'arguments': ['-m', 'pip', 'install', '--upgrade',
+                                  'pip',
+                                  'setuptools',
+                                  # It seems like the install_requires may not get followed correctly, or may be unsatisfied without causing this task to fail...
+                                  shlex.quote('radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
+                                  shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
+                                  ]
+                }
+            )
+        )
         if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
             raise DispatchError('Could not install execution environment.')
 
@@ -461,7 +472,7 @@ class RPDispatchingExecutor:
         rp_check = self._task_manager.submit_tasks(
             rp.TaskDescription(
                 {
-                    'executable': 'python3',
+                    'executable': py_venv,
                     'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
                 }
             )

@@ -411,19 +411,20 @@ class RPDispatchingExecutor:
         # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
         # in the TaskDescription.pre_exec list.
 
-        # self.pilot.prepare_env(
-        #     {
-        #         'scalems_env': {
-        #             'type': 'virtualenv',
-        #             'version': '3.8',
-        #             'setup': [
-        #                 # TODO: Generalize scalems dependency resolution.
-        #                 # Ideally, we would check the current API version requirement, map that to a package version,
-        #                 # and specify >=min_version, allowing cached archives to satisfy the dependency.
-        #                 # 'file:///tmp/pycharm_project_147',
-        #                 'scalems @ git+https://github.com/SCALE-MS/scale-ms.git@sms-54',
-        #                 'radical.pilot @ git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
-        #             ]}})
+        self.pilot.prepare_env(
+            {
+                'scalems_env': {
+                    'type': 'virtualenv',
+                    'version': '3.8',
+                    'setup': [
+                        # TODO: Generalize scalems dependency resolution.
+                        # Ideally, we would check the current API version requirement, map that to a package version,
+                        # and specify >=min_version, allowing cached archives to satisfy the dependency.
+                        # 'file:///tmp/pycharm_project_147',
+                        shlex.quote(
+                            'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
+                        shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
+                    ]}})
         # # Could we stage in archive distributions directly?
         # # self.pilot.stage_in()
 
@@ -432,57 +433,61 @@ class RPDispatchingExecutor:
         self._task_manager.add_pilots(self.pilot)
 
 
-        pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
-
-        # I can't figure out another way to avoid the Pilot venv...
-        py_base = '/usr/bin/python3'
-
-        venv = os.path.join(pilot_sandbox, 'scalems_venv')
-        task = self._task_manager.submit_tasks(
-            rp.TaskDescription(
-                {
-                    'executable': py_base,
-                    'arguments': ['-m', 'venv', venv],
-                    'environment': {}
-                }
-            )
-        )
-        if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
-            raise DispatchError('Could not create venv.')
-
-        py_venv = os.path.join(venv, 'bin', 'python3')
-        task = self._task_manager.submit_tasks(
-            rp.TaskDescription(
-                {
-                    'executable': py_venv,
-                    'arguments': ['-m', 'pip', 'install', '--upgrade',
-                                  'pip',
-                                  'setuptools',
-                                  # It seems like the install_requires may not get followed correctly, or may be unsatisfied without causing this task to fail...
-                                  shlex.quote('radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
-                                  shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
-                                  ]
-                }
-            )
-        )
-        if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
-            raise DispatchError('Could not install execution environment.')
+        # pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
+        #
+        # # I can't figure out another way to avoid the Pilot venv...
+        # py_base = '/usr/bin/python3'
+        #
+        # venv = os.path.join(pilot_sandbox, 'scalems_venv')
+        # task = self._task_manager.submit_tasks(
+        #     rp.TaskDescription(
+        #         {
+        #             'executable': py_base,
+        #             'arguments': ['-m', 'venv', venv],
+        #             'environment': {}
+        #         }
+        #     )
+        # )
+        # if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
+        #     raise DispatchError('Could not create venv.')
+        #
+        # py_venv = os.path.join(venv, 'bin', 'python3')
+        # task = self._task_manager.submit_tasks(
+        #     rp.TaskDescription(
+        #         {
+        #             'executable': py_venv,
+        #             'arguments': ['-m', 'pip', 'install', '--upgrade',
+        #                           'pip',
+        #                           'setuptools',
+        #                           # It seems like the install_requires may not get followed correctly, or may be unsatisfied without causing this task to fail...
+        #                           shlex.quote('radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
+        #                           shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
+        #                           ]
+        #         }
+        #     )
+        # )
+        # if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
+        #     raise DispatchError('Could not install execution environment.')
 
         # Verify usable SCALEMS RP connector.
         rp_check = self._task_manager.submit_tasks(
             rp.TaskDescription(
                 {
-                    'executable': py_venv,
+                    # 'executable': py_venv,
+                    'executable': 'python3',
                     'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
+                    'named_env': 'scalems_env'
                 }
             )
         )
         sms_check = self._task_manager.submit_tasks(
             rp.TaskDescription(
                 {
-                    'executable': py_venv,
+                    # 'executable': py_venv,
+                    'executable': 'python3',
                     'arguments': ['-c',
                                   "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))"],
+                    'named_env': 'scalems_env'
                 }
             )
         )
@@ -549,7 +554,8 @@ class RPDispatchingExecutor:
                 'executable'   :  master_script,
                 'arguments'    : [config_file],
                 'input_staging': [],
-                'pre_exec': ['. {}'.format(os.path.join(venv, 'bin', 'activate'))]
+                # 'pre_exec': ['. {}'.format(os.path.join(venv, 'bin', 'activate'))],
+                'named_env': 'scalems_env'
             })
 
         # Launch main (scheduler) RP task.
@@ -593,6 +599,7 @@ class RPDispatchingExecutor:
                     'scheduler': 'raptor.scalems',  # 'scheduler' references the task implemented as a
                     'arguments': [work],  # Processed by raptor.Master._receive_tasks
                     # 'output_staging': []
+                    'named_env': 'scalems_env'
                 }))
             tasks = self._task_manager.submit_tasks(tds)
             assert len(tasks) == len(tds)

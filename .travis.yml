@@ -21,14 +21,14 @@ jobs:
         - pip install .
       script:
         - pytest tests -s
-    - name: "RP dispatching (containerized)"
+    - name: "RP dispatching (fully containerized)"
       env: RPREF="project/scalems"
       services:
         - docker
       install:
         # Eventually, the rp-complete image should not change much and can reasonably be cached or pulled.
         - docker pull scalems/rp-complete
-        - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
+        - (cd docker && docker build --cache-from scalems/rp-complete -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
         # The scalems-rp image needs to be rebuilt for every commit because it contains the updated
         # scalems package and test scripts.
         - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .
@@ -40,12 +40,57 @@ jobs:
         - docker exec -ti -u rp scalems_test bash -c "cd && . rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
         # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
         - docker kill scalems_test
+    - name: "RP dispatching (executor containerized)"
+      env: RPREF="project/scalems"
+      services:
+        - docker
+      install:
+        - docker pull mongo:bionic
+        - docker pull scalems/radicalpilot
+        - (cd docker && docker build --cache-from scalems/radicalpilot -t scalems/radicalpilot -f radicalpilot.dockerfile .)
+        - docker-compose -f docker/stack.yml up -d mongo login
+        - docker-compose -f docker/stack.yml ps
+        - sleep 3
+        - ssh-keygen -R '[127.0.0.1]:2345'
+        - ssh-keygen -f tempkey -N ''
+        - docker-compose -f docker/stack.yml exec -u rp login bash -c "mkdir -p ~/.ssh && echo $(cat tempkey.pub) > ~/.ssh/authorized_keys"
+        - eval "$(ssh-agent -s)"
+        - ssh-add tempkey
+        - ssh-keyscan -p 2345 127.0.0.1 >> ~/.ssh/known_hosts
+        - ssh -l rp -p 2345 127.0.0.1 echo ssh connection sucessful
+      script:
+        - which python3
+        - python3 --version
+        - python3 -m venv $HOME/scalems
+        - . $HOME/scalems/bin/activate
+        - which python3
+        - python3 -m pip install --upgrade pip setuptools
+        - python3 -m pip install -r requirements-testing.txt
+        - pwd
+        - ls
+        - python3 -m pip install --upgrade .
+        - RADICAL_PILOT_DBURL="mongodb://root:password@127.0.0.1:27017/admin" python3 -m pytest tests
+#    - name: "RP dispatching (Travis-CI env local)"
+#      env: RPREF="project/scalems"
+#      services:
+#        - docker
+#      install:
+#        - docker pull mongo:bionic
+#      script:
+#        # - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+#        - docker run --rm --name scalems_test -u root -d scalems-rp
+#        - docker ps
+#        - sleep 5
+#        - docker exec -ti -u rp scalems_test bash -c "cd && . rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
+#        # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
+#        - docker kill scalems_test
     - name: "RP master dependency"
       env: RPREF="master"
       services:
         - docker
       install:
-        - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
+        - docker pull scalems/rp-complete
+        - (cd docker && docker build --cache-from scalems/rp-complete -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
       script:
         - docker run --rm --name rp_test -u root -d scalems/rp-complete
         - docker ps
@@ -59,7 +104,8 @@ jobs:
 #      services:
 #        - docker
 #      install:
-#        - (cd docker && docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
+#        - docker pull scalems/rp-complete
+#        - (cd docker && docker build --cache-from scalems/rp-complete -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=$RPREF .)
 #        - docker build -t scalems-rp -f docker/scalems-rp.dockerfile .
 #      script:
 #        - docker run --rm --name scalems_test -u root -d scalems-rp

@@ -10,12 +10,13 @@ encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 """
 import asyncio
+import json
 import logging
 import os
-import json
 import warnings
 
 import pytest
+
 import scalems
 import scalems.context
 import scalems.radical
@@ -95,7 +96,6 @@ def test_rp_usability():
 
 @with_radical_only
 def test_rp_basic_task(rpsession):
-
     import radical.pilot as rp
 
     # Based on `radical.pilot/examples/config.json`
@@ -106,17 +106,17 @@ def test_rp_basic_task(rpsession):
     #       should be a *static* description of the target resource and
     #       should not need any changing. (AM)
     pd = rp.PilotDescription({'resource': 'local.localhost',
-                              'cores'   : 32,
-                              'gpus'    : 1})
+                              'cores': 32,
+                              'gpus': 1})
 
-    td = rp.TaskDescription({'executable'   : '/bin/date',
+    td = rp.TaskDescription({'executable': '/bin/date',
                              'cpu_processes': 1})
 
-    pmgr  = rp.PilotManager(session=rpsession)
-    tmgr  = rp.TaskManager(session=rpsession)
+    pmgr = rp.PilotManager(session=rpsession)
+    tmgr = rp.TaskManager(session=rpsession)
 
     pilot = pmgr.submit_pilots(pd)
-    task  = tmgr.submit_tasks(td)
+    task = tmgr.submit_tasks(td)
 
     tmgr.add_pilots(pilot)
     tmgr.wait_tasks(uids=[task.uid])
@@ -152,6 +152,7 @@ async def test_rp_future(rpsession):
 
     class Flag:
         done = False
+
         @classmethod
         def set(cls):
             assert not cls.done
@@ -222,13 +223,13 @@ def test_rp_raptor_local(rpsession):
     import radical.pilot as rp
 
     # define a pilot and launch it
-    pd    = rp.PilotDescription(
-               {'resource': 'local.localhost',
-                'cores'   : 4,
-                'gpus'    : 0})
+    pd = rp.PilotDescription(
+        {'resource': 'local.localhost',
+         'cores': 4,
+         'gpus': 0})
 
-    pmgr  = rp.PilotManager(session=rpsession)
-    tmgr  = rp.TaskManager(session=rpsession)
+    pmgr = rp.PilotManager(session=rpsession)
+    tmgr = rp.TaskManager(session=rpsession)
     pilot = pmgr.submit_pilots(pd)
     tmgr.add_pilots(pilot)
 
@@ -241,36 +242,36 @@ def test_rp_raptor_local(rpsession):
     # slated for merge in 2021 Q2 to support `sandbox://` URIs).
 
     # define a raptor.scalems master and launch it within the pilot
-    pwd   = os.path.dirname(__file__)
-    td    = rp.TaskDescription(
-            {
-                'uid'          :  'raptor.scalems',
-                'executable'   :  'python3',
-                'arguments'    : ['./scalems_test_master.py', '%s/scalems_test_cfg.json'  % pwd],
-                'input_staging': ['%s/scalems_test_cfg.json'  % pwd,
-                                  '%s/scalems_test_master.py' % pwd,
-                                  '%s/scalems_test_worker.py' % pwd]
-            })
+    pwd = os.path.dirname(__file__)
+    td = rp.TaskDescription(
+        {
+            'uid': 'raptor.scalems',
+            'executable': 'python3',
+            'arguments': ['./scalems_test_master.py', '%s/scalems_test_cfg.json' % pwd],
+            'input_staging': ['%s/scalems_test_cfg.json' % pwd,
+                              '%s/scalems_test_master.py' % pwd,
+                              '%s/scalems_test_worker.py' % pwd]
+        })
     scheduler = tmgr.submit_tasks(td)
 
     # define raptor.scalems tasks and submit them to the master
     tds = list()
     for i in range(2):
-        uid  = 'scalems.%06d' % i
+        uid = 'scalems.%06d' % i
         # ------------------------------------------------------------------
         # work serialization goes here
         # This dictionary is interpreted by rp.raptor.Master.
-        work = json.dumps({'mode'      :  'call',
-                           'cores'     :  1,
-                           'timeout'   :  10,
-                           'data'      : {'method': 'hello',
-                                          'kwargs': {'world': uid}}})
+        work = json.dumps({'mode': 'call',
+                           'cores': 1,
+                           'timeout': 10,
+                           'data': {'method': 'hello',
+                                    'kwargs': {'world': uid}}})
         # ------------------------------------------------------------------
         tds.append(rp.TaskDescription({
-                           'uid'       : uid,
-                           'executable': 'scalems',  # This field is ignored by the ScaleMSMaster that receives this submission.
-                           'scheduler' : 'raptor.scalems', # 'scheduler' references the task implemented as a
-                           'arguments' : [work]  # Processed by raptor.Master._receive_tasks
+            'uid': uid,
+            'executable': 'scalems',  # This field is ignored by the ScaleMSMaster that receives this submission.
+            'scheduler': 'raptor.scalems',  # 'scheduler' references the task implemented as a
+            'arguments': [work]  # Processed by raptor.Master._receive_tasks
         }))
 
     tasks = tmgr.submit_tasks(tds)
@@ -352,7 +353,8 @@ def test_rp_raptor_local(rpsession):
 #         # ------------------------------------------------------------------
 #         tds.append(rp.TaskDescription({
 #                            'uid'       : uid,
-#                            'executable': 'scalems',  # This field is ignored by the ScaleMSMaster that receives this submission.
+# The *executable* field is ignored by the ScaleMSMaster that receives this submission.
+#                            'executable': 'scalems',
 #                            'scheduler' : 'raptor.scalems', # 'scheduler' references the task implemented as a
 #                            'arguments' : [work]  # Processed by raptor.Master._receive_tasks
 #         }))

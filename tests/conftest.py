@@ -3,7 +3,7 @@
 import pathlib
 
 try:
-    import radical.pilot
+    import radical.pilot as rp
 except ImportError:
     # It is not an error to run tests without RP, but when RP is available, we
     # need to import it before pytest imports the logging module.
@@ -122,7 +122,6 @@ def cleandir():
 
 @pytest.fixture(scope='session')
 def rpsession():
-    import radical.pilot as rp
     # Note: Session creation will fail with a FileNotFound error unless venv
     #       is explicitly `activate`d (or the scripts installed with RADICAL components
     #       are otherwise made available on the PATH).

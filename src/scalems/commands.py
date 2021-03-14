@@ -23,7 +23,6 @@ __all__ = [
     'while_loop',
 ]
 
-
 from scalems import exceptions
 
 

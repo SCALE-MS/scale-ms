@@ -25,13 +25,7 @@ Executor:
 """
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
-# Note that we import RP early to allow it to monkey-patch some modules early.
-import shlex
-
-import radical.pilot as rp
-
 import asyncio
-import concurrent.futures
 import contextlib
 import copy
 import inspect
@@ -39,21 +33,25 @@ import json
 import logging
 import os
 import queue
+# Note that we import RP early to allow it to monkey-patch some modules early.
+import shlex
 import typing
 import warnings
 import weakref
 from concurrent.futures import Future
-from pathlib import Path
 from types import TracebackType
-from typing import Any, Callable, Optional, Tuple
-from urllib.parse import urlparse
+from typing import Any
+from typing import Callable
+from typing import Optional
+from typing import Tuple
 
-import pkg_resources
+import radical.pilot as rp
 
 import scalems.context
-from scalems.context import ItemView
-from scalems.exceptions import DispatchError, DuplicateKeyError, MissingImplementationError, ProtocolError
+from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
+from scalems.exceptions import MissingImplementationError
+from scalems.exceptions import ProtocolError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -117,7 +115,8 @@ class RPWorkflowContext(scalems.context.WorkflowManager):
 
         """
 
-        # 1. Install a hook to catch new calls to add_item (the dispatcher_queue) and try not to yield until the current workflow state is obtained.
+        # 1. Install a hook to catch new calls to add_item (the dispatcher_queue)
+        #    and try not to yield until the current workflow state is obtained.
         # 2. Get snapshot of current workflow state with which to initialize the dispatcher. (It is now okay to yield.)
         # 3. Bind a new executor to its queue.
         # 4. Bind a dispatcher to the executor and the dispatcher_queue.
@@ -190,6 +189,7 @@ class RPWorkflowContext(scalems.context.WorkflowManager):
             # Note, though, that this would be the appropriate way to receive a final state or
             # result from the executor.
             executor_result = await executor_task
+            assert executor_result
 
         except Exception as e:
             logger.exception('Uncaught exception while in dispatching context: {}'.format(str(e)))
@@ -386,9 +386,9 @@ class RPDispatchingExecutor:
         # We need to inspect both the HPC allocation and the work load, I think,
         # and combine with user-provided preferences.
         self._pilot_description = rp.PilotDescription(
-               {'resource': 'local.localhost',
-                'cores'   : 4,
-                'gpus'    : 0})
+            {'resource': 'local.localhost',
+             'cores': 4,
+             'gpus': 0})
 
         # We can launch an initial Pilot, but we may have to run further Pilots
         # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
@@ -411,6 +411,9 @@ class RPDispatchingExecutor:
         # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
         # in the TaskDescription.pre_exec list.
 
+        rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
+        rp_spec = shlex.quote(rp_spec)
+        scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
         self.pilot.prepare_env(
             {
                 'scalems_env': {
@@ -421,9 +424,8 @@ class RPDispatchingExecutor:
                         # Ideally, we would check the current API version requirement, map that to a package version,
                         # and specify >=min_version, allowing cached archives to satisfy the dependency.
                         # 'file:///tmp/pycharm_project_147',
-                        shlex.quote(
-                            'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
-                        shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
+                        rp_spec,
+                        scalems_spec
                     ]}})
         # # Could we stage in archive distributions directly?
         # # self.pilot.stage_in()
@@ -431,7 +433,6 @@ class RPDispatchingExecutor:
         self._task_manager = rp.TaskManager(session=self.session)
         # Question: when should we remove the pilot from the task manager?
         self._task_manager.add_pilots(self.pilot)
-
 
         # pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
         #
@@ -459,7 +460,8 @@ class RPDispatchingExecutor:
         #             'arguments': ['-m', 'pip', 'install', '--upgrade',
         #                           'pip',
         #                           'setuptools',
-        #                           # It seems like the install_requires may not get followed correctly, or may be unsatisfied without causing this task to fail...
+        #                           # It seems like the install_requires may not get followed correctly,
+        #                           # or may be unsatisfied without causing this task to fail...
         #                           shlex.quote('radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
         #                           shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
         #                           ]
@@ -485,8 +487,11 @@ class RPDispatchingExecutor:
                 {
                     # 'executable': py_venv,
                     'executable': 'python3',
-                    'arguments': ['-c',
-                                  "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))"],
+                    'arguments': [
+                        '-c',
+                        "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical',"
+                        + " 'data/scalems_test_cfg.json'))"
+                    ],
                     'named_env': 'scalems_env'
                 }
             )
@@ -496,7 +501,8 @@ class RPDispatchingExecutor:
         if rp_check.stdout != '1.6.0\n':
             raise DispatchError('Could not get a valid execution environment.')
 
-        scalems_is_installed = self._task_manager.wait_tasks(uids=[sms_check.uid])[0] == rp.states.DONE and sms_check.exit_code == 0
+        scalems_is_installed = self._task_manager.wait_tasks(uids=[sms_check.uid])[
+                                   0] == rp.states.DONE and sms_check.exit_code == 0
         if not scalems_is_installed:
             raise DispatchError('Could not verify scalems in execution environment.')
 
@@ -505,13 +511,16 @@ class RPDispatchingExecutor:
         #     rp.TaskDescription(
         #         {
         #             'executable': 'python3',
-        #             'arguments': ['-c', "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))"],
+        #             'arguments': ['-c',
+        #             "import pkg_resources;" +
+        #             " print(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))"],
         #             'named_env': 'scalems_env'
         #         }
         #     )
         # )
         # # Check whether scalems is installed in the target execution environment.
-        # scalems_is_installed = self._task_manager.wait_tasks(uids=[task.uid])[0] == rp.states.DONE and task.exit_code == 0
+        # scalems_is_installed = self._task_manager.wait_tasks(uids=[task.uid])[
+        #                            0] == rp.states.DONE and task.exit_code == 0
 
         # TODO: Check for compatible installed scalems API version.
 
@@ -522,7 +531,7 @@ class RPDispatchingExecutor:
         # master_script = pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_agent').name
         master_script = 'scalems_rp_agent'
         # worker_script = pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_worker').name
-        worker_script = 'scalems_rp_worker'
+        # worker_script = 'scalems_rp_worker'
 
         # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_rp_agent.py')
         # master_script = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_rp_agent.py'))
@@ -550,9 +559,9 @@ class RPDispatchingExecutor:
         #     })
         self._task_description = rp.TaskDescription(
             {
-                'uid'          :  'raptor.scalems',
-                'executable'   :  master_script,
-                'arguments'    : [config_file],
+                'uid': 'raptor.scalems',
+                'executable': master_script,
+                'arguments': [config_file],
                 'input_staging': [],
                 # 'pre_exec': ['. {}'.format(os.path.join(venv, 'bin', 'activate'))],
                 'named_env': 'scalems_env'
@@ -605,7 +614,7 @@ class RPDispatchingExecutor:
             assert len(tasks) == len(tds)
             return tasks
 
-        ###### Client side queue management goes here.
+        # Client side queue management goes here.
         self.rp_tasks = test_workload()
 
         runner_task = asyncio.create_task(self._queue_runner())
@@ -702,6 +711,7 @@ class RPDispatchingExecutor:
             raise self._queue_runner_task.exception()
 
         states = self._task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
+        assert states
         for t in self.rp_tasks:
             logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
             if t.state != rp.states.DONE or t.exit_code != 0:
@@ -719,7 +729,7 @@ class RPDispatchingExecutor:
                  command_queue=asyncio.Queue,
                  execution_target: str = 'local.localhost',
                  rp_resource_params: dict = None,
-                 dispatcher_lock = None
+                 dispatcher_lock=None
                  ):
         """Create a client side execution manager.
 
@@ -744,7 +754,6 @@ class RPDispatchingExecutor:
 
         self.pilot = None
         self.scheduler = None
-
 
     def active(self) -> bool:
         session = self.session
@@ -792,8 +801,8 @@ class RPDispatchingExecutor:
         yield
         return self.scheduler
 
-        ## If we want to provide a "Future-like" interface, we should support the callback
-        ## protocols and implement the following generator function.
+        # # If we want to provide a "Future-like" interface, we should support the callback
+        # # protocols and implement the following generator function.
         # if not self.done():
         #     self._asyncio_future_blocking = True
         #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio.isfuture
@@ -801,18 +810,21 @@ class RPDispatchingExecutor:
         #     yield self  # This tells Task to wait for completion.
         # if not self.done():
         #     raise RuntimeError("The dispatcher task was not 'await'ed.")
-        # Ref PEP-0380: "return expr in a generator causes StopIteration(expr) to be raised upon exit from the generator."
-        # The Task works like a `result = yield from awaitable` expression. The iterator (generator) yields until exhausted,
+        # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
+        # to be raised upon exit from the generator."
+        # The Task works like a `result = yield from awaitable` expression.
+        # The iterator (generator) yields until exhausted,
         # then raises StopIteration with the value returned in by the generator function.
         # return self.result()  # May raise too.
-        ## Otherwise, the only allowed value from the iterator is None.
+        # # Otherwise, the only allowed value from the iterator is None.
 
 
 class ExecutionContext:
     """WorkflowManager for the Executor side of workflow session dispatching through RADICAL Pilot."""
+
     def __init__(self):
         self.__rp_cfg = dict()
-        if not 'RADICAL_PILOT_DBURL' in os.environ:
+        if 'RADICAL_PILOT_DBURL' not in os.environ:
             raise DispatchError('RADICAL Pilot environment is not available.')
 
         resource = 'local.localhost'

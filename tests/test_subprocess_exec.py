@@ -11,8 +11,8 @@ import pytest
 
 import scalems.context
 import scalems.local
-from scalems.exceptions import MissingImplementationError
 import scalems.local_immediate
+from scalems.exceptions import MissingImplementationError
 from scalems.subprocess import executable
 
 
@@ -60,7 +60,7 @@ async def test_exec_local(cleandir):
         try:
             cmd = executable(('/bin/cat', '-'), stdin=('hi there\n', 'hello world'), stdout='stdout.txt')
         except Exception as e:
-            raise
+            raise e
         assert isinstance(cmd, scalems.context.ItemView)
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()

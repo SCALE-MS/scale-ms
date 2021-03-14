@@ -19,7 +19,6 @@ import os
 import pathlib
 import queue
 import typing
-import weakref
 from typing import Any
 
 import scalems.context
@@ -27,7 +26,6 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.subprocess._subprocess import SubprocessTask
-
 from . import operations
 
 logger = logging.getLogger(__name__)
@@ -58,9 +56,9 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
 
     There is no implicit OS level multithreading or multiprocessing.
     """
+
     def __init__(self, loop):
         super(AsyncWorkflowManager, self).__init__(loop)
-
 
     @contextlib.asynccontextmanager
     async def dispatch(self):
@@ -77,7 +75,8 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
         .. todo:: Allow an externally provided dispatcher factory, or even a running dispatcher?
 
         """
-        # 1. Install a hook to catch new calls to add_item (the dispatcher_queue) and try not to yield until the current workflow state is obtained.
+        # 1. Install a hook to catch new calls to add_item (the dispatcher_queue)
+        #    and try not to yield until the current workflow state is obtained.
         # 2. Get snapshot of current workflow state with which to initialize the dispatcher. (It is now okay to yield.)
         # 3. Bind a new executor to its queue.
         # 4. Bind a dispatcher to the executor and the dispatcher_queue.
@@ -142,7 +141,8 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
             #  of receipt of the Stop command.
             # TODO: Check status...
             if not dispatcher_queue.empty():
-                logger.error('Dispatcher finished while items remain in dispatcher queue. Approximate size: {}'.format(dispatcher_queue.qsize()))
+                logger.error('Dispatcher finished while items remain in dispatcher queue. Approximate size: {}'.format(
+                    dispatcher_queue.qsize()))
 
             # Stop the executor.
             executor_queue.put_nowait({'control': 'stop'})
@@ -210,6 +210,7 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
 
 class _ExecutionContext:
     """Represent the run time environment for a managed workflow item."""
+
     def __init__(self, manager: scalems.context.WorkflowManager, identifier: bytes):
         self.workflow_manager: scalems.context.WorkflowManager = manager
         self.identifier: bytes = identifier
@@ -307,7 +308,8 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
             key = command['add_item']
             with source_context.edit_item(key) as item:
                 if not isinstance(item, scalems.context.Task):
-                    raise InternalError('Expected {}.item() to return a scalems.context.Task'.format(repr(source_context)))
+                    raise InternalError(
+                        'Expected {}.item() to return a scalems.context.Task'.format(repr(source_context)))
 
                 # TODO: Ensemble handling
                 item_shape = item.description().shape()

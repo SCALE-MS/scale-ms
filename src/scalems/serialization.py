@@ -152,7 +152,7 @@ class NamedIdentifier(Identifier):
                 raise TypeError('Wrong kind of iterable.')
             self._name_tuple = tuple(str(part) for part in nested_name)
         except TypeError as e:
-            raise TypeError(f'Could not construct {self.__class__.__name__} from {repr(nested_name)}')
+            raise TypeError(f'Could not construct {self.__class__.__name__} from {repr(nested_name)}') from e
         else:
             self._data = uuid.uuid5(NAMESPACE_SCALEMS, '.'.join(self._name_tuple))
         # TODO: The instance should track a context in which the uuid can be resolved.
@@ -192,7 +192,8 @@ class TypeIdentifier(NamedIdentifier):
     def copy_from(cls, typeid) -> 'TypeIdentifier':
         """Create a new TypeIdentifier instance describing the same type as the source.
 
-        .. todo:: We need a generic way to determine the (registered) virtual type of an object, but that doesn't belong here.
+        .. todo:: We need a generic way to determine the (registered) virtual type of an object,
+                  but that doesn't belong here.
         """
         if isinstance(typeid, NamedIdentifier):
             # Copy from a compatible object.
@@ -325,6 +326,7 @@ class Serializable(abc.ABC):
     a small set of basic Python types for serialization schemes,
     such as JSON.
     """
+
     @abc.abstractmethod
     def encode(self) -> typing.Union[dict, list, tuple, str, int, float, bool, type(None)]:
         ...
@@ -430,13 +432,13 @@ class PythonDecoder:
     the object is dispatched to the decoder registered for that type.
 
     For more information, refer to the :doc:`serialization` and :doc:`datamodel` documentation.
-    """
-    # TODO: Consider specifying a package metadata resource group to allow packages to register
-    #       additional schema through an idiomatic plugin system.
-    # Refs:
-    #  * https://packaging.python.org/guides/creating-and-discovering-plugins/
-    #  * https://setuptools.readthedocs.io/en/latest/userguide/entry_point.html#dynamic-discovery-of-services-and-plugins
 
+    .. todo:: Consider specifying a package metadata resource group to allow packages to register
+              additional schema through an idiomatic plugin system.
+    Refs:
+     * https://packaging.python.org/guides/creating-and-discovering-plugins/
+     * https://setuptools.readthedocs.io/en/latest/userguide/entry_point.html#dynamic-discovery-of-services-and-plugins
+    """
     _dispatchers: typing.MutableMapping[
         TypeIdentifier,
         typing.Callable] = dict()
@@ -503,7 +505,8 @@ class PythonDecoder:
                 if 'name' not in obj['schema'] or not isinstance(obj['schema']['name'], str):
                     raise InternalError('Invalid schema.')
                 else:
-                    schema = obj['schema']['name']
+                    # schema = obj['schema']['name']
+                    ...
                 # Dispatch the object...
                 ...
                 raise MissingImplementationError(
@@ -530,6 +533,7 @@ decode = PythonDecoder()
 # TODO: use stronger check for UID, or bytes-based objects.
 encode.register(dtype=bytes, handler=bytes.hex)
 encode.register(dtype=os.PathLike, handler=os.fsdecode)
+
 
 # Note that the low-level encoding/decoding is not necessarily symmetric because nested objects may be decoded
 # according to the schema of a parent object.
@@ -685,7 +689,7 @@ class BasicSerializable(UnboundObject):
 
     @classmethod
     def decode(cls: typing.Type[ST], encoded: dict) -> ST:
-        if not isinstance(encoded, collections.abc.Mapping) or not 'type' in encoded:
+        if not isinstance(encoded, collections.abc.Mapping) or 'type' not in encoded:
             raise TypeError('Expected a dictionary with a *type* specification for decoding.')
         dtype = TypeIdentifier.copy_from(encoded['type'])
         label = encoded.get('label', None)
@@ -786,7 +790,8 @@ class JsonObjectPairsDispatcher:
         ...
 
 
-# def object_pair_decoder(context, object_pairs: typing.Iterable[typing.Tuple[str, typing.Any]]) -> typing.Iterable[ItemView]:
+# def object_pair_decoder(context, object_pairs: typing.Iterable[typing.Tuple[str, typing.Any]])\
+#         -> typing.Iterable[ItemView]:
 #     """Decode named objects, updating the managed workflow as appropriate.
 #
 #     For object pairs representing complete workflow items, get a handle to a managed workflow item.

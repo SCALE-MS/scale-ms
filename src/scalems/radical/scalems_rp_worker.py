@@ -1,26 +1,22 @@
 """Provide the entry point for SCALE-MS tasks dispatched by scalems_rp_agent."""
 
-
+import logging
 import sys
 import time
 
 import radical.pilot as rp
 import radical.pilot.raptor as rpt
 
-import logging
-
 logger = logging.getLogger('scalems_rp_worker')
 
 
 class ScaleMSWorker(rpt.Worker):
     def __init__(self, cfg):
-
         rp.raptor.Worker.__init__(self, cfg)
 
-        self.register_mode('gmx',   self._gmx)
+        self.register_mode('gmx', self._gmx)
 
     def _gmx(self, data):
-
         out = 'gmx  : %s %s' % (time.time(), data['blob'])
         err = None
         ret = 0
@@ -28,7 +24,6 @@ class ScaleMSWorker(rpt.Worker):
         return out, err, ret
 
     def hello(self, world):
-
         return 'call : %s %s' % (time.time(), world)
 
 

@@ -6,10 +6,10 @@ Set up a SCALE-MS compatible operation implementation and export it as the
 module function `msm_analyzer`.
 """
 
-import scalems
-
 import pyemma.coor as coor
 import pyemma.msm as msm
+
+import scalems
 
 tol = 0.1
 

@@ -10,12 +10,14 @@ run and analyze groups of simulations until convergence.
 """
 
 import scalems
-
+# Get a set of simulation tools following a common interface convention.
+from scalems.wrappers.gromacs import get_trajectory
+from scalems.wrappers.gromacs import internal_to_pdb
+from scalems.wrappers.gromacs import make_input
+from scalems.wrappers.gromacs import modify_input
+from scalems.wrappers.gromacs import simulate
 # Get a module that provides the `msm_analyzer` function we will be using.
 from . import msmtool
-
-# Get a set of simulation tools following a common interface convention.
-from scalems.wrappers.gromacs import get_trajectory, internal_to_pdb, make_input, modify_input, simulate
 
 # Acquire simulation inputs. Generic data hierarchy is not yet clear. Model,
 # method, instance/system/conformation/microstate, and implementation details

@@ -7,13 +7,6 @@ Simulation is executed with gmxapi.
 # Declare the public interface of this wrapper module.
 __all__ = ['make_input', 'modify_input', 'simulate']
 
-# import gmxapi
-import os
-import pathlib
-
-import scalems
-
-
 ##########################
 # New plan:
 # Implement basic gmxapi examples directly without generalism or type checking:
@@ -25,9 +18,13 @@ import scalems
 ###########################
 import functools
 import logging
+# import gmxapi
+import os
+import pathlib
 import typing
 from typing import Sequence
 
+import scalems
 from scalems.context import WorkflowManager
 from scalems.exceptions import MissingImplementationError
 from scalems.utility import next_monotonic_integer as _next_int
@@ -116,6 +113,7 @@ def _executable(argv: Sequence[str],
 
 try:
     from gmxapi.commandline import cli_executable
+
     _gmx_cli_entry_point = cli_executable()
 except ImportError:
     _gmx_cli_entry_point = None
@@ -199,7 +197,7 @@ def _(task: scalems.context.Task, context: WorkflowManager):
     assert command == 'Simulate'
     # TODO: Typing on the Task data proxy.
     command_message = task.input['message'][command]
-    kwargs = command_message['kwargs']
+    # kwargs = command_message['kwargs']
     input_ref: str = command_message['input']
     logger.debug(f'Decoding reference {input_ref}')
     input_ref: bytes = bytes.fromhex(input_ref)
@@ -207,7 +205,8 @@ def _(task: scalems.context.Task, context: WorkflowManager):
     logger.debug('Items done: {}'.format(
         ', '.join([': '.join([key.hex(), str(value.done())]) for key, value in task_map.items()])
     ))
-    simulator_input_view = context.item(input_ref)
+    # simulator_input_view = context.item(input_ref)
+
     # TODO: Workaround until we have the framework deliver results.
     # simulator_input: SubprocessResult = simulator_input_view.result()
     # logger.debug(f'Acquired grompp output: {simulator_input}')

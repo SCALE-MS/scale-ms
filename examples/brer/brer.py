@@ -4,13 +4,15 @@ Biased restrained ensemble refinement: New DEER incorporation workflow in gmxapi
 
 import json
 
-import scalems
-from scalems.wrappers.gromacs import make_input, modify_input, simulate
-
-# MD extension code, written in C++ has been compiled and installed for use as a plugin.
-import myplugin  # Custom potentials
 # The researcher has written a brer_tools package to support their new method.
 import brer_tools
+# MD extension code, written in C++ has been compiled and installed for use as a plugin.
+import myplugin  # Custom potentials
+
+import scalems
+from scalems.wrappers.gromacs import make_input
+from scalems.wrappers.gromacs import modify_input
+from scalems.wrappers.gromacs import simulate
 
 # Add a TPR-loading operation to the default work graph (initially empty) that
 # produces simulation input data bundle (parameters, structure, topology)

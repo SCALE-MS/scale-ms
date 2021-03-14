@@ -55,7 +55,8 @@ try:
             for name, ref in globals_namespace.items():
                 if isinstance(ref, scalems.ScriptEntryPoint):
                     if main is not None:
-                        raise scalems.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
+                        raise scalems.exceptions.DispatchError(
+                            'Multiple apps in the same script is not (yet?) supported.')
                     main = ref
                     ref.name = name
             if main is None:

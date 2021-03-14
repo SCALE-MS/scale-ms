@@ -26,6 +26,7 @@ import sys
 
 import scalems
 
+
 @scalems.app
 def main():
     cmd = scalems.executable(argv=['/bin/echo'] + sys.argv[1:], stdout='stdout')

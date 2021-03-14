@@ -178,7 +178,7 @@ class ItemView:
         try:
             return getattr(task, item)
         except KeyError as e:
-            raise
+            raise e
 
     def __init__(self, context, uid: bytes):
         self._context = weakref.ref(context)
@@ -386,9 +386,11 @@ class WorkflowManager(abc.ABC):
     * Prevent instantiation of Command references without a reference to a Context instance.
 
     TODO:
-        Check that I'm actually toggling something for the context instance to avoid recursive dispatch loops rather than
-        just multiple recursion of self. Maybe keep a reference to the context hierarchy node to use when entering,
-        and let implementations decide whether to allow multiple entrance, provided there is a reasonable way to clean up
+        Check that I'm actually toggling something for the context instance to avoid recursive dispatch loops
+        rather than just multiple recursion of self.
+        Maybe keep a reference to the context hierarchy node to use when entering,
+        and let implementations decide whether to allow multiple entrance,
+        provided there is a reasonable way to clean up
         the correct number of times.
 
     TODO:
@@ -403,8 +405,10 @@ class WorkflowManager(abc.ABC):
 
     def __init__(self, loop: asyncio.AbstractEventLoop):
         """
-        The event loop for the program should be launched in the root thread, preferably early in the application launch.
-        Whether the WorkflowManager uses it directly, it is useful to require the client to provide the event loop,
+        The event loop for the program should be launched in the root thread,
+        preferably early in the application launch.
+        Whether the WorkflowManager uses it directly,
+        it is useful to require the client to provide the event loop,
         if for no other reason than to ensure that one exists.
 
         Args:
@@ -514,7 +518,7 @@ class WorkflowManager(abc.ABC):
             await dispatcher_task
             dispatcher_exception = dispatcher_task.exception()
             if dispatcher_exception is not None:
-                logger.exception('Dispatcher encountered exception '.format(repr(dispatcher_exception)))
+                logger.exception('Dispatcher encountered exception {}'.format(repr(dispatcher_exception)))
                 raise dispatcher_exception
 
     # @abc.abstractmethod
@@ -585,7 +589,8 @@ class WorkflowManager(abc.ABC):
             }
         serialized_record = json.dumps(record, default=encode)
 
-        # TODO: Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
+        # TODO: Make sure there are no artifacts of shallow copies that may result in
+        #       a user modifying nested objects unexpectedly.
         item = Task(self, serialized_record)
         # TODO: Check for ability to dispatch.
         #  Note module dependencies, etc. and check in target execution environment
@@ -629,6 +634,7 @@ class Scope(typing.NamedTuple):
     """
     parent: typing.Union[None, WorkflowManager]
     current: WorkflowManager
+
 
 # If we require an event loop to be provided to the WorkflowManager, then
 # we should not instantiate a default context on module import. We don't really
@@ -718,7 +724,7 @@ def scope(context):
         # Restore context module state since we are not using contextvars.Context.run() or equivalent.
         if token.var.get().parent is not parent or token.var.get().current is not current:
             raise ProtocolError(
-                'Unexpected re-entrance. Workflow scope changed while in context manager.'.format(repr(current)))
+                'Unexpected re-entrance. Workflow scope changed while in context manager {}.'.format(repr(current)))
         else:
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.

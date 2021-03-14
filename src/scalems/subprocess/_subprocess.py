@@ -47,6 +47,7 @@ class OutputFile(dict):
     In a future implementation, we may allow instances of OutputFile to transform
     into workflow references that are dependent on the task under construction.
     """
+
     def __init__(self, label=None, suffix=''):
         super().__init__()
         self['label'] = label
@@ -100,6 +101,7 @@ def _(item: SubprocessInput, *, context, label: str = None):
         else:
             context.task_map[uid] = item
             return context.task_map[uid]
+
     return director
 
 
@@ -116,6 +118,7 @@ class SubprocessResult:
 
 class SubprocessTask:
     """Describe the type of resource provided by a Subprocess command."""
+
     @classmethod
     def scoped_identifier(cls):
         # TODO: Consider either deriving from the `import` identifier,
@@ -180,8 +183,8 @@ class Subprocess:
         record['uid'] = self.uid().hex()
         # "label" not yet supported.
         record['type'] = self.resource_type().scoped_identifier()
-        record['input'] = dataclasses.asdict(self._bound_input) # reference
-        record['result'] = dataclasses.asdict(self._result) # reference
+        record['input'] = dataclasses.asdict(self._bound_input)  # reference
+        record['result'] = dataclasses.asdict(self._result)  # reference
         try:
             serialized = json.dumps(record, default=encode)
         except TypeError as e:
@@ -192,7 +195,7 @@ class Subprocess:
         return serialized
 
     @classmethod
-    def deserialize(cls, record: str, context = None):
+    def deserialize(cls, record: str, context=None):
         """Instantiate a Subprocess Task from a serialized record.
 
         In general, records should only be deserialized into a WorkflowContext
@@ -220,14 +223,16 @@ class Subprocess:
     #     # TODO: dispatching
     #     if isinstance(context, scalems.local.LocalExecutor):
     #         from scalems.local.operations import executable as local_exec
-    #         # Note that we need a more sophisticated coroutine object than what we get directly from `async def`
-    #         # for command instances that can present output in multiple contexts or be transferred from one to another.
+    #         # Note that we need a more sophisticated coroutine object than what we get
+    #         # directly from `async def` for command instances that can present output
+    #         # in multiple contexts or be transferred from one to another.
     #         self._result = local_exec(self)
     #     elif isinstance(context, scalems.radical.RPExecutor):
     #         from scalems.radical.operations import executable as _rp_exec
     #         self._result = _rp_exec(self)
     #     else:
-    #         raise MissingImplementationError('Current context {} does not implement scalems.executable'.format(context))
+    #         raise MissingImplementationError(
+    #         'Current context {} does not implement scalems.executable'.format(context))
     #
     #     # Allow this function to be a generator function, fulfilling the awaitable protocol.
     #     yield self
@@ -239,7 +244,8 @@ class Subprocess:
     #     # but the generator protocol may improve debugging and generality.
     #     # The point of "yield" is more interesting when we use "yield" as an expression in the
     #     # yielding code, which allows values to be passed in to the coroutine at the evaluation
-    #     # of the yield expression (e.g. https://docs.python.org/3/howto/functional.html#passing-values-into-a-generator
+    #     # of the yield expression
+    #     # (e.g. https://docs.python.org/3/howto/functional.html#passing-values-into-a-generator
     #     # but not that the coroutine protocol is slightly different, per https://www.python.org/dev/peps/pep-0492/)
     #     # For instance, this could be a mechanism for nesting event loops or dispatching contexts
     #     # while maintaining a heart-beat or other command-channel-like wrapper.

@@ -10,7 +10,6 @@ __all__ = [
     'ScriptEntryPoint'
 ]
 
-
 import abc
 import contextvars
 import functools
@@ -20,9 +19,9 @@ import warnings
 from typing import Protocol
 
 from scalems import exceptions
-
-from scalems.context import get_context, scope, WorkflowManager
-
+from scalems.context import get_context
+from scalems.context import scope
+from scalems.context import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -50,6 +49,7 @@ def app(func: typing.Callable) -> typing.Callable:
 
 
     """
+
     class App(ScriptEntryPoint):
         def __init__(self, func: typing.Callable):
             if not callable(func):
@@ -65,7 +65,6 @@ def app(func: typing.Callable) -> typing.Callable:
     return decorated
 
 
-
 # def command(*, input_type, result_type):
 #     """Get a decorator for ScaleMS Command definitions.
 #
@@ -79,6 +78,7 @@ def app(func: typing.Callable) -> typing.Callable:
 
 class Callable(Protocol):
     """This protocol describes the required function signature for a SCALE-MS command."""
+
     def __call__(self):
         ...
 
@@ -139,7 +139,8 @@ def poll():
 ResultType = typing.TypeVar('ResultType')
 
 
-class WorkflowObject(typing.Generic[ResultType]): ...
+class WorkflowObject(typing.Generic[ResultType]):
+    ...
 
 
 def _unpack_work(ref: dict):
@@ -249,7 +250,9 @@ def wait(ref):
     an execution manager in the current scope.
 
     .. todo:: Acquire asyncio event loop from WorkflowManager.
-        scalems.wait is primarily intended as an abstraction from https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete and an alternative to `await`.
+        scalems.wait is primarily intended as an abstraction from
+        https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete
+        and an alternative to `await`.
     """
     context = get_context()
     if context is None:
@@ -280,7 +283,7 @@ def _run(*, work, context, **kwargs):
             try:
                 # Note that with the current scalems.utility.app, we don't have a convention for
                 # the callable to return anything, so *handle* is None (and unused).
-                handle = work(**kwargs)
+                work(**kwargs)
             except Exception as e:
                 logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
                 raise e

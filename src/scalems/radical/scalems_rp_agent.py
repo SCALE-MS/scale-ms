@@ -1,11 +1,10 @@
 """Provide the entry point for SCALE-MS execution management under RADICAL Pilot."""
 
+import logging
 import sys
 
-import radical.utils as ru
 import radical.pilot as rp
-
-import logging
+import radical.utils as ru
 
 logger = logging.getLogger('scalems_rp_agent')
 
@@ -13,22 +12,19 @@ logger = logging.getLogger('scalems_rp_agent')
 class ScaleMSMaster(rp.raptor.Master):
 
     def __init__(self, cfg):
-
         rp.raptor.Master.__init__(self, cfg=cfg)
 
         self._log = ru.Logger(self.uid, ns='radical.pilot')
 
     def result_cb(self, requests):
-
         for r in requests:
-
             r['task']['stdout'] = r['out']
 
             logger.info('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
 
 
 def main():
-    cfg    = ru.Config(cfg=ru.read_json(sys.argv[1]))
+    cfg = ru.Config(cfg=ru.read_json(sys.argv[1]))
     master = ScaleMSMaster(cfg)
 
     master.submit(descr=cfg.worker_descr, count=cfg.n_workers,

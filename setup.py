@@ -1,5 +1,6 @@
 import os
 import sys
+
 from setuptools import setup
 
 # The versioneer.py is in the same directory as the setup.py

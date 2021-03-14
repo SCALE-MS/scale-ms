@@ -9,10 +9,9 @@ import asyncio
 import runpy
 import sys
 
-import radical.pilot # Make sure rp is imported before logging module.
-# Can we attach to the rp Logger here?
-
 import scalems.radical
+
+# Can we attach to the rp Logger here?
 
 # We can import scalems.context and set module state before using runpy to
 # execute the script in the current process. This allows us to preconfigure a
@@ -38,6 +37,8 @@ sys.argv[:] = sys.argv[1:]
 # package module or any particular scalems object to own the event loop.
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
+
+
 # TODO: Clarify event loop management scheme.
 #     Do we want scripts to be like "apps" that get called with asyncio.run(),
 #     should we effectively reimplement asyncio.run through scalems.run, or
@@ -51,6 +52,7 @@ def run_dispatch(work, context: scalems.radical.RPWorkflowContext):
         # Return an iterable of results.
         # for task in context.tasks: ...
         ...
+
     loop = context._asyncio_even_loop
     coro = _dispatch(work)
     task = loop.create_task(coro)
@@ -74,7 +76,8 @@ try:
             for name, ref in globals_namespace.items():
                 if isinstance(ref, scalems.ScriptEntryPoint):
                     if main is not None:
-                        raise scalems.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
+                        raise scalems.exceptions.DispatchError(
+                            'Multiple apps in the same script is not (yet?) supported.')
                     main = ref
                     ref.name = name
             if main is None:
@@ -97,7 +100,8 @@ try:
                 logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
                 raise e
             finally:
-                # Note: When we are not using this entry point, we should not assume it is our job to close the event loop,
+                # Note: When we are not using this entry point,
+                # we should not assume it is our job to close the event loop,
                 # so we do not close the loop at the end of dispatching.
                 loop.run_until_complete(loop.shutdown_asyncgens())
                 loop.stop()

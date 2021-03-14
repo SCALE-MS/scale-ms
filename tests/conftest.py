@@ -1,5 +1,7 @@
 # Import radical.pilot early because of interaction with the built-in logging module.
 # TODO: Did this work?
+import pathlib
+
 try:
     import radical.pilot
 except ImportError:
@@ -116,3 +118,31 @@ def cleandir():
     """
     with _cleandir() as newdir:
         yield newdir
+
+
+@pytest.fixture(scope='session')
+def rpsession():
+    import radical.pilot as rp
+    # Note: Session creation will fail with a FileNotFound error unless venv
+    #       is explicitly `activate`d (or the scripts installed with RADICAL components
+    #       are otherwise made available on the PATH).
+
+    # Note: radical.pilot.Session creation causes several deprecation warnings.
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=DeprecationWarning)
+        session = rp.Session()
+    with session:
+        yield session
+    assert session.closed
+
+
+@pytest.fixture(scope='session')
+def sdist():
+    """Build and provide an sdist of the scalems package in its current state."""
+    import build
+    src_dir = pathlib.Path(__file__).parent.parent
+    assert os.path.exists(src_dir / 'tests' / 'conftest.py')
+    with tempfile.TemporaryDirectory() as dir:
+        dist = build.ProjectBuilder(src_dir).build(distribution='sdist', output_directory=dir)
+        yield dist

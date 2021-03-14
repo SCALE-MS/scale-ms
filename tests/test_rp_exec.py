@@ -51,6 +51,30 @@ def get_rp_decorator():
 with_radical_only = get_rp_decorator()
 
 
+def get_docker_decorator():
+    """Get a pytest.skipif decorator for the Docker-based tests.
+
+    Determine whether our Docker-based test resource is available.
+    Return an appropriately constructed pytest marker.
+
+    If the tests are running within the Docker Compose environment, the *compute*
+    service host should be accessible. Assume that the caller has already
+    done ``eval $(ssh-agent -s); ssh-add borrowed_key`` where ``borrowed_key``
+    has been copied from ``~rp/.ssh/id_rsa.pub`` in the ``scalems/radicalpilot`` image.
+
+    .. todo:: Manage ssh-agent within Python? Paramiko?
+
+    """
+    # Try: ``ssh rp@compute /bin/echo success |grep success``, or something like it.
+    # We also need to define an appropriate resource. Having done that, what is the
+    # minimal test case for RP ssh-based execution?
+    marker = pytest.mark.skipif()
+    return marker
+
+
+with_docker_only = get_docker_decorator()
+
+
 @with_radical_only
 def test_rp_usability():
     """Confirm availability of RADICAL Pilot infrastructure.

@@ -13,6 +13,7 @@ import asyncio
 import json
 import logging
 import os
+import subprocess
 import warnings
 
 import pytest
@@ -55,8 +56,8 @@ def get_rp_decorator():
 with_radical_only = get_rp_decorator()
 
 
-def get_docker_decorator():
-    """Get a pytest.skipif decorator for the Docker-based tests.
+def get_resource_decorator(host, port=None):
+    """Get a pytest.skipif decorator for the tests depending on specific resources.
 
     Determine whether our Docker-based test resource is available.
     Return an appropriately constructed pytest marker.
@@ -72,11 +73,25 @@ def get_docker_decorator():
     # Try: ``ssh rp@compute /bin/echo success |grep success``, or something like it.
     # We also need to define an appropriate resource. Having done that, what is the
     # minimal test case for RP ssh-based execution?
-    marker = pytest.mark.skipif()
+    args = ['ssh', '-l', 'rp']
+    if port is not None:
+        args.extend(['-p', str(port)])
+    args.extend([host, '/bin/echo', 'success'])
+    result = subprocess.run(
+        args,
+        stdout=subprocess.PIPE,
+        timeout=5,
+        encoding='utf-8')
+    marker = pytest.mark.skipif(
+        result.returncode != 0 or
+        result.stdout.rstrip() != 'success',
+        reason='Could not ssh to target computing resource.'
+    )
     return marker
 
 
-with_docker_only = get_docker_decorator()
+with_docker_only = get_resource_decorator('compute')
+with_tunnel_only = get_resource_decorator('127.0.0.1', '22222')
 
 
 @with_radical_only
@@ -125,6 +140,71 @@ def test_rp_basic_task(rpsession):
     tmgr.wait_tasks(uids=[task.uid])
 
     assert task.exit_code == 0
+
+
+@with_docker_only
+def test_rp_basic_task_docker_remote(rpsession):
+    import radical.pilot as rp
+
+    # Based on `radical.pilot/examples/config.json`
+    # TODO: Does the Session have a default spec for 'local.localhost'?
+    #       Can/should we reference it?
+    #       https://github.com/radical-cybertools/radical.pilot/issues/2181
+    # NOTE: a session does not have a spec, really - the resource config
+    #       should be a *static* description of the target resource and
+    #       should not need any changing. (AM)
+    pd = rp.PilotDescription({'resource': 'local.docker',
+                              'cores': 4,
+                              'gpus': 0,
+                              'schema': 'ssh'})
+
+    td = rp.TaskDescription({'executable': '/usr/bin/hostname',
+                             'cpu_processes': 1})
+
+    pmgr = rp.PilotManager(session=rpsession)
+    tmgr = rp.TaskManager(session=rpsession)
+
+    pilot = pmgr.submit_pilots(pd)
+    task = tmgr.submit_tasks(td)
+
+    tmgr.add_pilots(pilot)
+    tmgr.wait_tasks(uids=[task.uid])
+
+    assert task.exit_code == 0
+
+    localname = subprocess.run(['/usr/bin/hostname'], stdout=subprocess.PIPE, encoding='utf-8').stdout.rstrip()
+    remotename = task.stdout.rstrip()
+    assert len(remotename) > 0
+    assert remotename != localname
+
+
+@with_tunnel_only
+def test_rp_basic_task_tunnel_remote(rpsession):
+    import radical.pilot as rp
+
+    pd = rp.PilotDescription({'resource': 'local.tunnel',
+                              'cores': 4,
+                              'gpus': 0,
+                              'schema': 'ssh'})
+
+    td = rp.TaskDescription({'executable': '/usr/bin/hostname',
+                             'cpu_processes': 1})
+
+    pmgr = rp.PilotManager(session=rpsession)
+    tmgr = rp.TaskManager(session=rpsession)
+
+    pilot = pmgr.submit_pilots(pd)
+    task = tmgr.submit_tasks(td)
+
+    tmgr.add_pilots(pilot)
+    tmgr.wait_tasks(uids=[task.uid])
+
+    assert task.exit_code == 0
+
+    localname = subprocess.run(['/usr/bin/hostname'], stdout=subprocess.PIPE, encoding='utf-8').stdout.rstrip()
+    remotename = task.stdout.rstrip()
+    assert len(remotename) > 0
+    assert remotename != localname
 
 
 @with_radical_only

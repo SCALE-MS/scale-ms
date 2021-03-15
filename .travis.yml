@@ -59,9 +59,10 @@ jobs:
         - docker-compose -f docker/stack.yml up -d mongo login
         - docker-compose -f docker/stack.yml ps
         - sleep 3
-        - ssh-keygen -R '[127.0.0.1]:2345'
-        - ssh-keygen -f tempkey -N ''
-        - docker-compose -f docker/stack.yml exec -u rp login bash -c "mkdir -p ~/.ssh && echo $(cat tempkey.pub) > ~/.ssh/authorized_keys"
+        # Get public key from rp in docker.
+#        - ssh-keygen -R '[127.0.0.1]:2345'
+#        - ssh-keygen -f tempkey -N ''
+#        - docker-compose -f docker/stack.yml exec -u rp login bash -c "mkdir -p ~/.ssh && echo $(cat tempkey.pub) > ~/.ssh/authorized_keys"
         - eval "$(ssh-agent -s)"
         - ssh-add tempkey
         - ssh-keyscan -p 2345 127.0.0.1 >> ~/.ssh/known_hosts
@@ -78,20 +79,22 @@ jobs:
         - ls
         - python3 -m pip install --upgrade .
         - RADICAL_PILOT_DBURL="mongodb://root:password@127.0.0.1:27017/admin" python3 -m pytest tests
-#    - name: "RP dispatching (Travis-CI env local)"
-#      env: RPREF="project/scalems"
-#      services:
-#        - docker
-#      install:
-#        - docker pull mongo:bionic
-#      script:
-#        # - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
-#        - docker run --rm --name scalems_test -u root -d scalems-rp
-#        - docker ps
-#        - sleep 5
-#        - docker exec -ti -u rp scalems_test bash -c "cd && . rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
-#        # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
-#        - docker kill scalems_test
+    - name: "RP dispatching (Travis-CI env local)"
+      env: RPREF="project/scalems"
+      services:
+        - docker
+      install:
+        - docker pull mongo:bionic
+      script:
+        # - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+        - docker run --rm --name scalems_test -u root -d scalems-rp
+        - docker ps
+        - sleep 3
+        - docker exec -ti -u rp scalems_test bash -c "cd && . rp-venv/bin/activate && python -m pytest --full-trace scalems/tests -s"
+        # Get ssh tunnel to docker host
+        - ...
+        # - if [ $? -ne 0 ]; then docker commit scalems_test scalems/ci; docker push scalems/ci; fi
+        - docker kill scalems_test
     - name: "RP master dependency"
       env: RPREF="master"
       services:

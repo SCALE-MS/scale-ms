@@ -26,6 +26,7 @@ Executor:
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
 import asyncio
+import concurrent
 import contextlib
 import copy
 import inspect
@@ -248,7 +249,7 @@ class RPTaskFailure(ScaleMSError):
         self.failed_task = task.as_dict()
 
 
-async def rp_task_coroutine(task: rp.Task) -> asyncio.Future:
+async def rp_task(task: rp.Task) -> asyncio.Task:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 
     Schedule an asyncio Task to receive the result of the RP Task. The asyncio
@@ -256,7 +257,7 @@ async def rp_task_coroutine(task: rp.Task) -> asyncio.Future:
     and vice versa.
 
     This function should be awaited immediately to make sure the necessary call-backs
-    get registered. The result will be an asyncio.Future, which should be awaited
+    get registered. The result will be an asyncio.Task, which should be awaited
     separately.
 
     Internally, this function provides a call-back to the rp.Task. The call-back
@@ -284,20 +285,28 @@ async def rp_task_coroutine(task: rp.Task) -> asyncio.Future:
             _future.set_exception(RPTaskFailure(task=task))
         else:
             raise ValueError('Unexpected state: {}'.format(str(task.state)))
+        return _future.done()
 
     def rp_callback(obj: rp.Task, state):
         """Called when the rp.Task state changes."""
         logger.debug(f'Callback triggered by {repr(obj)} state change to {repr(state)}.')
         assert obj is _rp_task
+        assert loop.is_running()
 
         if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
             # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
-
             # Schedule a coroutine to run in the original event loop.
-            future = asyncio.run_coroutine_threadsafe(finalizer(obj), loop)
+            future: concurrent.futures.Future = asyncio.run_coroutine_threadsafe(finalizer(_rp_task), loop)
 
-            # Wait for the result with an optional timeout argument
-            assert future.result(1)
+            # Is it an error not to await a concurrent.futures.Future?
+            assert isinstance(future, concurrent.futures.Future)
+            # Wait for the result with an optional timeout argument.
+            # This may not be safe without confirming that we are _not_ in the same thread as the event loop.
+            # assert future.result()
+
+            # WARNING: We log entry to this function, but neither the exception nor the
+            # following assertion ever seem to be triggered.
+            assert False
         else:
             # Note: debugging only!
             # TODO: Get rid of this soon!
@@ -310,8 +319,11 @@ async def rp_task_coroutine(task: rp.Task) -> asyncio.Future:
                 # Do we not get a callback trigger for cancellations?
                 if _rp_task.state in (rp.states.CANCELED,):
                     _future.cancel()
+                    assert _future.cancelled()
+                    assert _future.done()
                 else:
                     await asyncio.sleep(1)
+            return await _future
         except asyncio.CancelledError as e:
             if _rp_task.state not in (rp.states.CANCELED,):
                 # TODO: We shoulld unregister the callback first...
@@ -319,8 +331,7 @@ async def rp_task_coroutine(task: rp.Task) -> asyncio.Future:
             raise e
 
     task.register_callback(rp_callback)
-    asyncio.create_task(watch())
-    return _future
+    return asyncio.create_task(watch())
 
 
 class RPDispatchingExecutor:
@@ -374,6 +385,9 @@ class RPDispatchingExecutor:
                 ...
 
         """
+        # TODO: RP triggers SIGINT in various failure modes. We should use loop.add_signal_handler() to convert to an exception
+        #       that we can raise in an appropriate task.
+
         # Note that we cannot resolve the full _resource config until we have a Session object.
 
         #

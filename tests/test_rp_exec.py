@@ -21,6 +21,9 @@ import scalems
 import scalems.context
 import scalems.radical
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
 
 def get_rp_decorator():
     '''
@@ -138,47 +141,58 @@ async def test_rp_future(rpsession):
                               'cores': 4,
                               'gpus': 0})
 
-    td = rp.TaskDescription({'executable': '/bin/bash',
-                             'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
-                             'cpu_processes': 1})
-
     pmgr = rp.PilotManager(session=rpsession)
     pilot = pmgr.submit_pilots(pd)
 
     tmgr = rp.TaskManager(session=rpsession)
     tmgr.add_pilots(pilot)
 
+    # Test propagation of RP cancellation behavior
+    td = rp.TaskDescription({'executable': '/bin/bash',
+                             'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
+                             'cpu_processes': 1})
     task: rp.Task = tmgr.submit_tasks(td)
 
-    class Flag:
-        done = False
+    wrapper: asyncio.Future = await scalems.radical.rp_task_coroutine(task)
 
-        @classmethod
-        def set(cls):
-            assert not cls.done
-            cls.done = True
+    task.cancel()
+    try:
+        await wrapper
+    except asyncio.CancelledError:
+        ...
+    assert wrapper.cancelled()
 
-    def mark(obj: rp.Task, state):
-        assert not Flag.done
-        assert obj is task
-        assert obj.state == state
-        assert state == rp.states.DONE
-        Flag.set()
-        assert Flag.done
+    # Test propagation of asyncio cancellation behavior.
+    td = rp.TaskDescription({'executable': '/bin/bash',
+                             'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
+                             'cpu_processes': 1})
+    task: rp.Task = tmgr.submit_tasks(td)
 
-    task.register_callback(mark)
-    yield_count = 0
+    wrapper = await scalems.radical.rp_task_coroutine(task)
 
-    while (not Flag.done):
-        yield_count += 1
-        await asyncio.sleep(1)
+    wrapper.cancel()
+    try:
+        await wrapper
+    except asyncio.CancelledError:
+        ...
+    assert task.state in (rp.states.CANCELING, rp.states.CANCELED)
+    task.wait(state=rp.states.CANCELED)
 
-    # We don't expect RP Tasks to need to be waited on to complete.
-    # tmgr.wait_tasks(uids=[task.uid])
+    # Test run to completion
+    td = rp.TaskDescription({'executable': '/bin/bash',
+                             'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
+                             'cpu_processes': 1})
+    task: rp.Task = tmgr.submit_tasks(td)
 
-    assert yield_count > 3
+    wrapper = await scalems.radical.rp_task_coroutine(task)
+
+    result = await wrapper
+
     assert task.exit_code == 0
     assert 'success' in task.stdout
+
+    assert 'stdout' in result
+    assert 'success' in result['stdout']
 
 
 def test_rp_scalems_environment_preparation_local(rpsession):

@@ -52,6 +52,7 @@ from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
+from scalems.exceptions import ScaleMSError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -232,52 +233,94 @@ class RPResult:
     # TODO: Provide support for RP-specific versions of standard SCALEMS result types.
 
 
-class RPFuture(asyncio.Future):
-    """Future interface for RADICAL Pilot tasks."""
+class RPTaskFailure(ScaleMSError):
+    """Error in radical.pilot.Task execution.
 
-    def __init__(self, task: weakref.ref) -> None:
-        # Import locally so that radical.pilot is only a dependency when used.
-        super().__init__()
-        if not callable(task) or not isinstance(task(), rp.ComputeUnit):
-            raise TypeError('Provide a callable that produces the rp ComputeUnit.')
-        self.task = task
+    Attributes:
+        failed_task: A dictionary representation of the failed task.
 
-    def cancel(self) -> bool:
-        raise MissingImplementationError()
+    TODO: What can/should we capture and report from the failed task?
+    """
+    failed_task: dict
 
-    def cancelled(self) -> bool:
-        return super().cancelled()
+    def __init__(self, *args, task: rp.Task):
+        super().__init__(*args)
+        self.failed_task = task.as_dict()
 
-    def running(self) -> bool:
-        raise MissingImplementationError()
 
-    def add_done_callback(self, fn: Callable[[Future], Any]) -> None:
-        # TODO: more complete type hinting.
-        raise MissingImplementationError()
+async def rp_task_coroutine(task: rp.Task) -> asyncio.Future:
+    """Mediate between a radical.pilot.Task and an asyncio.Future.
 
-    def result(self, timeout: Optional[float] = ...) -> RPResult:
-        if not self.done():
-            # Note that task.wait() seems not to work reliably.
-            # TODO: task.umgr.wait_units(uids=taskid)
-            # Warning: Waiting on all units will deadlock in non-trivial cases.
-            task = self.task()
-            task.umgr.wait_units(uids=task.uid, timeout=timeout)
-        return super().result()
+    Schedule an asyncio Task to receive the result of the RP Task. The asyncio
+    Task must also make sure that asyncio cancellation propagates to the rp.Task.cancel,
+    and vice versa.
 
-    def set_running_or_notify_cancel(self) -> bool:
-        raise MissingImplementationError()
+    This function should be awaited immediately to make sure the necessary call-backs
+    get registered. The result will be an asyncio.Future, which should be awaited
+    separately.
 
-    def exception(self, timeout: Optional[float] = ...) -> Optional[BaseException]:
-        raise MissingImplementationError()
+    Internally, this function provides a call-back to the rp.Task. The call-back
+    provided to RP cannot directly call asyncio.Future methods (such as set_result() or set_exception())
+    because RP will be making the call from another thread without mediation by the
+    asyncio event loop.
 
-    def set_exception(self, exception: Optional[BaseException]) -> None:
-        super().set_exception(exception)
+    As such, we also need to provide a thread-safe event handler to propagate the
+    RP Task call-back to the asyncio Future.
+    """
+    if not isinstance(task, rp.Task):
+        raise TypeError('Function requires a RADICAL Pilot Task object.')
+    _rp_task = task
 
-    def exception_info(self, timeout: Optional[float] = ...) -> Tuple[Any, Optional[TracebackType]]:
-        return super().exception_info(timeout)
+    loop = asyncio.get_running_loop()
+    _future = loop.create_future()
 
-    def set_exception_info(self, exception: Any, traceback: Optional[TracebackType]) -> None:
-        super().set_exception_info(exception, traceback)
+    async def finalizer(task: rp.Task):
+        """This is the coroutine function that will be scheduled by the rp callback."""
+        if task.state == rp.states.DONE:
+            _future.set_result(task.as_dict())
+        elif task.state in (rp.states.CANCELED, rp.states.CANCELING):
+            _future.cancel()
+        elif task.state == rp.states.FAILED:
+            _future.set_exception(RPTaskFailure(task=task))
+        else:
+            raise ValueError('Unexpected state: {}'.format(str(task.state)))
+
+    def rp_callback(obj: rp.Task, state):
+        """Called when the rp.Task state changes."""
+        logger.debug(f'Callback triggered by {repr(obj)} state change to {repr(state)}.')
+        assert obj is _rp_task
+
+        if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
+            # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
+
+            # Schedule a coroutine to run in the original event loop.
+            future = asyncio.run_coroutine_threadsafe(finalizer(obj), loop)
+
+            # Wait for the result with an optional timeout argument
+            assert future.result(1)
+        else:
+            # Note: debugging only!
+            # TODO: Get rid of this soon!
+            raise ValueError('unknown state: {}'.format(repr(state)))
+
+    async def watch():
+        """Provide a coroutine that we can schedule to watch the RP Task."""
+        try:
+            while not _future.done():
+                # Do we not get a callback trigger for cancellations?
+                if _rp_task.state in (rp.states.CANCELED,):
+                    _future.cancel()
+                else:
+                    await asyncio.sleep(1)
+        except asyncio.CancelledError as e:
+            if _rp_task.state not in (rp.states.CANCELED,):
+                # TODO: We shoulld unregister the callback first...
+                _rp_task.cancel()
+            raise e
+
+    task.register_callback(rp_callback)
+    asyncio.create_task(watch())
+    return _future
 
 
 class RPDispatchingExecutor:

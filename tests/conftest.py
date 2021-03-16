@@ -1,6 +1,7 @@
 # Import radical.pilot early because of interaction with the built-in logging module.
 # TODO: Did this work?
 import pathlib
+import subprocess
 
 try:
     import radical.pilot as rp
@@ -138,22 +139,71 @@ def rpsession():
 
 # TODO: Allow some re-use.
 @pytest.fixture(scope='function')
-def rp_taskmanager():
+def rp_resource(request):
+    """Provide a session using the indicated resource.
+
+    This fixture must be parameterized with a dictionary at the test site.
+
+    Example::
+        @pytest.mark.parametrize('rp_resource', [{'resource': 'local.docker','host': 'compute', 'user': 'rp'}], indirect=True)
+        def test_something(rp_resource):
+            ...
+
+    The dictionary _must_ include a resource name to provide to the PilotDescription.
+    The remaining arguments are used to confirm that the resource is accessible for password-less ssh access
+    and should match the resource definition, whereever it is.
+
+    .. todo:: Can we embed user, host, and port in the resource_....json file and use just the resource name for testing?
+    """
     # Note: Session creation will fail with a FileNotFound error unless venv
     #       is explicitly `activate`d (or the scripts installed with RADICAL components
     #       are otherwise made available on the PATH).
 
     # Note: radical.pilot.Session creation causes several deprecation warnings.
     # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+
+    try:
+        import radical.pilot as rp
+        import radical.utils as ru
+
+    except ImportError:
+        rp = None
+        ru = None
+
+    if rp is None or ru is None or not os.environ.get('RADICAL_PILOT_DBURL'):
+        pytest.skip("Test requires RADICAL environment.")
+
+    params = {'host': '127.0.0.1', 'user': None, 'port': None}
+    params.update(request.param)
+    if not 'resource' in params:
+        raise RuntimeError('rp_resource fixture requires a *resource* parameter key.')
+
+    if 'access_schema' in params and params['access_schema'] == 'ssh':
+        ssh = ['ssh']
+        if params['user'] is not None:
+            ssh.extend(['-l', params['user']])
+        if params['port'] is not None:
+            ssh.extend(['-p', str(params['port'])])
+        ssh.append(str(params['host']))
+        result = subprocess.run(
+            ssh + ['/bin/echo', 'success'],
+            stdout=subprocess.PIPE,
+            timeout=5,
+            encoding='utf-8')
+        if result.returncode != 0 or result.stdout.rstrip() != 'success':
+            pytest.skip(f'Could not ssh to target computing resource with {" ".join(ssh)}.')
+            return
+
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
         session = rp.Session()
         pmgr = rp.PilotManager(session=session)
         pilot = pmgr.submit_pilots(
-            rp.PilotDescription({'resource': 'local.localhost',
+            rp.PilotDescription({'resource': params['resource'],
                                  'cores': 4,
                                  'gpus': 0,
-                                 'exit_on_error': False})
+                                 'exit_on_error': False,
+                                 'access_schema': params.get('access_schema', 'local')})
         )
         tmgr = rp.TaskManager(session=session)
         tmgr.add_pilots(pilot)

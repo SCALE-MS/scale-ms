@@ -120,7 +120,7 @@ def cleandir():
         yield newdir
 
 
-@pytest.fixture(scope='session')
+@pytest.fixture(scope='function')
 def rpsession():
     # Note: Session creation will fail with a FileNotFound error unless venv
     #       is explicitly `activate`d (or the scripts installed with RADICAL components
@@ -133,6 +133,34 @@ def rpsession():
         session = rp.Session()
     with session:
         yield session
+    assert session.closed
+
+
+# TODO: Allow some re-use.
+@pytest.fixture(scope='function')
+def rp_taskmanager():
+    # Note: Session creation will fail with a FileNotFound error unless venv
+    #       is explicitly `activate`d (or the scripts installed with RADICAL components
+    #       are otherwise made available on the PATH).
+
+    # Note: radical.pilot.Session creation causes several deprecation warnings.
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=DeprecationWarning)
+        session = rp.Session()
+        pmgr = rp.PilotManager(session=session)
+        pilot = pmgr.submit_pilots(
+            rp.PilotDescription({'resource': 'local.localhost',
+                                 'cores': 4,
+                                 'gpus': 0,
+                                 'exit_on_error': False})
+        )
+        tmgr = rp.TaskManager(session=session)
+        tmgr.add_pilots(pilot)
+    with session:
+        yield tmgr
+        pilot.cancel()
+
     assert session.closed
 
 

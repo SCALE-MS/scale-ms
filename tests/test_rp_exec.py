@@ -116,30 +116,13 @@ def test_rp_usability():
 
 
 @with_radical_only
-def test_rp_basic_task_local(rpsession):
-    import radical.pilot as rp
+def test_rp_basic_task_local(rp_taskmanager):
+    from radical.pilot import TaskDescription
+    tmgr = rp_taskmanager
 
-    # Based on `radical.pilot/examples/config.json`
-    # TODO: Does the Session have a default spec for 'local.localhost'?
-    #       Can/should we reference it?
-    #       https://github.com/radical-cybertools/radical.pilot/issues/2181
-    # NOTE: a session does not have a spec, really - the resource config
-    #       should be a *static* description of the target resource and
-    #       should not need any changing. (AM)
-    pd = rp.PilotDescription({'resource': 'local.localhost',
-                              'cores': 32,
-                              'gpus': 1})
-
-    td = rp.TaskDescription({'executable': '/bin/date',
+    td = TaskDescription({'executable': '/bin/date',
                              'cpu_processes': 1})
-
-    pmgr = rp.PilotManager(session=rpsession)
-    tmgr = rp.TaskManager(session=rpsession)
-
-    pilot = pmgr.submit_pilots(pd)
     task = tmgr.submit_tasks(td)
-
-    tmgr.add_pilots(pilot)
     tmgr.wait_tasks(uids=[task.uid])
 
     assert task.exit_code == 0
@@ -213,7 +196,7 @@ def test_rp_basic_task_tunnel_remote(rpsession):
 
 @with_radical_only
 @pytest.mark.asyncio
-async def test_rp_future_cancel_from_rp(rpsession):
+async def test_rp_future_cancel_from_rp(rp_taskmanager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -221,15 +204,7 @@ async def test_rp_future_cancel_from_rp(rpsession):
     """
     import radical.pilot as rp
 
-    pd = rp.PilotDescription({'resource': 'local.localhost',
-                              'cores': 4,
-                              'gpus': 0})
-
-    pmgr = rp.PilotManager(session=rpsession)
-    pilot = pmgr.submit_pilots(pd)
-
-    tmgr = rp.TaskManager(session=rpsession)
-    tmgr.add_pilots(pilot)
+    tmgr = rp_taskmanager
 
     # Test propagation of RP cancellation behavior
     td = rp.TaskDescription({'executable': '/bin/bash',
@@ -256,23 +231,14 @@ async def test_rp_future_cancel_from_rp(rpsession):
 
 @with_radical_only
 @pytest.mark.asyncio
-async def test_rp_future_propagate_cancel(rpsession):
+async def test_rp_future_propagate_cancel(rp_taskmanager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
     should appropriately yield when the rp.Task is not finished.
     """
     import radical.pilot as rp
-
-    pd = rp.PilotDescription({'resource': 'local.localhost',
-                              'cores': 4,
-                              'gpus': 0})
-
-    pmgr = rp.PilotManager(session=rpsession)
-    pilot = pmgr.submit_pilots(pd)
-
-    tmgr = rp.TaskManager(session=rpsession)
-    tmgr.add_pilots(pilot)
+    tmgr = rp_taskmanager
 
     # Test propagation of asyncio cancellation behavior.
     td = rp.TaskDescription({'executable': '/bin/bash',
@@ -301,23 +267,14 @@ async def test_rp_future_propagate_cancel(rpsession):
 
 @with_radical_only
 @pytest.mark.asyncio
-async def test_rp_future(rpsession):
+async def test_rp_future(rp_taskmanager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
     should appropriately yield when the rp.Task is not finished.
     """
     import radical.pilot as rp
-
-    pd = rp.PilotDescription({'resource': 'local.localhost',
-                              'cores': 4,
-                              'gpus': 0})
-
-    pmgr = rp.PilotManager(session=rpsession)
-    pilot = pmgr.submit_pilots(pd)
-
-    tmgr = rp.TaskManager(session=rpsession)
-    tmgr.add_pilots(pilot)
+    tmgr = rp_taskmanager
 
     # Test run to completion
     td = rp.TaskDescription({'executable': '/bin/bash',
@@ -374,23 +331,13 @@ def test_rp_scalems_environment_preparation_remote_docker(rpsession):
 
 
 @with_radical_only
-def test_rp_raptor_local(rpsession):
+def test_rp_raptor_local(rp_taskmanager):
     """Test the core RADICAL Pilot functionality that we rely on using local.localhost.
 
     Use sample 'master' and 'worker' scripts for to exercise the RP "raptor" features.
     """
     import radical.pilot as rp
-
-    # define a pilot and launch it
-    pd = rp.PilotDescription(
-        {'resource': 'local.localhost',
-         'cores': 4,
-         'gpus': 0})
-
-    pmgr = rp.PilotManager(session=rpsession)
-    tmgr = rp.TaskManager(session=rpsession)
-    pilot = pmgr.submit_pilots(pd)
-    tmgr.add_pilots(pilot)
+    tmgr = rp_taskmanager
 
     # TODO: How can we recover successful workflow stages from previous failed Sessions?
     #

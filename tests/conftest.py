@@ -16,6 +16,7 @@ import sys
 import tempfile
 import warnings
 from contextlib import contextmanager
+from urllib.parse import urlparse, ParseResult
 
 import pytest
 
@@ -24,6 +25,28 @@ _PATH_orig = str(os.environ['PATH'])
 _py_bin_path = os.path.join(sys.exec_prefix, 'bin')
 if _py_bin_path not in _PATH_orig.split(os.pathsep):
     os.environ['PATH'] = os.pathsep.join([_py_bin_path, _PATH_orig])
+
+
+def pytest_addoption(parser):
+    """Add command-line user options for the pytest invocation."""
+    parser.addoption(
+        '--rp-resource',
+        action='store',
+        default='local.localhost',
+        help='Specify a *resource* for the radical.pilot.PilotDescription.'
+    )
+    parser.addoption(
+        '--rp-access',
+        action='store',
+        type=str,
+        help='Explicitly specify the access_schema to use from the RADICAL resource.'
+    )
+    parser.addoption(
+        '--rp-venv',
+        action='store',
+        type=str,
+        help='Full path to a pre-configured venv to use for RP tasks.'
+    )
 
 
 @contextmanager
@@ -121,47 +144,9 @@ def cleandir():
         yield newdir
 
 
-@pytest.fixture(scope='function')
-def rpsession():
-    # Note: Session creation will fail with a FileNotFound error unless venv
-    #       is explicitly `activate`d (or the scripts installed with RADICAL components
-    #       are otherwise made available on the PATH).
-
-    # Note: radical.pilot.Session creation causes several deprecation warnings.
-    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=DeprecationWarning)
-        session = rp.Session()
-    with session:
-        yield session
-    assert session.closed
-
-
-# TODO: Allow some re-use.
-@pytest.fixture(scope='function')
-def rp_resource(request):
-    """Provide a session using the indicated resource.
-
-    This fixture must be parameterized with a dictionary at the test site.
-
-    Example::
-        @pytest.mark.parametrize('rp_resource', [{'resource': 'local.docker','host': 'compute', 'user': 'rp'}], indirect=True)
-        def test_something(rp_resource):
-            ...
-
-    The dictionary _must_ include a resource name to provide to the PilotDescription.
-    The remaining arguments are used to confirm that the resource is accessible for password-less ssh access
-    and should match the resource definition, whereever it is.
-
-    .. todo:: Can we embed user, host, and port in the resource_....json file and use just the resource name for testing?
-    """
-    # Note: Session creation will fail with a FileNotFound error unless venv
-    #       is explicitly `activate`d (or the scripts installed with RADICAL components
-    #       are otherwise made available on the PATH).
-
-    # Note: radical.pilot.Session creation causes several deprecation warnings.
-    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-
+@pytest.fixture(scope='session')
+def pilot_description(request) -> rp.PilotDescription:
+    """pytest fixture to get access to the --rm CLI option."""
     try:
         import radical.pilot as rp
         import radical.utils as ru
@@ -173,40 +158,74 @@ def rp_resource(request):
     if rp is None or ru is None or not os.environ.get('RADICAL_PILOT_DBURL'):
         pytest.skip("Test requires RADICAL environment.")
 
-    params = {'host': '127.0.0.1', 'user': None, 'port': None}
-    params.update(request.param)
-    if not 'resource' in params:
-        raise RuntimeError('rp_resource fixture requires a *resource* parameter key.')
+    resource = request.config.getoption('--rp-resource')
+    assert resource is not None
+    access_schema = request.config.getoption('--rp-access')
 
-    if 'access_schema' in params and params['access_schema'] == 'ssh':
+    pilot_description = {
+        'resource': resource,
+        'cores': 4,
+        'gpus': 0,
+        'exit_on_error': False
+    }
+    if access_schema:
+        pilot_description['access_schema'] = access_schema
+    pilot_description = rp.PilotDescription(pilot_description)
+    return pilot_description
+
+
+@pytest.fixture(scope='session')
+def rp_venv(request):
+    """pytest fixture to allow a user-specified venv for the RP tasks."""
+    path = request.config.getoption('--rp-venv')
+    if path is None:
+        pytest.skip('This test only runs for static RP venvs.')
+    else:
+        return path
+
+
+@pytest.fixture(scope='function')
+def rp_task_manager(pilot_description: rp.PilotDescription):
+    """Provide a task_manager using the indicated resource."""
+    # Note: Session creation will fail with a FileNotFound error unless venv
+    #       is explicitly `activate`d (or the scripts installed with RADICAL components
+    #       are otherwise made available on the PATH).
+
+    # Note: radical.pilot.Session creation causes several deprecation warnings.
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=DeprecationWarning)
+        session = rp.Session()
+
+    if pilot_description.access_schema == 'ssh':
+        resource = session.get_resource_config(pilot_description.resource)
+        ssh_target = resource['ssh']['job_manager_endpoint']
+        result: ParseResult = urlparse(ssh_target)
+        assert result.scheme == 'ssh'
+        user = result.username
+        port = result.port
+        host = result.hostname
+
         ssh = ['ssh']
-        if params['user'] is not None:
-            ssh.extend(['-l', params['user']])
-        if params['port'] is not None:
-            ssh.extend(['-p', str(params['port'])])
-        ssh.append(str(params['host']))
-        result = subprocess.run(
+        if user:
+            ssh.extend(['-l', user])
+        if port:
+            ssh.extend(['-p', str(port)])
+        ssh.append(host)
+
+        process = subprocess.run(
             ssh + ['/bin/echo', 'success'],
             stdout=subprocess.PIPE,
             timeout=5,
             encoding='utf-8')
-        if result.returncode != 0 or result.stdout.rstrip() != 'success':
+        if process.returncode != 0 or process.stdout.rstrip() != 'success':
             pytest.skip(f'Could not ssh to target computing resource with {" ".join(ssh)}.')
             return
 
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=DeprecationWarning)
-        session = rp.Session()
-        pmgr = rp.PilotManager(session=session)
-        pilot = pmgr.submit_pilots(
-            rp.PilotDescription({'resource': params['resource'],
-                                 'cores': 4,
-                                 'gpus': 0,
-                                 'exit_on_error': False,
-                                 'access_schema': params.get('access_schema', 'local')})
-        )
-        tmgr = rp.TaskManager(session=session)
-        tmgr.add_pilots(pilot)
+    pmgr = rp.PilotManager(session=session)
+    pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
+    tmgr = rp.TaskManager(session=session)
+    tmgr.add_pilots(pilot)
     with session:
         yield tmgr
         pilot.cancel()

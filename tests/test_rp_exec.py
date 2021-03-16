@@ -29,76 +29,18 @@ logger.setLevel(logging.DEBUG)
 # TODO: Catch sigint from RP and apply our own timeout.
 
 
-def get_rp_decorator():
-    '''
-    Decorator for tests that should be run in a RADICAL Pilot environment only.
-    '''
+def test_rp_venv(rp_venv, pilot_description):
+    """Confirm that a prepared venv is usable by RP.
 
-    try:
-        import radical.pilot as rp
-        import radical.utils as ru
-
-    except ImportError:
-        rp = None
-        ru = None
-
-    with_radical_only = pytest.mark.skipif(
-        rp is None or
-        ru is None or
-        not os.environ.get('RADICAL_PILOT_DBURL'),
-        reason="Test requires RADICAL environment.")
-
-    # NOTE: session creation is a non-trivial operation in RP and
-    #       should not be part of a decorator or test, IMHO. if the above is
-    #       insufficient, then the test should rightly fail. (AM)
-
-    return with_radical_only
-
-
-# Decorator for tests that should be run in a RADICAL Pilot environment only.
-with_radical_only = get_rp_decorator()
-
-
-def get_resource_decorator(host, port=None):
-    """Get a pytest.skipif decorator for the tests depending on specific resources.
-
-    Determine whether our Docker-based test resource is available.
-    Return an appropriately constructed pytest marker.
-
-    If the tests are running within the Docker Compose environment, the *compute*
-    service host should be accessible. Assume that the caller has already
-    done ``eval $(ssh-agent -s); ssh-add borrowed_key`` where ``borrowed_key``
-    has been copied from ``~rp/.ssh/id_rsa.pub`` in the ``scalems/radicalpilot`` image.
-
-    .. todo:: Manage ssh-agent within Python? Paramiko?
-
+    .. todo:: Are we using this for the Pilot? Or just the Tasks?
     """
-    # Try: ``ssh rp@compute /bin/echo success |grep success``, or something like it.
-    # We also need to define an appropriate resource. Having done that, what is the
-    # minimal test case for RP ssh-based execution?
-    args = ['ssh', '-l', 'rp']
-    if port is not None:
-        args.extend(['-p', str(port)])
-    args.extend([host, '/bin/echo', 'success'])
-    result = subprocess.run(
-        args,
-        stdout=subprocess.PIPE,
-        timeout=5,
-        encoding='utf-8')
-    marker = pytest.mark.skipif(
-        result.returncode != 0 or
-        result.stdout.rstrip() != 'success',
-        reason='Could not ssh to target computing resource.'
-    )
-    return marker
+    # If scalems is installed and usable, and the venv is activated,
+    # then the `scalems_rp_agent` entry point script should be discoverable with `which`
+    # and executable.
+    ...
 
 
-with_docker_only = get_resource_decorator('compute')
-with_tunnel_only = get_resource_decorator('127.0.0.1', '22222')
-
-
-@with_radical_only
-def test_rp_usability():
+def test_rp_usability(pilot_description):
     """Confirm availability of RADICAL Pilot infrastructure.
 
     Tests here may be too cumbersome to run in every invocation of a
@@ -111,14 +53,14 @@ def test_rp_usability():
     # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
-        with rp.Session():
-            ...
+        with rp.Session() as session:
+            resource = session.get_resource_config(pilot_description.resource)
+            assert resource
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'user': 'rp'}], indirect=True)
-def test_rp_basic_task_local(rp_resource):
+def test_rp_basic_task_local(rp_task_manager):
     from radical.pilot import TaskDescription
-    tmgr = rp_resource
+    tmgr = rp_task_manager
 
     td = TaskDescription({'executable': '/bin/date',
                              'cpu_processes': 1})
@@ -128,10 +70,13 @@ def test_rp_basic_task_local(rp_resource):
     assert task.exit_code == 0
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.docker', 'host': 'compute', 'user': 'rp', 'port': 22, 'access_schema': 'ssh'}], indirect=True)
-def test_rp_basic_task_docker_remote(rp_resource):
+def test_rp_basic_task_docker_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
-    tmgr = rp_resource
+
+    if pilot_description.resource == 'local.localhost':
+        pytest.skip('This test is only for remote execution.')
+
+    tmgr = rp_task_manager
 
     td = rp.TaskDescription({'executable': '/usr/bin/hostname',
                              'cpu_processes': 1})
@@ -149,10 +94,13 @@ def test_rp_basic_task_docker_remote(rp_resource):
     assert remotename != localname
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.tunnel', 'host': '127.0.0.1', 'user': 'rp', 'port': 22222, 'access_schema': 'ssh'}], indirect=True)
-def test_rp_basic_task_tunnel_remote(rp_resource):
+def test_rp_basic_task_tunnel_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
-    tmgr = rp_resource
+
+    if pilot_description.resource == 'local.localhost':
+        pytest.skip('This test is only for remote execution.')
+
+    tmgr = rp_task_manager
 
     td = rp.TaskDescription({'executable': '/usr/bin/hostname',
                              'cpu_processes': 1})
@@ -169,9 +117,8 @@ def test_rp_basic_task_tunnel_remote(rp_resource):
     assert remotename != localname
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'access_schema': 'local'}], indirect=True)
 @pytest.mark.asyncio
-async def test_rp_future_cancel_from_rp(rp_resource):
+async def test_rp_future_cancel_from_rp(rp_task_manager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -179,7 +126,7 @@ async def test_rp_future_cancel_from_rp(rp_resource):
     """
     import radical.pilot as rp
 
-    tmgr = rp_resource
+    tmgr = rp_task_manager
 
     # Test propagation of RP cancellation behavior
     td = rp.TaskDescription({'executable': '/bin/bash',
@@ -204,16 +151,15 @@ async def test_rp_future_cancel_from_rp(rp_resource):
     assert task.state == rp.states.CANCELED
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'access_schema': 'local'}], indirect=True)
 @pytest.mark.asyncio
-async def test_rp_future_propagate_cancel(rp_resource):
+async def test_rp_future_propagate_cancel(rp_task_manager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
     should appropriately yield when the rp.Task is not finished.
     """
     import radical.pilot as rp
-    tmgr = rp_resource
+    tmgr = rp_task_manager
 
     # Test propagation of asyncio cancellation behavior.
     td = rp.TaskDescription({'executable': '/bin/bash',
@@ -241,16 +187,15 @@ async def test_rp_future_propagate_cancel(rp_resource):
     # for several state changes as the task runs to completion without being canceled.
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'access_schema': 'local'}], indirect=True)
 @pytest.mark.asyncio
-async def test_rp_future(rp_resource):
+async def test_rp_future(rp_task_manager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
     should appropriately yield when the rp.Task is not finished.
     """
     import radical.pilot as rp
-    tmgr = rp_resource
+    tmgr = rp_task_manager
 
     # Test run to completion
     td = rp.TaskDescription({'executable': '/bin/bash',
@@ -274,8 +219,7 @@ async def test_rp_future(rp_resource):
 
 
 @pytest.mark.xfail
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'access_schema': 'local'}], indirect=True)
-def test_rp_scalems_environment_preparation_local(rp_resource):
+def test_rp_scalems_environment_preparation_local(rp_task_manager):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     This test function specifically tests the local.localhost resource.
@@ -288,8 +232,7 @@ def test_rp_scalems_environment_preparation_local(rp_resource):
 
 
 @pytest.mark.xfail
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'access_schema': 'local'}], indirect=True)
-def test_staging(sdist, rp_resource):
+def test_staging(sdist, rp_task_manager):
     """Confirm that we are able to bundle and install the package currently being tested."""
     # Use the `sdist` fixture to bundle the current package.
     # Copy the sdist archive to the RP target resource.
@@ -300,8 +243,7 @@ def test_staging(sdist, rp_resource):
 
 
 @pytest.mark.xfail
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.docker', 'host': 'compute', 'user': 'rp', 'access_schema': 'local'}], indirect=True)
-def test_rp_scalems_environment_preparation_remote_docker(rp_resource):
+def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     This test function specifically tests ssh-based dispatching to a resource
@@ -310,14 +252,13 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_resource):
     assert False
 
 
-@pytest.mark.parametrize('rp_resource', [{'resource': 'local.localhost', 'access_schema': 'local'}], indirect=True)
-def test_rp_raptor_local(rp_resource):
+def test_rp_raptor_local(rp_task_manager):
     """Test the core RADICAL Pilot functionality that we rely on using local.localhost.
 
     Use sample 'master' and 'worker' scripts for to exercise the RP "raptor" features.
     """
     import radical.pilot as rp
-    tmgr = rp_resource
+    tmgr = rp_task_manager
 
     # TODO: How can we recover successful workflow stages from previous failed Sessions?
     #
@@ -386,11 +327,10 @@ def test_rp_raptor_local(rp_resource):
         assert t.exit_code == 0
 
 
-# @pytest.mark.parametrize('rp_resource', [{'resource': 'local.docker', 'host': 'compute', 'user': 'rp', 'access_schema': 'ssh'}])
-# def test_rp_raptor_remote_docker(sdist, rp_resource):
+# def test_rp_raptor_remote_docker(sdist, rp_task_manager):
 #     """Test the core RADICAL Pilot functionality that we rely on through ssh-based execution."""
 #     import radical.pilot as rp
-#     tmgr = rp_resource
+#     tmgr = rp_task_manager
 #
 #     # TODO: How can we recover successful workflow stages from previous failed Sessions?
 #     #
@@ -460,15 +400,10 @@ def test_rp_raptor_local(rp_resource):
 #         assert t.exit_code == 0
 
 
-# ------------------------------------------------------------------------------
-#
-# Note: radical.pilot.Session creation causes several deprecation warnings.
-# Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-#
+# TODO: Provide PilotDescription to dispatcher.
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @pytest.mark.asyncio
-@with_radical_only
-async def test_exec_rp():
+async def test_exec_rp(pilot_description):
     """Test that we are able to launch and shut down a RP dispatched execution session.
 
     TODO: Where should we specify the target resource? An argument to *dispatch()*?

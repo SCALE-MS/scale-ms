@@ -67,7 +67,7 @@ jobs:
         - ssh-add tempkey
         - ssh-keyscan -p 2345 127.0.0.1 >> ~/.ssh/known_hosts
         - ssh -l rp -p 2345 127.0.0.1 echo ssh connection sucessful
-        - scp -P 2345 tests rp@127.0.0.1:/home/rp/scalems_tests
+        - scp -P 2345 -r tests rp@127.0.0.1:/home/rp/scalems_tests
       script:
         - docker-compose -f docker/stack.yml exec -u rp login \
           bash -c "cd ~/scalems_tests && . ~/rp-venv/bin/activate && pytest --full-trace -s --rp-resource local.docker --rp-access ssh"

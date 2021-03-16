@@ -578,18 +578,21 @@ async def test_exec_rp():
     assert not loop.is_closed()
 
 
+@pytest.mark.xfail(strict=True)
 @pytest.mark.asyncio
 async def test_batch():
     """Run a batch of uncoupled tasks, dispatched through RP."""
     assert False
 
 
+@pytest.mark.xfail(strict=True)
 @pytest.mark.asyncio
 async def test_chained_commands():
     """Run a sequence of two tasks with a data flow dependency."""
     assert False
 
 
+@pytest.mark.xfail(strict=True)
 @pytest.mark.asyncio
 async def test_file_staging():
     """Test a simple SCALE-MS style command chain that places a file and then retrieves it."""

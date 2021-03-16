@@ -170,7 +170,7 @@ async def test_rp_future_propagate_cancel(rp_task_manager):
     wrapper: asyncio.Task = await scalems.radical.rp_task(task)
 
     assert isinstance(wrapper, asyncio.Task)
-    wrapper.cancel(msg='Canceling from pytest')
+    wrapper.cancel()
     try:
         await asyncio.wait_for(wrapper, timeout=5)
     except asyncio.CancelledError:

@@ -145,7 +145,6 @@ def test_rp_basic_task_local(rpsession):
     assert task.exit_code == 0
 
 
-@pytest.mark.skip(reason='This test currently kills the whole test suite.')
 @with_docker_only
 def test_rp_basic_task_docker_remote(rpsession):
     import radical.pilot as rp
@@ -160,7 +159,7 @@ def test_rp_basic_task_docker_remote(rpsession):
     pd = rp.PilotDescription({'resource': 'local.docker',
                               'cores': 4,
                               'gpus': 0,
-                              'schema': 'ssh'})
+                              'access_schema': 'ssh'})
 
     td = rp.TaskDescription({'executable': '/usr/bin/hostname',
                              'cpu_processes': 1})
@@ -174,6 +173,7 @@ def test_rp_basic_task_docker_remote(rpsession):
     tmgr.add_pilots(pilot)
     tmgr.wait_tasks(uids=[task.uid])
 
+    assert task.state == rp.states.DONE
     assert task.exit_code == 0
 
     localname = subprocess.run(['/usr/bin/hostname'], stdout=subprocess.PIPE, encoding='utf-8').stdout.rstrip()

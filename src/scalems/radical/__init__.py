@@ -318,7 +318,8 @@ async def rp_task(task: rp.Task) -> asyncio.Task:
         """Provide a coroutine that we can schedule to watch the RP Task."""
         try:
             while not _future.done():
-                # Do we not get a callback trigger for cancellations?
+                # Note: callbacks are not (yet) triggered for cancellation.
+                # Ref: https://github.com/radical-cybertools/radical.pilot/issues/2348
                 if _rp_task.state in (rp.states.CANCELED,):
                     _future.cancel()
                     assert _future.cancelled()

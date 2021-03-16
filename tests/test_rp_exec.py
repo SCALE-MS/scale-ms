@@ -224,11 +224,13 @@ async def test_rp_future_cancel_from_rp(rp_taskmanager):
         raise e
 
     # Note: The cancellation occurs through the `watch` coroutine, rather than through the rp callback.
-    # Does the RP Task callback not get triggered for cancellations?
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2348
     assert wrapper.cancelled()
     assert task.state == rp.states.CANCELED
 
 
+@pytest.mark.xfail(strict=True,
+                   reason='See https://github.com/radical-cybertools/radical.pilot/issues/2348')
 @with_radical_only
 @pytest.mark.asyncio
 async def test_rp_future_propagate_cancel(rp_taskmanager):

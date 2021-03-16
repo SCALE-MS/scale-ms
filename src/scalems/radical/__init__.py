@@ -347,7 +347,6 @@ class RPDispatchingExecutor:
     """
     command_queue: asyncio.Queue
     execution_target: str
-    pilot: rp.Pilot
     scheduler: typing.Union[rp.Task, None]
     session: typing.Union[rp.Session, None]
     source_context: scalems.context.WorkflowManager
@@ -355,10 +354,8 @@ class RPDispatchingExecutor:
 
     _dispatcher_lock: asyncio.Lock
     _pilot_description: rp.PilotDescription
-    _pilot_manager: rp.PilotManager
     _rp_resource_params: typing.Optional[dict]
     _task_description: rp.TaskDescription
-    _task_manager: rp.TaskManager
     _queue_runner_task: asyncio.Task
 
     async def __aenter__(self):
@@ -420,6 +417,17 @@ class RPDispatchingExecutor:
         session_id = self.session.uid
         session_config = copy.deepcopy(self.session.cfg.as_dict())
 
+        # We can launch an initial Pilot, but we may have to run further Pilots
+        # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
+        # to handle dynamic work load requirements.
+        # Optionally, we could refrain from launching the pilot here, at all,
+        # but it seems like a good chance to start bootstrapping the agent environment.
+        pilot_manager = rp.PilotManager(session=self.session)
+        self._pilot_manager_uid = pilot_manager.uid
+
+        task_manager = rp.TaskManager(session=self.session)
+        self._task_manager_uid = task_manager.uid
+
         #
         # Get a Pilot
         #
@@ -450,15 +458,9 @@ class RPDispatchingExecutor:
              'cores': 4,
              'gpus': 0})
 
-        # We can launch an initial Pilot, but we may have to run further Pilots
-        # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
-        # to handle dynamic work load requirements.
-        # Optionally, we could refrain from launching the pilot here, at all,
-        # but it seems like a good chance to start bootstrapping the agent environment.
-        self._pilot_manager = rp.PilotManager(session=self.session)
-
         # How and when should we update pilot description?
-        self.pilot = self._pilot_manager.submit_pilots(self._pilot_description)
+        pilot = pilot_manager.submit_pilots(self._pilot_description)
+        self.pilot_uid = pilot.uid
 
         # Note that the task description for the master (and worker) can specify a *named_env* attribute to use
         # a venv prepared via Pilot.prepare_env
@@ -474,7 +476,7 @@ class RPDispatchingExecutor:
         rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
         rp_spec = shlex.quote(rp_spec)
         scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
-        self.pilot.prepare_env(
+        pilot.prepare_env(
             {
                 'scalems_env': {
                     'type': 'virtualenv',
@@ -490,9 +492,8 @@ class RPDispatchingExecutor:
         # # Could we stage in archive distributions directly?
         # # self.pilot.stage_in()
 
-        self._task_manager = rp.TaskManager(session=self.session)
         # Question: when should we remove the pilot from the task manager?
-        self._task_manager.add_pilots(self.pilot)
+        task_manager.add_pilots(pilot)
 
         # pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
         #
@@ -532,7 +533,7 @@ class RPDispatchingExecutor:
         #     raise DispatchError('Could not install execution environment.')
 
         # Verify usable SCALEMS RP connector.
-        rp_check = self._task_manager.submit_tasks(
+        rp_check = task_manager.submit_tasks(
             rp.TaskDescription(
                 {
                     # 'executable': py_venv,
@@ -542,7 +543,7 @@ class RPDispatchingExecutor:
                 }
             )
         )
-        sms_check = self._task_manager.submit_tasks(
+        sms_check = task_manager.submit_tasks(
             rp.TaskDescription(
                 {
                     # 'executable': py_venv,
@@ -556,12 +557,12 @@ class RPDispatchingExecutor:
                 }
             )
         )
-        if self._task_manager.wait_tasks(uids=[rp_check.uid])[0] != rp.states.DONE or rp_check.exit_code != 0:
+        if task_manager.wait_tasks(uids=[rp_check.uid])[0] != rp.states.DONE or rp_check.exit_code != 0:
             raise DispatchError('Could not verify RP in execution environment.')
         if rp_check.stdout != '1.6.0\n':
             raise DispatchError('Could not get a valid execution environment.')
 
-        scalems_is_installed = self._task_manager.wait_tasks(uids=[sms_check.uid])[
+        scalems_is_installed = task_manager.wait_tasks(uids=[sms_check.uid])[
                                    0] == rp.states.DONE and sms_check.exit_code == 0
         if not scalems_is_installed:
             raise DispatchError('Could not verify scalems in execution environment.')
@@ -629,7 +630,7 @@ class RPDispatchingExecutor:
 
         # Launch main (scheduler) RP task.
         try:
-            task = self._task_manager.submit_tasks(self._task_description)
+            task = task_manager.submit_tasks(self._task_description)
             if isinstance(task, rp.Task):
                 self.scheduler = task
             else:
@@ -646,6 +647,7 @@ class RPDispatchingExecutor:
         """
         if self.session is None or self.session.closed:
             raise ProtocolError('Cannot process queue without a RP Session.')
+        task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
 
         # Define the raptor.scalems tasks and submit them to the master (scheduler)
         def test_workload():
@@ -670,7 +672,7 @@ class RPDispatchingExecutor:
                     # 'output_staging': []
                     'named_env': 'scalems_env'
                 }))
-            tasks = self._task_manager.submit_tasks(tds)
+            tasks = task_manager.submit_tasks(tds)
             assert len(tasks) == len(tds)
             return tasks
 
@@ -770,7 +772,8 @@ class RPDispatchingExecutor:
         if self._queue_runner_task.exception() is not None:
             raise self._queue_runner_task.exception()
 
-        states = self._task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
+        task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
+        states = task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
         assert states
         for t in self.rp_tasks:
             logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
@@ -778,11 +781,16 @@ class RPDispatchingExecutor:
                 logger.error(f'RP Task unsuccessful: {repr(t)}')
 
         # Cancel the master.
-        self._task_manager.cancel_tasks(uids=self.scheduler.uid)
+        task_manager.cancel_tasks(uids=self.scheduler.uid)
         # Cancel blocks until the task is done so the following wait would (currently) be redundant,
         # but there is a ticket open to change this behavior.
         # See https://github.com/radical-cybertools/radical.pilot/issues/2336
         # tmgr.wait_tasks([scheduler.uid])
+
+        pmgr: rp.PilotManager = self.session.get_pilot_managers(pmgr_uids=self._pilot_manager_uid)
+        # TODO: We may have multiple pilots.
+        # TODO: Check for errors?
+        pmgr.cancel_pilots(uids=self.pilot_uid)
 
     def __init__(self,
                  source_context: scalems.context.WorkflowManager,

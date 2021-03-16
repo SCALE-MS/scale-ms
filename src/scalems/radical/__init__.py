@@ -289,28 +289,30 @@ async def rp_task(task: rp.Task) -> asyncio.Task:
 
     def rp_callback(obj: rp.Task, state):
         """Called when the rp.Task state changes."""
+        # TODO: Use a thread-safe log handler.
         logger.debug(f'Callback triggered by {repr(obj)} state change to {repr(state)}.')
-        assert obj is _rp_task
-        assert loop.is_running()
+        try:
+            # Note: assertions are ineffective in RP callbacks.
+            if obj is not _rp_task:
+                logger.error(f'callback received {repr(obj)} ID {id(obj)}. Expected {repr(_rp_task)} ID {id(_rp_task)}')
+                return
+            if not loop.is_running():
+                logger.error(f'asyncio event loop {repr(loop)} not running!')
+                return
 
-        if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
-            # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
-            # Schedule a coroutine to run in the original event loop.
-            future: concurrent.futures.Future = asyncio.run_coroutine_threadsafe(finalizer(_rp_task), loop)
+            if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
+                # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
+                # Schedule a coroutine to run in the original event loop.
+                future: concurrent.futures.Future = asyncio.run_coroutine_threadsafe(finalizer(_rp_task), loop)
 
-            # Is it an error not to await a concurrent.futures.Future?
-            assert isinstance(future, concurrent.futures.Future)
-            # Wait for the result with an optional timeout argument.
-            # This may not be safe without confirming that we are _not_ in the same thread as the event loop.
-            # assert future.result()
-
-            # WARNING: We log entry to this function, but neither the exception nor the
-            # following assertion ever seem to be triggered.
-            assert False
-        else:
-            # Note: debugging only!
-            # TODO: Get rid of this soon!
-            raise ValueError('unknown state: {}'.format(repr(state)))
+                # Is it an error not to await a concurrent.futures.Future?
+                if not isinstance(future, concurrent.futures.Future):
+                    logger.error(f'Bug: programmer assumed {repr(future)} would be a concurrent.futures.Future.')
+                # Wait for the result with an optional timeout argument.
+                # This may not be safe without confirming that we are _not_ in the same thread as the event loop.
+                # assert future.result()
+        except Exception as e:
+            logger.error(f'Exception encountered during rp.Task callback: {repr(e)}')
 
     async def watch():
         """Provide a coroutine that we can schedule to watch the RP Task."""

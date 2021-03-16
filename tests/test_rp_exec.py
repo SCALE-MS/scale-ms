@@ -58,7 +58,12 @@ def test_rp_usability(pilot_description):
             assert resource
 
 
-def test_rp_basic_task_local(rp_task_manager):
+def test_rp_basic_task_local(rp_task_manager, pilot_description):
+    if pilot_description.resource != 'local.localhost' \
+            and pilot_description.access_schema \
+            and pilot_description.access_schema != 'local':
+        pytest.skip('This test is only for local execution.')
+
     from radical.pilot import TaskDescription
     tmgr = rp_task_manager
 
@@ -70,7 +75,7 @@ def test_rp_basic_task_local(rp_task_manager):
     assert task.exit_code == 0
 
 
-def test_rp_basic_task_docker_remote(rp_task_manager, pilot_description):
+def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
     if pilot_description.resource == 'local.localhost':
@@ -86,29 +91,6 @@ def test_rp_basic_task_docker_remote(rp_task_manager, pilot_description):
     tmgr.wait_tasks(uids=[task.uid])
 
     assert task.state == rp.states.DONE
-    assert task.exit_code == 0
-
-    localname = subprocess.run(['/usr/bin/hostname'], stdout=subprocess.PIPE, encoding='utf-8').stdout.rstrip()
-    remotename = task.stdout.rstrip()
-    assert len(remotename) > 0
-    assert remotename != localname
-
-
-def test_rp_basic_task_tunnel_remote(rp_task_manager, pilot_description):
-    import radical.pilot as rp
-
-    if pilot_description.resource == 'local.localhost':
-        pytest.skip('This test is only for remote execution.')
-
-    tmgr = rp_task_manager
-
-    td = rp.TaskDescription({'executable': '/usr/bin/hostname',
-                             'cpu_processes': 1})
-
-    task = tmgr.submit_tasks(td)
-
-    tmgr.wait_tasks(uids=[task.uid])
-
     assert task.exit_code == 0
 
     localname = subprocess.run(['/usr/bin/hostname'], stdout=subprocess.PIPE, encoding='utf-8').stdout.rstrip()

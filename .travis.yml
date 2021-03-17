@@ -88,15 +88,14 @@ jobs:
         - ssh-add tempkey
         - ssh-keyscan -p 2345 127.0.0.1 >> ~/.ssh/known_hosts
         - ssh -l rp -p 2345 127.0.0.1 echo ssh connection sucessful
-        - python3 -m venv smsvenv
-        - . smsvenv/bin/activate
-        - pip install -r requirements-testing.txt
-        - pip install .
         - mkdir -p ~/.radical/pilot/configs
+        # We can just use the localhost:2345 that is exposed by the `login` docker-compose service.
         - cat docker/resource_local.json | sed 's/22222/2345/' > ~/.radical/pilot/configs/resource_local.json
+        - python3 -m pip install --user tox
       script:
         - export RADICAL_PILOT_DBURL="mongodb://root:password@127.0.0.1:27017/admin"
-        - python -m pytest --full-trace -s tests --rp-resource local.tunnel --rp-access ssh
+        # Let tox manage the venv for us.
+        - tox -vvv -e py38 -- tests --rp-resource=local.tunnel --rp-access=ssh
         - docker-compose -f docker/stack.yml down
     - name: "RP master dependency"
       env: RPREF="master"

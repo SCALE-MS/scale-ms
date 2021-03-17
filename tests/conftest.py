@@ -166,6 +166,7 @@ def pilot_description(request) -> rp.PilotDescription:
         'resource': resource,
         'cores': 4,
         'gpus': 0,
+        'runtime': 600,
         'exit_on_error': False
     }
     if access_schema:
@@ -185,7 +186,7 @@ def rp_venv(request):
 
 
 @pytest.fixture(scope='function')
-def rp_task_manager(pilot_description: rp.PilotDescription):
+def rp_task_manager(pilot_description: rp.PilotDescription) -> rp.TaskManager:
     """Provide a task_manager using the indicated resource."""
     # Note: Session creation will fail with a FileNotFound error unless venv
     #       is explicitly `activate`d (or the scripts installed with RADICAL components

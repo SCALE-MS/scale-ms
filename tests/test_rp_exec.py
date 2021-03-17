@@ -17,6 +17,7 @@ import subprocess
 import warnings
 
 import pytest
+import typing
 
 import scalems
 import scalems.context
@@ -29,7 +30,7 @@ logger.setLevel(logging.DEBUG)
 # TODO: Catch sigint from RP and apply our own timeout.
 
 
-def test_rp_venv(rp_venv, pilot_description):
+def test_rp_static_venv(rp_venv, pilot_description):
     """Confirm that a prepared venv is usable by RP.
 
     .. todo:: Are we using this for the Pilot? Or just the Tasks?
@@ -97,6 +98,54 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     remotename = task.stdout.rstrip()
     assert len(remotename) > 0
     assert remotename != localname
+
+
+def test_prepare_venv(rp_task_manager, sdist):
+    # NOTE: *sdist* is a path of an sdist archive that we could stage for the venv installation.
+    # QUESTION: Can't we use the radical.pilot package archive that was already placed for bootstrapping the pilot?
+
+    # TODO: Merge with test_rp_raptor_local but use the installed scalems_rp_agent and scalems_rp_worker files
+    # Do we want to copy the config or generate it? It can be retrieved programmatically with
+    #     pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json')
+
+    import radical.pilot as rp
+    # We only expect one pilot
+    pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
+    # We get a dictionary...
+    # assert isinstance(pilot, rp.Pilot)
+    # But it looks like it has the pilot id in it.
+    pilot_uid = typing.cast(dict, pilot)['uid']
+    pmgr_uid = typing.cast(dict, pilot)['pmgr']
+    session: rp.Session = rp_task_manager.session
+    pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
+    assert isinstance(pmgr, rp.PilotManager)
+    pilot = pmgr.get_pilots(uids=pilot_uid)
+    assert isinstance(pilot, rp.Pilot)
+    # It looks like either the pytest fixture should deliver something other than the TaskManager,
+    # or the prepare_venv part should be moved to a separate function, such as in conftest...
+
+    tmgr = rp_task_manager
+
+    pilot.prepare_env({
+        'scalems_env': {
+            'type': 'virtualenv',
+            'version': '3.8',
+            'setup': [
+                'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems',
+                'scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54'
+            ]}})
+
+    td = rp.TaskDescription({'executable': 'python3',
+                             'arguments': ['-c',
+                                           'import radical.pilot as rp;'
+                                           'import scalems;'
+                                           'print(rp.version_detail);'
+                                           'print(scalems.__file__)'],
+                             'named_env': 'scalems_env'})
+    task = tmgr.submit_tasks(td)
+    tmgr.wait_tasks()
+    logger.info(task.stdout)
+    assert task.exit_code == 0
 
 
 @pytest.mark.asyncio
@@ -242,13 +291,7 @@ def test_rp_raptor_local(rp_task_manager):
     import radical.pilot as rp
     tmgr = rp_task_manager
 
-    # TODO: How can we recover successful workflow stages from previous failed Sessions?
-    #
-    # The client needs to note the sandbox locations from runs. SCALEMS can
-    # then manage / maintain state tracking or state discovery to optimize workflow recovery.
-    # Resumed workflows can make reference to sandboxes from previous sessions
-    # (RCT work in progress: https://github.com/radical-cybertools/radical.pilot/tree/feature/sandboxes
-    # slated for merge in 2021 Q2 to support `sandbox://` URIs).
+    # TODO: Use master and worker scripts from the installed scalems package.
 
     # define a raptor.scalems master and launch it within the pilot
     pwd = os.path.dirname(__file__)

@@ -26,17 +26,22 @@ if not isinstance(numeric_level, int):
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=numeric_level)
+# End logging details...
 
+# Locate the test files. Assumes the scalems repo was cloned recursively, or that
+# the test data repository is otherwise available at dirname(thisfile)/../../testdata
 script_dir = Path(__file__).parent.absolute()
 data_dir = script_dir.parent.parent / 'testdata' / 'alanine-dipeptide'
 if not os.path.exists(data_dir):
     raise RuntimeError('Missing data. Ref https://github.com/SCALE-MS/scale-ms#test-data-submodule')
 
+# Specify some input files.
+# Note the input file names we are getting from the testdata repo.
 params_file = os.path.join(data_dir, 'grompp.mdp')
 topology_file = os.path.join(data_dir, 'topol.top')
 configuration = os.path.join(data_dir, 'equil0.gro')
 
-
+# Define the entry point to the script.
 @scalems.app
 def main():
     sim_input = make_input(simulation_parameters=params_file,

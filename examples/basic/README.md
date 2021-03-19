@@ -6,7 +6,7 @@ scalems package and to test different execution modes.
 These scripts assume that the scalems package is already installed.
 
 For a clean test environment (or if there are any problems getting scalems installed),
-consider Docker. Refer to the [Dockerfile] contents for usage help.
+consider Docker. Refer to the [Dockerfile](Dockerfile) contents for usage help.
 
 Example:
 

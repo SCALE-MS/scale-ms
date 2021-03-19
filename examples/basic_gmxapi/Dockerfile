@@ -75,7 +75,7 @@ RUN cd $EXAMPLE && \
     . ~/gromacs2021/bin/GMXRC && \
     pip install --upgrade gmxapi
 
-ENV REF=gmxapi-example
+ENV REF=master
 
 RUN . $EXAMPLE/env38/bin/activate && \
     pip install --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF

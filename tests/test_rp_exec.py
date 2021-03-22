@@ -171,13 +171,14 @@ async def test_rp_future_cancel_from_rp(rp_task_manager):
     try:
         await asyncio.wait_for(wrapper, timeout=120)
     except asyncio.CancelledError:
+        # TODO: With Python 3.9, check cancellation message for how the cancellation propagated.
+        # Note: Prior to resolution of https://github.com/radical-cybertools/radical.pilot/issues/2348
+        # the cancellation occurs through the `watch` coroutine, rather than through the rp callback.
         ...
     except asyncio.TimeoutError as e:
         # Temporary point to insert an easy debugging break point
         raise e
 
-    # Note: The cancellation occurs through the `watch` coroutine, rather than through the rp callback.
-    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2348
     assert wrapper.cancelled()
     assert task.state == rp.states.CANCELED
 
@@ -201,6 +202,8 @@ async def test_rp_future_propagate_cancel(rp_task_manager):
     wrapper: asyncio.Task = await scalems.radical.rp_task(task)
 
     assert isinstance(wrapper, asyncio.Task)
+    # We need to make sure that the Task (and coroutine) is running before we can expect it to catch `cancel()`
+    await asyncio.sleep(1)
     wrapper.cancel()
     try:
         await asyncio.wait_for(wrapper, timeout=5)
@@ -213,6 +216,10 @@ async def test_rp_future_propagate_cancel(rp_task_manager):
 
     # WARNING: rp.Task.wait() never completes with no arguments.
     task.wait(state=rp.states.CANCELED, timeout=120)
+    # Note that if the test is paused by a debugger, the rp task may
+    # have a chance to complete before being canceled.
+    # Ordinarily, that will not happen in this test.
+    # assert task.state in (rp.states.CANCELED, rp.states.DONE)
     assert task.state in (rp.states.CANCELED,)
     # This test is initially showing that the callback is triggered
     # for several state changes as the task runs to completion without being canceled.

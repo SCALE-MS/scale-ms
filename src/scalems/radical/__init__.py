@@ -328,7 +328,8 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
                     await asyncio.sleep(1)
             return await _future
         except asyncio.CancelledError as e:
-            if _rp_task.state not in (rp.states.CANCELED,):
+            if _rp_task.state not in (rp.states.CANCELED, rp.states.DONE):
+                logger.error('Asyncio task was canceled. Sending cancel to RP Task.')
                 # TODO: We shoulld unregister the callback first...
                 _rp_task.cancel()
             raise e

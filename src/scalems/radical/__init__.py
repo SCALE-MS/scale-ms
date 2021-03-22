@@ -797,7 +797,7 @@ class RPDispatchingExecutor:
 
     def __init__(self,
                  source_context: scalems.context.WorkflowManager,
-                 command_queue=asyncio.Queue,
+                 command_queue: asyncio.Queue,
                  execution_target: str = 'local.localhost',
                  rp_resource_params: dict = None,
                  dispatcher_lock=None

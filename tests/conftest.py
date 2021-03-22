@@ -20,12 +20,6 @@ from urllib.parse import urlparse, ParseResult
 
 import pytest
 
-# Work around RADICAL assumption that the Python virtual environment root is on the executable search path.
-_PATH_orig = str(os.environ['PATH'])
-_py_bin_path = os.path.join(sys.exec_prefix, 'bin')
-if _py_bin_path not in _PATH_orig.split(os.pathsep):
-    os.environ['PATH'] = os.pathsep.join([_py_bin_path, _PATH_orig])
-
 
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""
@@ -47,6 +41,26 @@ def pytest_addoption(parser):
         type=str,
         help='Full path to a pre-configured venv to use for RP tasks.'
     )
+    parser.addoption(
+        '--pycharm',
+        action='store_true',
+        default=False,
+        help='Attempt to connect to PyCharm remote debugging system, where appropriate.'
+    )
+
+
+@pytest.fixture(scope='session', autouse=True)
+def pycharm_debug(request):
+    """If requested, try to connect to a PyCharm remote debugger at host.docker.internal:12345.
+
+    Note: the IDE run configuration must be started before launching pytest.
+    """
+    if request.config.getoption('--pycharm'):
+        try:
+            import pydevd_pycharm
+            return pydevd_pycharm.settrace('host.docker.internal', port=12345, stdoutToServer=True, stderrToServer=True)
+        except ImportError:
+            ...
 
 
 @contextmanager

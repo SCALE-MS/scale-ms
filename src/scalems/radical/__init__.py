@@ -249,7 +249,7 @@ class RPTaskFailure(ScaleMSError):
         self.failed_task = task.as_dict()
 
 
-async def rp_task(task: rp.Task) -> asyncio.Task:
+async def rp_task(rptask: rp.Task) -> asyncio.Task:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 
     Schedule an asyncio Task to receive the result of the RP Task. The asyncio
@@ -268,9 +268,9 @@ async def rp_task(task: rp.Task) -> asyncio.Task:
     As such, we also need to provide a thread-safe event handler to propagate the
     RP Task call-back to the asyncio Future.
     """
-    if not isinstance(task, rp.Task):
+    if not isinstance(rptask, rp.Task):
         raise TypeError('Function requires a RADICAL Pilot Task object.')
-    _rp_task = task
+    _rp_task = rptask
 
     loop = asyncio.get_running_loop()
     _future = loop.create_future()
@@ -333,8 +333,10 @@ async def rp_task(task: rp.Task) -> asyncio.Task:
                 _rp_task.cancel()
             raise e
 
-    task.register_callback(rp_callback)
-    return asyncio.create_task(watch())
+    rptask.register_callback(rp_callback)
+    watcher_task = asyncio.create_task(watch())
+    # watcher_task.
+    return watcher_task
 
 
 class RPDispatchingExecutor:

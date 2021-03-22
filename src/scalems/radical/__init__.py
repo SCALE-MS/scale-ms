@@ -476,6 +476,9 @@ class RPDispatchingExecutor:
         # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
         # in the TaskDescription.pre_exec list.
 
+        # TODO: Use archives generated from (acquired through) the local installations.
+        # # Could we stage in archive distributions directly?
+        # # self.pilot.stage_in()
         rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
         rp_spec = shlex.quote(rp_spec)
         scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
@@ -488,12 +491,9 @@ class RPDispatchingExecutor:
                         # TODO: Generalize scalems dependency resolution.
                         # Ideally, we would check the current API version requirement, map that to a package version,
                         # and specify >=min_version, allowing cached archives to satisfy the dependency.
-                        # 'file:///tmp/pycharm_project_147',
                         rp_spec,
                         scalems_spec
                     ]}})
-        # # Could we stage in archive distributions directly?
-        # # self.pilot.stage_in()
 
         # Question: when should we remove the pilot from the task manager?
         task_manager.add_pilots(pilot)

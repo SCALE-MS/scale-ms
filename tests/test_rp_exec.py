@@ -272,17 +272,35 @@ def test_rp_raptor_local(rp_task_manager):
     tmgr = rp_task_manager
 
     # TODO: Use master and worker scripts from the installed scalems package.
+    sms_check = tmgr.submit_tasks(
+        rp.TaskDescription(
+            {
+                # 'executable': py_venv,
+                'executable': 'python3',
+                'arguments': [
+                    '-c',
+                    "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical',"
+                    + " 'data/scalems_test_cfg.json'))"
+                ],
+                'pre_exec': ['. /home/rp/rp-venv/bin/activate']
+                # 'named_env': 'scalems_env'
+            }
+        )
+    )
+    scalems_is_installed = tmgr.wait_tasks(uids=[sms_check.uid])[
+                               0] == rp.states.DONE and sms_check.exit_code == 0
+    assert scalems_is_installed
+    config_file_path = sms_check.stdout.rstrip()
 
     # define a raptor.scalems master and launch it within the pilot
-    pwd = os.path.dirname(__file__)
     td = rp.TaskDescription(
         {
             'uid': 'raptor.scalems',
-            'executable': 'python3',
-            'arguments': ['./scalems_test_master.py', '%s/scalems_test_cfg.json' % pwd],
-            'input_staging': ['%s/scalems_test_cfg.json' % pwd,
-                              '%s/scalems_test_master.py' % pwd,
-                              '%s/scalems_test_worker.py' % pwd]
+            'executable': 'scalems_rp_agent',
+            'arguments': [config_file_path],
+            'input_staging': [config_file_path],
+            'pre_exec': ['. /home/rp/rp-venv/bin/activate']
+            # 'named_env': 'scalems_env'
         })
     scheduler = tmgr.submit_tasks(td)
 

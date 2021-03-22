@@ -46,6 +46,7 @@ from typing import Callable
 from typing import Optional
 from typing import Tuple
 
+import packaging.version
 import radical.pilot as rp
 
 import scalems.context
@@ -164,7 +165,8 @@ class RPWorkflowContext(scalems.context.WorkflowManager):
                                              command_queue=executor_queue,
                                              execution_target=execution_target,
                                              rp_resource_params=rp_resource_params,
-                                             dispatcher_lock=self._dispatcher_lock)
+                                             dispatcher_lock=self._dispatcher_lock,
+                                             target_venv='/home/rp/rp-venv')
 
             # 4. Bind a dispatcher to the executor_queue and the dispatcher_queue.
             # TODO: We should bind the dispatcher directly to the executor, but that requires
@@ -388,15 +390,19 @@ class RPDispatchingExecutor:
                 ...
 
         """
+        # TODO: Consider inlining this into __aenter__().
+        # A non-async method is potentially useful for debugging, but causes the event loop to block
+        # while waiting for the RP tasks included here. If this continues to be a slow function,
+        # we can wrap the remaining RP calls and let this function be inlined.
+
         # TODO: RP triggers SIGINT in various failure modes. We should use loop.add_signal_handler() to convert to an exception
         #       that we can raise in an appropriate task.
-
-        # Note that we cannot resolve the full _resource config until we have a Session object.
 
         #
         # Start the Session.
         #
 
+        # Note that we cannot resolve the full _resource config until we have a Session object.
         # We cannot get the default session config until after creating the Session,
         # so we don't have a template for allowed, required, or default values.
         # Question: does the provided *cfg* need to be complete? Or will it be merged
@@ -457,7 +463,7 @@ class RPDispatchingExecutor:
         # We need to inspect both the HPC allocation and the work load, I think,
         # and combine with user-provided preferences.
         self._pilot_description = rp.PilotDescription(
-            {'resource': 'local.localhost',
+            {'resource': self.execution_target,
              'cores': 4,
              'gpus': 0})
 
@@ -479,21 +485,21 @@ class RPDispatchingExecutor:
         # TODO: Use archives generated from (acquired through) the local installations.
         # # Could we stage in archive distributions directly?
         # # self.pilot.stage_in()
-        rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
-        rp_spec = shlex.quote(rp_spec)
-        scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
-        pilot.prepare_env(
-            {
-                'scalems_env': {
-                    'type': 'virtualenv',
-                    'version': '3.8',
-                    'setup': [
-                        # TODO: Generalize scalems dependency resolution.
-                        # Ideally, we would check the current API version requirement, map that to a package version,
-                        # and specify >=min_version, allowing cached archives to satisfy the dependency.
-                        rp_spec,
-                        scalems_spec
-                    ]}})
+        # rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
+        # rp_spec = shlex.quote(rp_spec)
+        # scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
+        # pilot.prepare_env(
+        #     {
+        #         'scalems_env': {
+        #             'type': 'virtualenv',
+        #             'version': '3.8',
+        #             'setup': [
+        #                 # TODO: Generalize scalems dependency resolution.
+        #                 # Ideally, we would check the current API version requirement, map that to a package version,
+        #                 # and specify >=min_version, allowing cached archives to satisfy the dependency.
+        #                 rp_spec,
+        #                 scalems_spec
+        #             ]}})
 
         # Question: when should we remove the pilot from the task manager?
         task_manager.add_pilots(pilot)
@@ -542,7 +548,8 @@ class RPDispatchingExecutor:
                     # 'executable': py_venv,
                     'executable': 'python3',
                     'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
-                    'named_env': 'scalems_env'
+                    'pre_exec': self._pre_exec
+                    # 'named_env': 'scalems_env'
                 }
             )
         )
@@ -556,13 +563,19 @@ class RPDispatchingExecutor:
                         "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical',"
                         + " 'data/scalems_test_cfg.json'))"
                     ],
-                    'named_env': 'scalems_env'
+                    'pre_exec': self._pre_exec
+                    # 'named_env': 'scalems_env'
                 }
             )
         )
         if task_manager.wait_tasks(uids=[rp_check.uid])[0] != rp.states.DONE or rp_check.exit_code != 0:
             raise DispatchError('Could not verify RP in execution environment.')
-        if rp_check.stdout != '1.6.0\n':
+
+        try:
+            remote_rp_version = packaging.version.parse(rp_check.stdout.rstrip())
+        except:
+            remote_rp_version = None
+        if remote_rp_version is None or remote_rp_version < packaging.version.parse('1.6.0'):
             raise DispatchError('Could not get a valid execution environment.')
 
         scalems_is_installed = task_manager.wait_tasks(uids=[sms_check.uid])[
@@ -582,9 +595,6 @@ class RPDispatchingExecutor:
         #         }
         #     )
         # )
-        # # Check whether scalems is installed in the target execution environment.
-        # scalems_is_installed = self._task_manager.wait_tasks(uids=[task.uid])[
-        #                            0] == rp.states.DONE and task.exit_code == 0
 
         # TODO: Check for compatible installed scalems API version.
 
@@ -592,43 +602,22 @@ class RPDispatchingExecutor:
         # Get a scheduler task.
         #
         config_file = sms_check.stdout.rstrip()
-        # master_script = pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_agent').name
+
+        # This is the name that should be resolvable in an active venv for the script we install
+        # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_agent').name
         master_script = 'scalems_rp_agent'
-        # worker_script = pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_worker').name
-        # worker_script = 'scalems_rp_worker'
 
-        # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_rp_agent.py')
-        # master_script = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_rp_agent.py'))
-        # assert master_script.exists()
-        #
-        # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_rp_worker.py')
-        # worker_script = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_rp_worker.py'))
-        # assert worker_script.exists()
-        #
-        # assert pkg_resources.resource_exists('scalems.radical', 'data/scalems_test_cfg.json')
-        # config_file = Path(pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json'))
-        # assert config_file.exists()
-        # assert isinstance(config_file.name, str)
+        # The worker script name only appears in the config file.
+        # TODO: Should we be generating the config file?
 
-        # # TODO: When we can assert that the scalems package is installed in the agent venv,
-        # #    we don't need to stage the files anymore.
-        # self._task_description = rp.TaskDescription(
-        #     {
-        #         'uid'          :  'raptor.scalems',
-        #         'executable'   :  'python3',
-        #         'arguments'    : ['./scalems_rp_master.py', 'scalems_test_cfg.json'],
-        #         'input_staging': [config_file.name,
-        #                           master_script.name,
-        #                           worker_script.name]
-        #     })
         self._task_description = rp.TaskDescription(
             {
                 'uid': 'raptor.scalems',
                 'executable': master_script,
                 'arguments': [config_file],
                 'input_staging': [],
-                # 'pre_exec': ['. {}'.format(os.path.join(venv, 'bin', 'activate'))],
-                'named_env': 'scalems_env'
+                'pre_exec': self._pre_exec,
+                # 'named_env': 'scalems_env'
             })
 
         # Launch main (scheduler) RP task.
@@ -673,7 +662,8 @@ class RPDispatchingExecutor:
                     'scheduler': 'raptor.scalems',  # 'scheduler' references the task implemented as a
                     'arguments': [work],  # Processed by raptor.Master._receive_tasks
                     # 'output_staging': []
-                    'named_env': 'scalems_env'
+                    'pre_exec': self._pre_exec
+                    # 'named_env': 'scalems_env'
                 }))
             tasks = task_manager.submit_tasks(tds)
             assert len(tasks) == len(tds)
@@ -727,7 +717,7 @@ class RPDispatchingExecutor:
             if session is None or session.closed:
                 logger.error('rp.Session is already closed?!')
             else:
-                await self.stop()
+                await self.stop(session)
 
             # Should we do any other clean-up here?
             # self.pilot = None
@@ -746,7 +736,7 @@ class RPDispatchingExecutor:
         if exc_type is not None:
             return False
 
-    async def stop(self):
+    async def stop(self, session: rp.Session):
         """Shut down the queuing and processing of commands.
 
         Stop accepting new items and drain the queue.
@@ -755,6 +745,10 @@ class RPDispatchingExecutor:
         # same for stop() if there were a task that we could loop.run_until_complete().
         # Doing so might force us to make sure that the concurrency regions in our code
         # are clean, and it may simplify debugging, but I'm not sure it is worthwhile.
+
+        assert self.session is None
+        if not isinstance(session, rp.Session) or session.closed:
+            logger.error(f'{__name__}.stop() called with no active radical.pilot.Session.')
 
         # Stop the executor.
         logger.debug('Stopping the SCALEMS RP dispatching executor.')
@@ -775,7 +769,7 @@ class RPDispatchingExecutor:
         if self._queue_runner_task.exception() is not None:
             raise self._queue_runner_task.exception()
 
-        task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
+        task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
         states = task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
         assert states
         for t in self.rp_tasks:
@@ -790,7 +784,7 @@ class RPDispatchingExecutor:
         # See https://github.com/radical-cybertools/radical.pilot/issues/2336
         # tmgr.wait_tasks([scheduler.uid])
 
-        pmgr: rp.PilotManager = self.session.get_pilot_managers(pmgr_uids=self._pilot_manager_uid)
+        pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=self._pilot_manager_uid)
         # TODO: We may have multiple pilots.
         # TODO: Check for errors?
         pmgr.cancel_pilots(uids=self.pilot_uid)
@@ -800,7 +794,8 @@ class RPDispatchingExecutor:
                  command_queue: asyncio.Queue,
                  execution_target: str = 'local.localhost',
                  rp_resource_params: dict = None,
-                 dispatcher_lock=None
+                 dispatcher_lock=None,
+                 target_venv: str = None
                  ):
         """Create a client side execution manager.
 
@@ -809,6 +804,12 @@ class RPDispatchingExecutor:
         """
         if 'RADICAL_PILOT_DBURL' not in os.environ:
             raise DispatchError('RADICAL Pilot environment is not available.')
+
+        if not isinstance(target_venv, str) or len(target_venv) == 0:
+            raise ValueError('Caller must specify a venv to be activated by the execution agent for dispatched tasks.')
+        else:
+            self._target_venv: str = target_venv
+            self._pre_exec = ['. ' + str(os.path.join(self._target_venv, 'bin', 'activate'))]
 
         self.source_context = source_context
         self.command_queue = command_queue

@@ -229,7 +229,7 @@ async def test_rp_future(rp_task_manager):
     assert 'success' in result['stdout']
 
 
-@pytest.mark.xfail
+@pytest.mark.skip(reason='Unimplemented.')
 def test_rp_scalems_environment_preparation_local(rp_task_manager):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
@@ -242,7 +242,7 @@ def test_rp_scalems_environment_preparation_local(rp_task_manager):
     assert False
 
 
-@pytest.mark.xfail
+@pytest.mark.skip(reason='Unimplemented.')
 def test_staging(sdist, rp_task_manager):
     """Confirm that we are able to bundle and install the package currently being tested."""
     # Use the `sdist` fixture to bundle the current package.
@@ -253,7 +253,7 @@ def test_staging(sdist, rp_task_manager):
     assert False
 
 
-@pytest.mark.xfail
+@pytest.mark.skip(reason='Unimplemented.')
 def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
@@ -434,21 +434,21 @@ async def test_exec_rp(pilot_description):
     assert not loop.is_closed()
 
 
-@pytest.mark.xfail(strict=True)
+@pytest.mark.skip(reason='Unimplemented.')
 @pytest.mark.asyncio
 async def test_batch():
     """Run a batch of uncoupled tasks, dispatched through RP."""
     assert False
 
 
-@pytest.mark.xfail(strict=True)
+@pytest.mark.skip(reason='Unimplemented.')
 @pytest.mark.asyncio
 async def test_chained_commands():
     """Run a sequence of two tasks with a data flow dependency."""
     assert False
 
 
-@pytest.mark.xfail(strict=True)
+@pytest.mark.skip(reason='Unimplemented.')
 @pytest.mark.asyncio
 async def test_file_staging():
     """Test a simple SCALE-MS style command chain that places a file and then retrieves it."""

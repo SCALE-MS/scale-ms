@@ -149,7 +149,7 @@ def test_prepare_venv(rp_task_manager, sdist):
 
 
 @pytest.mark.asyncio
-async def test_rp_future_cancel_from_rp(rp_task_manager):
+async def test_rp_future(rp_task_manager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -159,10 +159,11 @@ async def test_rp_future_cancel_from_rp(rp_task_manager):
 
     tmgr = rp_task_manager
 
-    # Test propagation of RP cancellation behavior
     td = rp.TaskDescription({'executable': '/bin/bash',
                              'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
                              'cpu_processes': 1})
+
+    # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(td)
 
     wrapper: asyncio.Future = await scalems.radical.rp_task(task)
@@ -182,21 +183,7 @@ async def test_rp_future_cancel_from_rp(rp_task_manager):
     assert wrapper.cancelled()
     assert task.state == rp.states.CANCELED
 
-
-@pytest.mark.asyncio
-async def test_rp_future_propagate_cancel(rp_task_manager):
-    """Check our Future implementation.
-
-    Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
-    should appropriately yield when the rp.Task is not finished.
-    """
-    import radical.pilot as rp
-    tmgr = rp_task_manager
-
     # Test propagation of asyncio cancellation behavior.
-    td = rp.TaskDescription({'executable': '/bin/bash',
-                             'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
-                             'cpu_processes': 1})
     task: rp.Task = tmgr.submit_tasks(td)
 
     wrapper: asyncio.Task = await scalems.radical.rp_task(task)
@@ -224,21 +211,7 @@ async def test_rp_future_propagate_cancel(rp_task_manager):
     # This test is initially showing that the callback is triggered
     # for several state changes as the task runs to completion without being canceled.
 
-
-@pytest.mark.asyncio
-async def test_rp_future(rp_task_manager):
-    """Check our Future implementation.
-
-    Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
-    should appropriately yield when the rp.Task is not finished.
-    """
-    import radical.pilot as rp
-    tmgr = rp_task_manager
-
     # Test run to completion
-    td = rp.TaskDescription({'executable': '/bin/bash',
-                             'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
-                             'cpu_processes': 1})
     task: rp.Task = tmgr.submit_tasks(td)
 
     wrapper: asyncio.Task = await scalems.radical.rp_task(task)

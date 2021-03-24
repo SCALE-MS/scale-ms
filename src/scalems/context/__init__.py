@@ -422,7 +422,7 @@ class WorkflowManager(abc.ABC):
         if loop.is_closed():
             raise ProtocolError('Event loop does not appear to be ready to use.')
         logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.')
-        self._asyncio_even_loop = loop
+        self._asyncio_event_loop = loop
 
         # Basic Context implementation details
         self.task_map = {}  # Map UIDs to task Futures.

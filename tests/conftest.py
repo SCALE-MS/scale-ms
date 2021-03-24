@@ -1,5 +1,6 @@
 # Import radical.pilot early because of interaction with the built-in logging module.
 # TODO: Did this work?
+import asyncio
 import pathlib
 import subprocess
 
@@ -12,7 +13,6 @@ except ImportError:
 
 import os
 import shutil
-import sys
 import tempfile
 import warnings
 from contextlib import contextmanager
@@ -20,6 +20,11 @@ from urllib.parse import urlparse, ParseResult
 
 import pytest
 
+asyncio.get_event_loop().set_debug(True)
+
+
+# Note: https://docs.python.org/3/library/devmode.html#devmode is enabled
+# "using the -X dev command line option or by setting the PYTHONDEVMODE environment variable to 1."
 
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""
@@ -199,7 +204,7 @@ def rp_venv(request):
         return path
 
 
-@pytest.fixture(scope='function')
+@pytest.fixture(scope='session')
 def rp_task_manager(pilot_description: rp.PilotDescription) -> rp.TaskManager:
     """Provide a task_manager using the indicated resource."""
     # Note: Session creation will fail with a FileNotFound error unless venv
@@ -212,8 +217,9 @@ def rp_task_manager(pilot_description: rp.PilotDescription) -> rp.TaskManager:
         warnings.simplefilter('ignore', category=DeprecationWarning)
         session = rp.Session()
 
+    resource = session.get_resource_config(pilot_description.resource)
+
     if pilot_description.access_schema == 'ssh':
-        resource = session.get_resource_config(pilot_description.resource)
         ssh_target = resource['ssh']['job_manager_endpoint']
         result: ParseResult = urlparse(ssh_target)
         assert result.scheme == 'ssh'
@@ -236,6 +242,20 @@ def rp_task_manager(pilot_description: rp.PilotDescription) -> rp.TaskManager:
         if process.returncode != 0 or process.stdout.rstrip() != 'success':
             pytest.skip(f'Could not ssh to target computing resource with {" ".join(ssh)}.')
             return
+
+        # Reuse existing venv for stability and speed.
+        # TODO: Reconsider or generalize.
+        resource.virtenv_mode = 'use'
+        resource.virtenv = '/home/rp/rp-venv'
+        resource.rp_version = 'installed'
+    else:
+        if pilot_description.access_schema is None:
+            pilot_description.access_schema = 'local'
+        assert pilot_description.access_schema == 'local'
+        resource.virtenv_mode = 'local'
+
+    # It looks like we should expect add_resource_config to replace existing definitions.
+    session.add_resource_config(resource)
 
     pmgr = rp.PilotManager(session=session)
     pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))

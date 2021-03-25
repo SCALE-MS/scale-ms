@@ -170,14 +170,11 @@ async def test_rp_future(rp_task_manager):
 
     task.cancel()
     try:
-        await asyncio.wait_for(wrapper, timeout=120)
-    except asyncio.CancelledError:
         # TODO: With Python 3.9, check cancellation message for how the cancellation propagated.
-        # Note: Prior to resolution of https://github.com/radical-cybertools/radical.pilot/issues/2348
-        # the cancellation occurs through the `watch` coroutine, rather than through the rp callback.
-        ...
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(wrapper, timeout=120)
     except asyncio.TimeoutError as e:
-        # Temporary point to insert an easy debugging break point
+        # Useful point to insert an easy debugging break point
         raise e
 
     assert wrapper.cancelled()
@@ -189,15 +186,12 @@ async def test_rp_future(rp_task_manager):
     wrapper: asyncio.Task = await scalems.radical.rp_task(task)
 
     assert isinstance(wrapper, asyncio.Task)
-    # We need to make sure that the Task (and coroutine) is running before we can expect it to catch `cancel()`
-    await asyncio.sleep(1)
     wrapper.cancel()
     try:
-        await asyncio.wait_for(wrapper, timeout=5)
-    except asyncio.CancelledError:
-        ...
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(wrapper, timeout=5)
     except asyncio.TimeoutError as e:
-        # Temporary point to insert an easy debugging break point
+        # Useful point to insert an easy debugging break point
         raise e
     assert wrapper.cancelled()
 
@@ -208,8 +202,6 @@ async def test_rp_future(rp_task_manager):
     # Ordinarily, that will not happen in this test.
     # assert task.state in (rp.states.CANCELED, rp.states.DONE)
     assert task.state in (rp.states.CANCELED,)
-    # This test is initially showing that the callback is triggered
-    # for several state changes as the task runs to completion without being canceled.
 
     # Test run to completion
     task: rp.Task = tmgr.submit_tasks(td)
@@ -219,8 +211,6 @@ async def test_rp_future(rp_task_manager):
     try:
         result = await asyncio.wait_for(wrapper, timeout=120)
     except asyncio.TimeoutError as e:
-        # Temporary point to insert an easy debugging break point
-        # raise e
         result = None
     assert task.exit_code == 0
     assert 'success' in task.stdout

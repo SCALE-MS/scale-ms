@@ -316,7 +316,6 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
                 # Schedule a coroutine to run in the original event loop.
                 future: concurrent.futures.Future = asyncio.run_coroutine_threadsafe(finalizer(_rp_task), loop)
 
-                # Is it an error not to await a concurrent.futures.Future?
                 if not isinstance(future, concurrent.futures.Future):
                     logger.error(f'Bug: programmer assumed {repr(future)} would be a concurrent.futures.Future.')
                 # Wait for the result with an optional timeout argument.
@@ -347,6 +346,7 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
                 # Note: callbacks are not (yet) triggered for cancellation.
                 # Ref: https://github.com/radical-cybertools/radical.pilot/issues/2348
                 if _rp_task.state in (rp.states.CANCELED,):
+                    logger.warning('{} is canceled, but the future has not been finalized. Canceling {}.'.format(_rp_task.uid, repr(_future)))
                     _future.cancel()
                     assert _future.cancelled()
                     assert _future.done()

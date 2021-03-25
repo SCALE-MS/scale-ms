@@ -20,8 +20,6 @@ from urllib.parse import urlparse, ParseResult
 
 import pytest
 
-asyncio.get_event_loop().set_debug(True)
-
 
 # Note: https://docs.python.org/3/library/devmode.html#devmode is enabled
 # "using the -X dev command line option or by setting the PYTHONDEVMODE environment variable to 1."

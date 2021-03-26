@@ -11,6 +11,7 @@ except ImportError:
     # need to import it before pytest imports the logging module.
     ...
 
+import logging
 import os
 import shutil
 import tempfile
@@ -19,6 +20,10 @@ from contextlib import contextmanager
 from urllib.parse import urlparse, ParseResult
 
 import pytest
+
+
+logger = logging.getLogger('pytest_config')
+logger.setLevel(logging.DEBUG)
 
 
 # Note: https://docs.python.org/3/library/devmode.html#devmode is enabled
@@ -196,14 +201,14 @@ def pilot_description(request) -> rp.PilotDescription:
 def rp_venv(request):
     """pytest fixture to allow a user-specified venv for the RP tasks."""
     path = request.config.getoption('--rp-venv')
-    if path is None:
-        pytest.skip('This test only runs for static RP venvs.')
-    else:
-        return path
+    # if path is None:
+    #     pytest.skip('This test only runs for static RP venvs.')
+    #     return
+    return path
 
 
 @pytest.fixture(scope='session')
-def rp_task_manager(pilot_description: rp.PilotDescription) -> rp.TaskManager:
+def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskManager:
     """Provide a task_manager using the indicated resource."""
     # Note: Session creation will fail with a FileNotFound error unless venv
     #       is explicitly `activate`d (or the scripts installed with RADICAL components
@@ -244,16 +249,27 @@ def rp_task_manager(pilot_description: rp.PilotDescription) -> rp.TaskManager:
         # Reuse existing venv for stability and speed.
         # TODO: Reconsider or generalize.
         resource.virtenv_mode = 'use'
-        resource.virtenv = '/home/rp/rp-venv'
+        resource.virtenv = rp_venv
         resource.rp_version = 'installed'
     else:
+        # Not using ssh access. Assuming 'local'.
         if pilot_description.access_schema is None:
             pilot_description.access_schema = 'local'
         assert pilot_description.access_schema == 'local'
-        resource.virtenv_mode = 'local'
+        if rp_venv:
+            resource.virtenv_mode = 'use'
+            resource.virtenv = rp_venv
+        else:
+            # Use the client venv.
+            resource.virtenv_mode = 'local'
+        resource.rp_version = 'installed'
 
     # It looks like we should expect add_resource_config to replace existing definitions.
+    # WARNING: Resource configuration does not seem to get updated, according to agent.0.cfg
     session.add_resource_config(resource)
+
+    logger.debug('Using resource config: {}'.format(repr(session.get_resource_config(pilot_description.resource))))
+    logger.debug('Using PilotDescription: {}'.format(repr(pilot_description)))
 
     pmgr = rp.PilotManager(session=session)
     pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))

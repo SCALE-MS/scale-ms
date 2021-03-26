@@ -246,27 +246,11 @@ def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskM
             pytest.skip(f'Could not ssh to target computing resource with {" ".join(ssh)}.')
             return
 
-        # Reuse existing venv for stability and speed.
-        # TODO: Reconsider or generalize.
-        resource.virtenv_mode = 'use'
-        resource.virtenv = rp_venv
-        resource.rp_version = 'installed'
     else:
         # Not using ssh access. Assuming 'local'.
         if pilot_description.access_schema is None:
             pilot_description.access_schema = 'local'
         assert pilot_description.access_schema == 'local'
-        if rp_venv:
-            resource.virtenv_mode = 'use'
-            resource.virtenv = rp_venv
-        else:
-            # Use the client venv.
-            resource.virtenv_mode = 'local'
-        resource.rp_version = 'installed'
-
-    # It looks like we should expect add_resource_config to replace existing definitions.
-    # WARNING: Resource configuration does not seem to get updated, according to agent.0.cfg
-    session.add_resource_config(resource)
 
     logger.debug('Using resource config: {}'.format(repr(session.get_resource_config(pilot_description.resource))))
     logger.debug('Using PilotDescription: {}'.format(repr(pilot_description)))

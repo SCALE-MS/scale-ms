@@ -12,12 +12,11 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 import asyncio
 import json
 import logging
-import os
 import subprocess
+import typing
 import warnings
 
 import pytest
-import typing
 
 import scalems
 import scalems.context
@@ -30,6 +29,7 @@ logger.setLevel(logging.DEBUG)
 # TODO: Catch sigint from RP and apply our own timeout.
 
 
+@pytest.mark.skip(reason='Unimplemented.')
 def test_rp_static_venv(rp_venv, pilot_description):
     """Confirm that a prepared venv is usable by RP.
 
@@ -69,7 +69,7 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description):
     tmgr = rp_task_manager
 
     td = TaskDescription({'executable': '/bin/date',
-                             'cpu_processes': 1})
+                          'cpu_processes': 1})
     task = tmgr.submit_tasks(td)
     tmgr.wait_tasks(uids=[task.uid])
 
@@ -100,6 +100,7 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert remotename != localname
 
 
+@pytest.mark.skip(reason='https://github.com/radical-cybertools/radical.pilot/issues/2347')
 def test_prepare_venv(rp_task_manager, sdist):
     # NOTE: *sdist* is a path of an sdist archive that we could stage for the venv installation.
     # QUESTION: Can't we use the radical.pilot package archive that was already placed for bootstrapping the pilot?
@@ -196,6 +197,7 @@ async def test_rp_future(rp_task_manager):
     assert wrapper.cancelled()
 
     # WARNING: rp.Task.wait() never completes with no arguments.
+    # WARNING: This blocks. Don't do it in the event loop thread.
     task.wait(state=rp.states.CANCELED, timeout=120)
     # Note that if the test is paused by a debugger, the rp task may
     # have a chance to complete before being canceled.
@@ -288,7 +290,6 @@ def test_rp_raptor_local(rp_task_manager):
             'uid': 'raptor.scalems',
             'executable': 'scalems_rp_agent',
             'arguments': [config_file_path],
-            'input_staging': [config_file_path],
             'pre_exec': ['. /home/rp/rp-venv/bin/activate']
             # 'named_env': 'scalems_env'
         })

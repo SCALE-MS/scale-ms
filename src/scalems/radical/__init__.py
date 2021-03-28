@@ -31,7 +31,6 @@ import contextlib
 import copy
 import dataclasses
 import inspect
-import json
 import logging
 import os
 import queue
@@ -47,6 +46,7 @@ from radical import pilot as rp
 import scalems.context
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
+from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 
@@ -284,6 +284,12 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
     _rp_task = rptask
 
     loop = asyncio.get_running_loop()
+
+    # TODO: Decouple the RPFuture from the Watcher.
+    # We can separate this into a Future that is finalized by the rp.Task, and a watcher Task
+    # that is responsible for properly cleaning up the rp.Task, so that they can be awaited separately.
+    # The Dispatcher should wait for (and possibly cancel) the Watchers, but keep them internally,
+    # whereas the Futures need to be given over to the WorkflowManager.
     _future = loop.create_future()
 
     async def finalizer(task: rp.Task):
@@ -296,6 +302,7 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
             _future.set_exception(RPTaskFailure(task=task))
         else:
             raise ValueError('Unexpected state: {}'.format(str(task.state)))
+        logger.debug('Finalizer ran for {}.'.format(task.uid))
         return _future.done()
 
     def rp_callback(obj: rp.Task, state):
@@ -313,6 +320,7 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
 
             if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
                 # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
+                # TODO: check whether we are in the same thread already. Consider using an Event or something instead.
                 # Schedule a coroutine to run in the original event loop.
                 future: concurrent.futures.Future = asyncio.run_coroutine_threadsafe(finalizer(_rp_task), loop)
 
@@ -322,6 +330,7 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
                 # This may not be safe without confirming that we are _not_ in the same thread as the event loop.
                 logger.debug('rp_callback waiting for finalizer to complete for task {}.'.format(obj.uid))
                 try:
+                    # TODO: change scheme: use an event or something.
                     if future.result(timeout=1.):
                         logger.debug('rp_callback finalized scalems Future for task {}.'.format(obj.uid))
                     else:
@@ -342,22 +351,32 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
         """Provide a coroutine that we can schedule to watch the RP Task."""
         try:
             started.set()
+            # Check for regression of https://github.com/radical-cybertools/radical.pilot/issues/2348 by
+            # checking up to once per second whether the rp.Task did not cancel the corresponding asyncio.Future.
             while not _future.done():
-                # Note: callbacks are not (yet) triggered for cancellation.
-                # Ref: https://github.com/radical-cybertools/radical.pilot/issues/2348
                 if _rp_task.state in (rp.states.CANCELED,):
+                    # Regression of https://github.com/radical-cybertools/radical.pilot/issues/2348 ?
                     logger.warning('{} is canceled, but the future has not been finalized. Canceling {}.'.format(_rp_task.uid, repr(_future)))
                     _future.cancel()
                     assert _future.cancelled()
                     assert _future.done()
+                elif _rp_task.state in (rp.states.DONE,):
+                    # We can expect a few iterations of the event loop before the rp_callback updates the asyncio.Future,
+                    # but we might want to keep an eye on this lag, too.
+                    await _future
                 else:
                     await asyncio.sleep(1)
+            # Note that the RP Task should already be done here.
+            state = _rp_task.wait(timeout=1)
+            logger.debug('RP Task {} {}'.format(_rp_task.uid, state))
             return await _future
         except asyncio.CancelledError as e:
             if _rp_task.state not in (rp.states.CANCELED, rp.states.DONE):
                 logger.info('Asyncio task was canceled. Sending cancel to RP Task.')
                 # TODO: We should unregister the callback first. How do we do that?
                 _rp_task.cancel()
+            if not _future.cancelled():
+                _future.cancel()
             raise e
 
     rptask.register_callback(rp_callback)
@@ -736,6 +755,9 @@ class RPDispatchingExecutor:
                 self.rp_tasks = test_workload()
 
             finally:
+                # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
+                # and fail to decrement the queue.
+                logger.debug('Releasing "{}" from command queue.'.format(str(command)))
                 self.command_queue.task_done()
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
@@ -766,6 +788,8 @@ class RPDispatchingExecutor:
                     # We should establish some assurance that the next line represents the last thing
                     # that we will put in the queue.
                     self.command_queue.put_nowait({'control': 'stop'})
+                    # TODO: Consider what to do differently when we want to cancel work rather than just finalize it.
+
                     # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
                     # Currently, the queue runner does not place subtasks, so there is only one thing to await.
                     # TODO: We should probably allow the user to provide some sort of timeout, or infer one from other time limits.

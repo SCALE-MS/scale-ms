@@ -281,7 +281,22 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
     # Could also accept a "stop" Event object for the loop conditional,
     # but we would still need a way to yield on an empty queue until either
     # the "stop" event or an item arrives, and then we might have to account
-    # for queues that potentially never yield any items.
+    # for queues that potentially never yield any items, such as by sleeping briefly.
+    # We should be able to do
+    #     signal_task = asyncio.create_task(stop_event.wait())
+    #     queue_getter = asyncio.create_task(command_queue.get())
+    #     waiter = asyncio.create_task(asyncio.wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
+    #     while await waiter:
+    #         done, pending = waiter.result()
+    #         assert len(done) == 1
+    #         if signal_task in done:
+    #             break
+    #         else:
+    #             command: QueueItem = queue_getter.result()
+    #         ...
+    #         queue_getter = asyncio.create_task(command_queue.get())
+    #         waiter = asyncio.create_task(asyncio(wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
+    #
     while True:
         command: QueueItem = await command_queue.get()
         # Developer note: The preceding line and the following try/finally block are coupled!

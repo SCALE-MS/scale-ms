@@ -1,2 +1,18 @@
-pytest>=5.3.2
+coverage
+flake8
+pytest>=6.1.2
 pytest-asyncio>=0.14
+setuptools
+wheel
+# RADICAL requirements
+mock
+netifaces
+ntplib
+pylint
+pymongo
+python-hostlist
+setproctitle
+radical.saga>=1.5.2
+radical.utils>=1.5.2
+# Use pip install -r requirements.txt --upgrade to get branch updates.
+git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems#egg=radical.pilot

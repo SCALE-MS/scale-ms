@@ -355,7 +355,7 @@ async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinal
         raise e
 
 
-async def rp_task(rptask: rp.Task) -> asyncio.Task:
+async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 
     Schedule an asyncio Task to receive the result of the RP Task. The asyncio
@@ -373,19 +373,21 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
 
     As such, we also need to provide a thread-safe event handler to propagate the
     RP Task call-back to the asyncio Future.
+
+    Canceling the returned task will cause both *rptask* and *future* to be canceled.
+    Canceling *rptask* will cause this task and *future* to be canceled.
+    Canceling *future* will cause *rptask* to be canceled, but will not cancel this task.
+
+    Arguments:
+        rptask: RADICAL Pilot Task that has already been submitted.
+        future: Future to which rptask results will be published.
+
+    Returns:
+        A Task that, when awaited, returns the rp.Task instance in its final state.
     """
     if not isinstance(rptask, rp.Task):
         raise TypeError('Function requires a RADICAL Pilot Task object.')
     _rp_task = rptask
-
-    loop = asyncio.get_running_loop()
-
-    # TODO: Decouple the RPFuture from the Watcher.
-    # We can separate this into a Future that is finalized by the rp.Task, and a watcher Task
-    # that is responsible for properly cleaning up the rp.Task, so that they can be awaited separately.
-    # The Dispatcher should wait for (and possibly cancel) the Watchers, but keep them internally,
-    # whereas the Futures need to be given over to the WorkflowManager.
-    _future = loop.create_future()
 
     final = RPFinalTaskState()
     callback = functools.partial(_rp_callback, final=final)
@@ -393,7 +395,7 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
     rptask.register_callback(callback)
 
     watcher_started = asyncio.Event()
-    wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask, future=_future, final=final, ready=watcher_started))
+    wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask, future=future, final=final, ready=watcher_started))
     # Make sure that the task is cancellable before returning it to the caller.
     await watcher_started.wait()
     # watcher_task.

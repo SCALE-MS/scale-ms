@@ -167,7 +167,8 @@ async def test_rp_future(rp_task_manager):
     # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(td)
 
-    wrapper: asyncio.Future = await scalems.radical.rp_task(task)
+    future = asyncio.get_running_loop().create_future()
+    wrapper: asyncio.Future = await scalems.radical.rp_task(task, future)
 
     task.cancel()
     try:
@@ -178,13 +179,15 @@ async def test_rp_future(rp_task_manager):
         # Useful point to insert an easy debugging break point
         raise e
 
+    assert future.cancelled()
     assert wrapper.cancelled()
     assert task.state == rp.states.CANCELED
 
-    # Test propagation of asyncio cancellation behavior.
+    # Test propagation of asyncio watcher task cancellation.
     task: rp.Task = tmgr.submit_tasks(td)
 
-    wrapper: asyncio.Task = await scalems.radical.rp_task(task)
+    future = asyncio.get_running_loop().create_future()
+    wrapper: asyncio.Task = await scalems.radical.rp_task(task, future)
 
     assert isinstance(wrapper, asyncio.Task)
     wrapper.cancel()
@@ -195,6 +198,34 @@ async def test_rp_future(rp_task_manager):
         # Useful point to insert an easy debugging break point
         raise e
     assert wrapper.cancelled()
+    assert future.cancelled()
+
+    # WARNING: rp.Task.wait() never completes with no arguments.
+    # WARNING: This blocks. Don't do it in the event loop thread.
+    task.wait(state=rp.states.CANCELED, timeout=120)
+    # Note that if the test is paused by a debugger, the rp task may
+    # have a chance to complete before being canceled.
+    # Ordinarily, that will not happen in this test.
+    # assert task.state in (rp.states.CANCELED, rp.states.DONE)
+    assert task.state in (rp.states.CANCELED,)
+
+    # Test propagation of asyncio future cancellation.
+    task: rp.Task = tmgr.submit_tasks(td)
+
+    future = asyncio.get_running_loop().create_future()
+    wrapper: asyncio.Task = await scalems.radical.rp_task(task, future)
+
+    assert isinstance(wrapper, asyncio.Task)
+    future.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(future, timeout=5)
+        await asyncio.wait_for(wrapper, timeout=1)
+    except asyncio.TimeoutError as e:
+        # Useful point to insert an easy debugging break point
+        raise e
+    assert not wrapper.cancelled()
+    assert future.cancelled()
 
     # WARNING: rp.Task.wait() never completes with no arguments.
     # WARNING: This blocks. Don't do it in the event loop thread.
@@ -208,17 +239,22 @@ async def test_rp_future(rp_task_manager):
     # Test run to completion
     task: rp.Task = tmgr.submit_tasks(td)
 
-    wrapper: asyncio.Task = await scalems.radical.rp_task(task)
+    future = asyncio.get_running_loop().create_future()
+    wrapper: asyncio.Task = await scalems.radical.rp_task(task, future)
 
     try:
-        result = await asyncio.wait_for(wrapper, timeout=120)
+        result = await asyncio.wait_for(future, timeout=120)
     except asyncio.TimeoutError as e:
         result = None
     assert task.exit_code == 0
     assert 'success' in task.stdout
 
-    assert 'stdout' in result.as_dict()
-    assert 'success' in result.as_dict()['stdout']
+    assert 'stdout' in result
+    assert 'success' in result['stdout']
+    assert wrapper.done()
+
+    # Test failure handling
+    # TODO: Use a separate test for results and error handling.
 
 
 @pytest.mark.skip(reason='Unimplemented.')

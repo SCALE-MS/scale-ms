@@ -2,11 +2,45 @@
 
 import logging
 import sys
+from typing import Any
+from typing import Dict
+from typing import NamedTuple
+from typing import Sequence
 
 import radical.pilot as rp
 import radical.utils as ru
 
 logger = logging.getLogger('scalems_rp_agent')
+
+
+class PilotDescription(NamedTuple):
+    """What is the role of the this in the raptor.Master config?"""
+    runtime: int = 30  # ?
+    resource: str = 'local.localhost'  # Target resource
+
+
+class WorkerDescription(NamedTuple):
+    """Describe the Raptor worker task."""
+    executable: str = 'scalems_rp_worker'  # Executable to launch.
+    arguments: Sequence[str] = ()  # Arguments passed to executable.
+    pre_exec: Sequence[str] = ()  # Shell commands to run in the wrapper script before executable.
+
+
+class SchedulerConfig(NamedTuple, object):
+    cpn: int = 4  # CPUs per node
+    gpn: int = 0  # GPUs per node
+    n_masters: int = 1  # Number of Raptor Master tasks
+    n_workers: int = 1  # Number of Raptor Worker tasks
+    pilot_descr: PilotDescription = PilotDescription()  # ?
+    worker_descr: WorkerDescription = WorkerDescription()  # Specify the Worker(s) to launch.
+
+
+def encode_as_dict(config: NamedTuple):
+    data = config._asdict()
+    for key, value in data.items():
+        if hasattr(value, '_asdict'):
+            data[key] = encode_as_dict(value)
+    return data
 
 
 class ScaleMSMaster(rp.raptor.Master):

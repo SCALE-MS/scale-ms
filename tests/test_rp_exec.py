@@ -12,7 +12,9 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 import asyncio
 import json
 import logging
+import os
 import subprocess
+import tempfile
 import typing
 import warnings
 
@@ -106,8 +108,6 @@ def test_prepare_venv(rp_task_manager, sdist):
     # QUESTION: Can't we use the radical.pilot package archive that was already placed for bootstrapping the pilot?
 
     # TODO: Merge with test_rp_raptor_local but use the installed scalems_rp_agent and scalems_rp_worker files
-    # Do we want to copy the config or generate it? It can be retrieved programmatically with
-    #     pkg_resources.resource_filename('scalems.radical', 'data/scalems_test_cfg.json')
 
     import radical.pilot as rp
     # We only expect one pilot
@@ -304,12 +304,8 @@ def test_rp_raptor_local(rp_task_manager):
         rp.TaskDescription(
             {
                 # 'executable': py_venv,
-                'executable': 'python3',
-                'arguments': [
-                    '-c',
-                    "import pkg_resources; print(pkg_resources.resource_filename('scalems.radical',"
-                    + " 'data/scalems_test_cfg.json'))"
-                ],
+                'executable': '/usr/bin/which',
+                'arguments': ['scalems_rp_worker'],
                 'pre_exec': ['. /home/rp/rp-venv/bin/activate']
                 # 'named_env': 'scalems_env'
             }
@@ -318,20 +314,41 @@ def test_rp_raptor_local(rp_task_manager):
     scalems_is_installed = tmgr.wait_tasks(uids=[sms_check.uid])[
                                0] == rp.states.DONE and sms_check.exit_code == 0
     assert scalems_is_installed
-    config_file_path = sms_check.stdout.rstrip()
 
-    # define a raptor.scalems master and launch it within the pilot
-    td = rp.TaskDescription(
-        {
-            'uid': 'raptor.scalems',
-            'executable': 'scalems_rp_agent',
-            'arguments': [config_file_path],
-            'pre_exec': ['. /home/rp/rp-venv/bin/activate']
-            # 'named_env': 'scalems_env'
-        })
-    scheduler = tmgr.submit_tasks(td)
+    from scalems.radical import scalems_rp_agent
+    scheduler_config = scalems_rp_agent.SchedulerConfig(
+        worker_descr=scalems_rp_agent.WorkerDescription(
+            pre_exec=[". /home/rp/rp-venv/bin/activate"]
+        ))
 
-    # define raptor.scalems tasks and submit them to the master
+    # We can probably make the config file a permanent part of the local metadata,
+    # but we don't really have a scheme for managing local metadata right now.
+    with tempfile.TemporaryDirectory() as dir:
+        config_file_name = 'raptor_scheduler_config.json'
+        path = os.path.join(dir, config_file_name)
+        with open(path, 'w') as fh:
+            encoded = scalems_rp_agent.encode_as_dict(scheduler_config)
+            json.dump(encoded, fh, indent=2)
+
+        # define a raptor.scalems master and launch it within the pilot
+        td = rp.TaskDescription(
+            {
+                'uid': 'raptor.scalems',
+                'executable': 'scalems_rp_agent'})
+        td.arguments = [config_file_name]
+        td.pre_exec = ['. /home/rp/rp-venv/bin/activate']
+        td.input_staging = {
+                    'source': path,
+                    'target': config_file_name,
+                    'action': rp.TRANSFER
+                }
+        # td.named_env = 'scalems_env'
+        scheduler = tmgr.submit_tasks(td)
+        # Wait for the state after TMGR_STAGING_INPUT
+        # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
+        scheduler.wait(state=[rp.states.AGENT_STAGING_INPUT_PENDING])
+
+    # define raptor tasks and submit them to the master
     tds = list()
     for i in range(2):
         uid = 'scalems.%06d' % i

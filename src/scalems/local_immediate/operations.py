@@ -3,7 +3,7 @@ Specialize implementations of ScaleMS operations.
 
 """
 import scalems.subprocess
-from scalems.core.exceptions import DispatchError
+from scalems.exceptions import DispatchError
 
 
 def local_exec(task_description: dict):

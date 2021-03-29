@@ -1,35 +1,31 @@
-"""Core SCALE-MS implementation.
+"""Decorators and helper functions."""
 
-Represent the SCALE-MS object model in Python.
+__all__ = [
+    'app',
+    'command',
+    'function_wrapper',
+    'poll',
+    'run',
+    'wait',
+    'ScriptEntryPoint'
+]
 
-Specify and implement the core data model for Python user interfaces,
-middleware interfaces, and execution run time support.
-"""
-
-__all__ = ['app', 'run', 'wait', 'ScriptEntryPoint']
 
 import abc
-import contextlib
+import contextvars
 import functools
 import logging
 import typing
 import warnings
+from typing import Protocol
 
-import scalems.core.exceptions as exceptions
-from scalems.context import scope
+from scalems import exceptions
 
-from ..context import get_context
-from ..context import WorkflowManager
+from scalems.context import get_context, scope, WorkflowManager
+
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-
-
-# TODO: Helpers and optimizations for fused operations, "partial" operations.
-# TODO: Distinguishing features of "dynamic" operations that can create new instances during execution.
-# TODO: Define Subgraph in terms of fused / partial operations.
-# TODO: Define "while_loop" in terms of dynamics operations.
 
 
 class ScriptEntryPoint(abc.ABC):
@@ -69,8 +65,138 @@ def app(func: typing.Callable) -> typing.Callable:
     return decorated
 
 
+
+# def command(*, input_type, result_type):
+#     """Get a decorator for ScaleMS Command definitions.
+#
+#     A ScaleMS command minimally consists of an input specification, and output
+#     specification, and a callable.
+#     """
+#     def decorator(cls):
+#         ...
+#     return decorator
+
+
+class Callable(Protocol):
+    """This protocol describes the required function signature for a SCALE-MS command."""
+    def __call__(self):
+        ...
+
+
+class Command(Protocol):
+    """Protocol describing a SCALE-MS Command."""
+
+
+def command(obj: Callable) -> Command:
+    """Decorate a callable to create a SCALE-MS Command."""
+    ...
+
+
+def function_wrapper(output: dict = None):
+    # Suppress warnings in the example code.
+    # noinspection PyUnresolvedReferences
+    """Generate a decorator for wrapped functions with signature manipulation.
+
+    New function accepts the same arguments, with additional arguments required by
+    the API.
+
+    The new function returns an object with an ``output`` attribute containing the named outputs.
+
+    Example:
+
+        >>> @function_wrapper(output={'spam': str, 'foo': str})
+        ... def myfunc(parameter: str = None, output=None):
+        ...    output.spam = parameter
+        ...    output.foo = parameter + ' ' + parameter
+        ...
+        >>> operation1 = myfunc(parameter='spam spam')
+        >>> assert operation1.spam.result() == 'spam spam'
+        >>> assert operation1.foo.result() == 'spam spam spam spam'
+
+    Arguments:
+        output (dict): output names and types
+
+    If ``output`` is provided to the wrapper, a data structure will be passed to
+    the wrapped functions with the named attributes so that the function can easily
+    publish multiple named results. Otherwise, the ``output`` of the generated operation
+    will just capture the return value of the wrapped function.
+    """
+    raise exceptions.MissingImplementationError()
+
+
+def poll():
+    """Inspect the execution status of an operation.
+
+    Inspects the execution graph state in the current context at the time of
+    execution.
+
+    Used in a work graph, this adds a non-deterministic aspect, but adds truly
+    asynchronous adaptability.
+    """
+    raise exceptions.MissingImplementationError()
+
+
 ResultType = typing.TypeVar('ResultType')
+
+
 class WorkflowObject(typing.Generic[ResultType]): ...
+
+
+def _unpack_work(ref: dict):
+    """Temporary handler for ad hoc dict-based input.
+
+    Unpack and serialize the nested task descriptions.
+
+    Note: this assumes work is nested, with only one item per "layer".
+    """
+    assert isinstance(ref, dict)
+    implementation_identifier = ref.get('implementation', None)
+    message: dict = ref.get('message', None)
+    if not isinstance(implementation_identifier, list) or not isinstance(message, dict):
+        raise exceptions.DispatchError('Bug: bad schema checking?')
+
+    command = implementation_identifier[-1]
+    logger.debug(f'Unpacking a {command}')
+    # Temporary hack for ad hoc schema.
+    if command == 'Executable':
+        # generate Subprocess
+        from scalems.subprocess import SubprocessInput, Subprocess
+        input_node, task_node, output_node = message['Executable']
+        kwargs = {
+            'argv': input_node['data']['argv'],
+            'stdin': input_node['data']['stdin'],
+            'stdout': task_node['data']['stdout'],
+            'stderr': task_node['data']['stderr'],
+            'environment': input_node['data']['environment'],
+            'resources': task_node['input']['resources']
+        }
+        bound_input = SubprocessInput(**kwargs)
+        item = Subprocess(input=bound_input)
+        yield item
+        return item.uid()
+    else:
+        # If record bundles dependencies, identify them and yield them first.
+        try:
+            depends = ref['message'][command]['input']
+        except AttributeError:
+            depends = None
+        if depends is not None:
+            logger.debug(f'Recursively unpacking {depends}')
+            dependency: typing.Optional[bytes] = yield from _unpack_work(depends)
+        else:
+            dependency = None
+        if 'uid' not in ref:
+            ref['uid'] = next_monotonic_integer().to_bytes(32, 'big')
+        uid: bytes = ref['uid']
+        if dependency is not None:
+            logger.debug('Replacing explicit input in {} with reference: {}'.format(
+                uid.hex(),
+                dependency.hex()
+            ))
+            ref['message'][command]['input'] = dependency
+        # Then yield the dependent item.
+        yield ref
+        return uid
 
 
 @functools.singledispatch
@@ -84,10 +210,13 @@ def _wait(ref, *, manager):
 def _(ref: dict, *, manager):
     # First draft: monolithic implementation directs the workflow manager to add tasks and execute them.
     # TODO: Use a WorkflowManager interface from the core data model.
-    from ..context import WorkflowManager
     if not isinstance(manager, WorkflowManager):
         raise exceptions.ProtocolError('Provided manager does not implement the required interface.')
-    manager.add_item(ref)
+    for item in _unpack_work(ref):
+        view = manager.add_item(item)
+        logger.debug('Added {}: {}'.format(
+            view.uid().hex(),
+            str(item)))
     # TODO: If dispatcher is running, wait for the results.
     # TODO: If dispatcher is not running, can we trigger it?
 
@@ -118,6 +247,9 @@ def wait(ref):
 
     scalems.wait() will produce an error if you have not configured and launched
     an execution manager in the current scope.
+
+    .. todo:: Acquire asyncio event loop from WorkflowManager.
+        scalems.wait is primarily intended as an abstraction from https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete and an alternative to `await`.
     """
     context = get_context()
     if context is None:
@@ -146,6 +278,8 @@ def _run(*, work, context, **kwargs):
             # This is supposed to either get a coroutine object from *work* or allow
             # *work* the opportunity to interact with the workflow manager before dispatching begins.
             try:
+                # Note that with the current scalems.utility.app, we don't have a convention for
+                # the callable to return anything, so *handle* is None (and unused).
                 handle = work(**kwargs)
             except Exception as e:
                 logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
@@ -176,12 +310,49 @@ def _run(*, work, context, **kwargs):
 
         logger.debug('Finished asyncio.run()')
     else:
-        logger.debug('Starting context.run() without asyncio wrapper')
-        result = context.run(work, **kwargs)
-        logger.debug('Finished context.run()')
+        raise NotImplementedError('scalems workflow management requires an active event loop.')
+        # logger.debug('Starting context.run() without asyncio wrapper')
+        # result = context.run(work, **kwargs)
+        # logger.debug('Finished context.run()')
     return result
 
 
+def deprecated(explanation: str):
+    """Mark a deprecated definition.
+
+    Wraps a callable to issue a DeprecationWarning when called.
+
+    Use as a parameterized decorator::
+
+        @deprecated("func is deprecated because...")
+        def func():
+            ...
+
+    """
+    try:
+        _message = str(explanation)
+        assert len(_message) > 0
+    except Exception as e:
+        raise ValueError('`deprecated` decorator needs a *explanation*.') from e
+
+    def decorator(func: typing.Callable):
+        import functools
+
+        def deprecation(message):
+            import warnings
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            deprecation(_message)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
+@deprecated('scalems.run() is not currently supported. See https://github.com/SCALE-MS/scale-ms/issues/82')
 def run(work, context=None, **kwargs):
     """Execute a workflow and return the results.
 
@@ -237,6 +408,28 @@ def run(work, context=None, **kwargs):
         message = 'Uncaught exception in scalems.context.run(): {}'.format(str(e))
         warnings.warn(message)
         logger.warning(message)
+        return None
 
     # TODO: Consider generalized coroutines to be dispatched through
     #     custom event loops or executors.
+
+
+def next_monotonic_integer() -> int:
+    """Utility for generating a monotonic sequence of integers across an interpreter process.
+
+    Not thread-safe. However, threads may
+
+    * avoid race conditions by copying the contextvars context for non-root threads
+    * reproduce the sequence of the main thread by calling this function an equal
+      number of times.
+
+    Returns:
+        Next integer.
+
+    """
+    value = _monotonic_integer.get()
+    _monotonic_integer.set(value + 1)
+    return value
+
+
+_monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)

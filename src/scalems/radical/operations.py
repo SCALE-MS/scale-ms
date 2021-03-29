@@ -5,7 +5,7 @@ Specialize implementations of ScaleMS operations.
 import weakref
 
 import scalems.subprocess
-from scalems.core.exceptions import DispatchError, InternalError
+from scalems.exceptions import DispatchError, InternalError
 
 from . import RPFuture, RPResult
 

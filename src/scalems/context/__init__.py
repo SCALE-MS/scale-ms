@@ -23,7 +23,6 @@ __all__ = ['WorkflowManager']
 
 import abc
 import asyncio
-import collections
 import contextlib
 import contextvars
 import dataclasses
@@ -31,18 +30,20 @@ import functools
 import json
 import logging
 import queue
-import warnings
+import typing
 import weakref
 
-import typing
-from scalems.core.exceptions import DispatchError
-from scalems.core.exceptions import DuplicateKeyError
-from scalems.core.exceptions import InternalError, MissingImplementationError, ProtocolError, ScaleMSException, ScopeError
-from scalems.serialization import Encoder
+from scalems.exceptions import DispatchError
+from scalems.exceptions import DuplicateKeyError
+from scalems.exceptions import InternalError
+from scalems.exceptions import MissingImplementationError
+from scalems.exceptions import ProtocolError
+from scalems.exceptions import ScaleMSError
+from scalems.exceptions import ScopeError
+from scalems.serialization import encode
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
 
 # Identify an asynchronous Context. Non-asyncio-aware functions may need to behave
 # differently when we know that asynchronous context switching could happen.
@@ -53,33 +54,13 @@ logger.debug('Importing {}'.format(__name__))
 # 4. ensure the Context is destroyed (remove circular references)
 _dispatcher = contextvars.ContextVar('dispatcher', default=None)
 
-_monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)
-
-
-def next_monotonic_integer() -> int:
-    """Utility for generating a monotonic sequence of integers across an interpreter process.
-
-    Not thread-safe. However, threads may
-
-    * avoid race conditions by copying the contextvars context for non-root threads
-    * reproduce the sequence of the main thread by calling this function an equal
-      number of times.
-
-    Returns:
-        Next integer.
-
-    """
-    value = _monotonic_integer.get()
-    _monotonic_integer.set(value + 1)
-    return value
-
 
 class ResourceType:
     def identifier(self) -> str:
         """Resource type identifier"""
         return '.'.join(self._identifier)
 
-    def as_strings(self) -> tuple:
+    def as_tuple(self) -> tuple:
         return self._identifier
 
     def __init__(self, type_identifier: tuple):
@@ -134,6 +115,7 @@ class ItemView:
     .. todo:: Allows proxied access to future results through attribute access.
 
     """
+
     def uid(self) -> bytes:
         """Get the canonical unique identifier for this task.
 
@@ -156,7 +138,7 @@ class ItemView:
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.item(self.uid()).done()
+        return context.task_map[self.uid()].done()
 
     def result(self):
         """Get a local object of the tasks's result type.
@@ -167,14 +149,17 @@ class ItemView:
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.item(self.uid()).result()
+        # TODO: What is the public interface to the task_map or completion status?
+        # Note: We want to keep the View object as lightweight as possible, such
+        # as storing just the weak ref to the manager, and the item identifier.
+        return context.task_map[self.uid()].result()
 
     def description(self) -> Description:
         """Get a description of the resource type."""
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.item(self.uid()).description()
+        return context.task_map[self.uid()].description()
 
     def __getattr__(self, item):
         """Proxy attribute accessor for special task members.
@@ -189,7 +174,7 @@ class ItemView:
         context = self._context()
         if context is None:
             raise ScopeError('Out of scope. Managing context no longer available!')
-        task = context.item(self.uid())  # type: Task
+        task = context.task_map[self.uid()]  # type: Task
         try:
             return getattr(task, item)
         except KeyError as e:
@@ -200,7 +185,7 @@ class ItemView:
         if isinstance(uid, bytes) and len(uid) == 32:
             self._uid = uid
         else:
-            raise ProtocolError('uid should be a 32-byte binary digest (bytes).')
+            raise ProtocolError(f'uid should be a 32-byte binary digest (bytes). Got {uid}')
 
 
 class WorkflowView:
@@ -216,17 +201,17 @@ class WorkflowItemRecord:
     """Encapsulate the management of an item record in a BasicWorkflowManager."""
 
 
-
 class BasicWorkflowManager:
     """Reference implementation for a workflow manager.
 
     Support addition and querying of items.
     """
+
     def __init__(self):
         self._items = dict()
 
 
-class InvalidStateError(ScaleMSException):
+class InvalidStateError(ScaleMSError):
     """Object state is not compatible with attempted access.
 
     May result from a temporarily unserviceable request or an inappropriate
@@ -265,6 +250,7 @@ class Task:
         is likely limited to how the task is dispatched and how the Futures are
         fulfilled, which seem very pluggable.
     """
+
     def result(self):
         if not self.done():
             raise InvalidStateError('Called result() on a Task that is not done.')
@@ -305,7 +291,7 @@ class Task:
         decoded_record = json.loads(self._serialized_record)
 
         self._uid = bytes.fromhex(decoded_record['uid'])
-        if not len(self._uid) == 256//8:
+        if not len(self._uid) == 256 // 8:
             raise ProtocolError('UID is supposed to be a 256-bit hash digest. Got {}'.format(repr(self._uid)))
         self._done = asyncio.Event()
         self._result = None
@@ -325,9 +311,12 @@ class Task:
     # def deserialize(cls, context, record: str):
     #     item_view = context.add_item(record)
     #     return item_view
-    # def serialize(self):
-    #     ...
 
+    def serialize(self):
+        return self._serialized_record
+
+
+# USE SINGLEDISPATCHMETHOD?
 
 # TODO: Incorporate into WorkflowContext interface.
 # Design note: WorkflowContext classes could cache implementation details for item types,
@@ -349,6 +338,7 @@ def workflow_item_director_factory(item, *, context, label: str = None):
     raise MissingImplementationError('No registered implementation for {} in {}'.format(repr(item), repr(context)))
 
 
+# TODO: Do we really want to handle dispatching on type _or_ instance args?
 @workflow_item_director_factory.register
 def _(item_type: type, *, context, label: str = None):
     # When dispatching on a class instead of an instance, just construct an
@@ -357,10 +347,12 @@ def _(item_type: type, *, context, label: str = None):
     # TODO: Consider how best to register operations and manage their state.
     def constructor_proxy_director(*args, **kwargs):
         if not isinstance(item_type, type):
-            raise ProtocolError('This function is intended for a dispatching path on which *item_type* is a `type` object.')
+            raise ProtocolError(
+                'This function is intended for a dispatching path on which *item_type* is a `type` object.')
         item = item_type(*args, **kwargs)
         director = workflow_item_director_factory(item, context=context, label=label)
         return director()
+
     return constructor_proxy_director
 
 
@@ -404,15 +396,64 @@ class WorkflowManager(abc.ABC):
         This allows intermediate updates to be propagated and could be a superset of the additem hook.
 
     """
-    task_map: dict
+    task_map: typing.Dict[bytes, Task]
+
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
-    # TODO: Reference a generic interface for return type.
-    @abc.abstractmethod
-    def item(self, identifier) -> ItemView:
-        """Access an item in the managed workflow."""
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        """
+        The event loop for the program should be launched in the root thread, preferably early in the application launch.
+        Whether the WorkflowManager uses it directly, it is useful to require the client to provide the event loop,
+        if for no other reason than to ensure that one exists.
 
+        Args:
+            loop: event loop, such as from asyncio.new_event_loop()
+        """
+        # We are moving towards a composed rather than a derived WorkflowManager Context.
+        # Note that we can require the super().__init__() to be called in derived classes,
+        # so it is not non-sensical for an abc.ABC to have an __init__ method.
+        if not isinstance(loop, asyncio.AbstractEventLoop):
+            raise TypeError('Workflow manager requires an event loop object compatible with asyncio.AbstractEventLoop.')
+        if loop.is_closed():
+            raise ProtocolError('Event loop does not appear to be ready to use.')
+        logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.')
+        self._asyncio_even_loop = loop
+
+
+    def item(self, identifier) -> ItemView:
+        """Access an item in the managed workflow.
+        """
+        # Consider providing the consumer context when acquiring access.
+        # Consider limiting the scope of access requested.
+        logger.debug('Looking for {} in ({})'.format(
+            identifier.hex(),
+            ', '.join(key.hex() for key in self.task_map.keys())
+        ))
+        if identifier not in self.task_map:
+            raise KeyError(f'WorkflowManager does not have item {identifier}')
+        item_view = ItemView(context=self, uid=identifier)
+
+        return item_view
+
+    @contextlib.contextmanager
+    def edit_item(self, identifier) -> Task:
+        """Scoped workflow item editor.
+
+        Grant the caller full access to the managed task.
+
+        """
+        # TODO: Use a proxy object that is easier to inspect and roll back.
+        item = self.task_map[identifier]
+
+        # We can add a lot more sophistication here.
+        # For instance,
+        # * we should lock items for editing
+        # * we can update state metadata at each phase of the contextmanager protocol
+        # * we can execute hooks based on the state change detected when the client
+        #   releases the editor context.
+
+        yield item
 
     # TODO: Consider helper functionality and `label` support.
     # def find(self, label: str = None):
@@ -420,7 +461,6 @@ class WorkflowManager(abc.ABC):
     #
     #     Find reference by label. Find owner of non-local resource, if known.
     #     """
-
 
     def default_dispatcher(self):
         """Get a default dispatcher instance, if available.
@@ -505,10 +545,11 @@ class WorkflowManager(abc.ABC):
                     raise InternalError('Unexpected missing field.') from e
         else:
             assert isinstance(task_description, dict)
+            assert 'uid' in task_description
+            uid = task_description['uid']
             implementation_identifier = task_description.get('implementation', None)
             if not isinstance(implementation_identifier, list):
                 raise DispatchError('Bug: bad schema checking?')
-            uid: bytes = task_description.get('uid', next_monotonic_integer().to_bytes(32, 'big'))
 
             if uid in self.task_map:
                 # TODO: Consider decreasing error level to `warning`.
@@ -519,7 +560,7 @@ class WorkflowManager(abc.ABC):
                 'type': tuple(implementation_identifier),
                 'input': task_description
             }
-        serialized_record = json.dumps(record, cls=Encoder)
+        serialized_record = json.dumps(record, default=encode)
 
         # TODO: Make sure there are no artifacts of shallow copies that may result in a user modifying nested objects unexpectedly.
         item = Task(self, serialized_record)
@@ -527,6 +568,8 @@ class WorkflowManager(abc.ABC):
         #  Note module dependencies, etc. and check in target execution environment
         #  (e.g. https://docs.python.org/3/library/importlib.html#checking-if-a-module-can-be-imported)
 
+        # TODO: Provide a data descriptor and possibly a more formal Workflow class.
+        # We do not yet check that the derived classes actually initialize self.task_map.
         self.task_map[uid] = item
 
         task_view = ItemView(context=self, uid=uid)
@@ -534,7 +577,6 @@ class WorkflowManager(abc.ABC):
         # TODO: Register task factory (dependent on executor).
         # TODO: Register input factory (dependent on dispatcher and task factory / executor).
         # TODO: Register results handler (dependent on dispatcher end points).
-
 
         # TODO: Use an abstract event hook for `add_item` and other (decorated) methods.
         # Internal functionality can probably explicitly register and unregister, accounting
@@ -555,19 +597,6 @@ class WorkflowManager(abc.ABC):
         return task_view
 
 
-class DefaultContext(WorkflowManager):
-    """Manage workflow data and metadata, but defer execution to sub-contexts.
-
-    Not yet implemented or used.
-    """
-
-    def add_item(self, task_description):
-        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
-
-    def item(self, identifier) -> ItemView:
-        raise MissingImplementationError('Trivial work graph holder not yet implemented.')
-
-
 class Scope(typing.NamedTuple):
     """Backward-linked list (potentially branching) to track nested context.
 
@@ -578,9 +607,12 @@ class Scope(typing.NamedTuple):
     parent: typing.Union[None, WorkflowManager]
     current: WorkflowManager
 
-
-# Root workflow context for the interpreter process.
-_interpreter_context = DefaultContext()
+# If we require an event loop to be provided to the WorkflowManager, then
+# we should not instantiate a default context on module import. We don't really
+# want to hold an event loop object at module scope, and we want to give as much
+# opportunity as possible for the caller to provide an event loop.
+# # Root workflow context for the interpreter process.
+# _interpreter_context = DefaultContext()
 
 # Note: Scope indicates the hierarchy of "active" WorkflowManager instances (related by dispatching).
 # This is separate from WorkflowManager lifetime and ownership. WorkflowManagers should track their
@@ -590,7 +622,7 @@ _interpreter_context = DefaultContext()
 # in terms of a parent context doing contextvars.copy_context().run(...)
 # I think we have to make sure not to nest scopes without a combination of copy_context and context managers,
 # so we don't need to track the parent scope. We should also be able to use weakrefs.
-current_scope = contextvars.ContextVar('current_context', default=Scope(None, _interpreter_context))
+current_scope = contextvars.ContextVar('current_scope')
 
 
 def get_context():
@@ -606,11 +638,17 @@ def get_context():
     # Async coroutines can safely use get_context(), but should not use the
     # non-async workflow_scope() context manager for nested scopes without wrapping
     # in a contextvars.run().
-    scope = current_scope.get().current
-    # This check is in case we use weakref.ref:
-    if scope is None:
-        raise ProtocolError('Context for current scope seems to have disappeared.')
-    return scope
+    try:
+        _scope: Scope = current_scope.get()
+        current_context = _scope.current
+        logger.debug(f'Scope queried with get_context() {repr(current_context)}')
+        # This check is in case we use weakref.ref:
+        if current_context is None:
+            raise ProtocolError('Context for current scope seems to have disappeared.')
+    except LookupError:
+        logger.debug('Scope was queried, but has not yet been set.')
+        current_context = None
+    return current_context
 
 
 @contextlib.contextmanager
@@ -661,4 +699,3 @@ def scope(context):
         else:
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.
-

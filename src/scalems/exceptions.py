@@ -11,26 +11,34 @@ logger = _logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
-class ScaleMSException(Exception):
-    """Base exception for scalems Python package."""
+class ScaleMSError(BaseException):
+    """Base exception for scalems package errors.
+
+    Users should be able to use this base class to catch errors
+    emitted by SCALE-MS.
+    """
 
 
-class InternalError(ScaleMSException):
+class InternalError(ScaleMSError):
     """An otherwise unclassifiable error has occurred (a bug).
 
     Please report the bug at https://github.com/SCALE-MS/scale-ms/issues
     """
 
 
-class DispatchError(ScaleMSException):
+class APIError(ScaleMSError):
+    """Specified interfaces are being violated."""
+
+
+class DispatchError(ScaleMSError):
     """SCALE-MS is unable to execute work or manage data in the requested environment."""
 
 
-class DuplicateKeyError(ScaleMSException):
+class DuplicateKeyError(ScaleMSError):
     """An identifier is being reused in a situation where this is not supported."""
 
 
-class MissingImplementationError(ScaleMSException):
+class MissingImplementationError(ScaleMSError):
     """The expected feature is not available.
 
     This indicates a bug or incomplete implementation. If error message does not
@@ -39,9 +47,9 @@ class MissingImplementationError(ScaleMSException):
     """
 
 
-class ProtocolError(ScaleMSException):
+class ProtocolError(ScaleMSError):
     """A behavioral protocol has not been followed correctly."""
 
 
-class ScopeError(ScaleMSException):
+class ScopeError(ScaleMSError):
     """A command or reference is not valid in the current scope or Context."""

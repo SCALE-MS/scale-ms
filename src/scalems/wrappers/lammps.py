@@ -1,8 +1,8 @@
 """
-Gromacs simulation tools.
+lammps simulation tools.
 
-Preparation and output manipulation use command line tools.
-Simulation is executed with gmxapi.
+Preparation, manipulation, and output use command line tools.
+
 """
 
 import scalems
@@ -56,7 +56,7 @@ def make_input(simulation_parameters = ['input.in'],
     return all_commands
 
 def modify_structure(structure,config):
-   return 0
+   raise MissingImplementationError()
    #for s, c in zip(structure,config):
         
 

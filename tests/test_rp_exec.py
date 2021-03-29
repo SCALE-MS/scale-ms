@@ -217,8 +217,8 @@ async def test_rp_future(rp_task_manager):
     assert task.exit_code == 0
     assert 'success' in task.stdout
 
-    assert 'stdout' in result
-    assert 'success' in result['stdout']
+    assert 'stdout' in result.as_dict()
+    assert 'success' in result.as_dict()['stdout']
 
 
 @pytest.mark.skip(reason='Unimplemented.')

@@ -43,13 +43,13 @@ def expand_input(infile,include_files=[]):
     
 
 def make_input(simulation_parameters = ['input.in'],
-               included_files = [[]],
+               included_inputs = [[]],
                # could be a list of files, so will include_files need to be a list of lists?
                # will need to be properly managed with list comprehension.
                wrapper_name = 'lammps'):
                # The gromacs code had "wrapper_name". What is this supposed to do?
     
-    all_commands = expand_input(simulation_parameters,include_files)
+    all_commands = expand_input(simulation_parameters,included_inputs)
     # Right now, "all_commands" is literally just an array of lines to be put into a file, and read into lammps
     # Should it be a LIST of lists of lines, or how should the "list comprehension" of multiple inputs be set up?
 
@@ -58,8 +58,6 @@ def make_input(simulation_parameters = ['input.in'],
 def modify_structure(structure,config):
    raise MissingImplementationError()
    #for s, c in zip(structure,config):
-        
-
 
     
 def modify_input(substitutions = {}, input_commands={}):

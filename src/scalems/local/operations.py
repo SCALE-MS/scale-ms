@@ -207,7 +207,7 @@ async def input_resource_scope(context: _ExecutionContext,
             infile = os.path.join(task_directory, 'stdin')
             with open(infile, 'w') as fp:
                 # Normalize line endings for local environment.
-                fp.writelines([line.rstrip() for line in task_input.stdin])
+                fp.writelines([line.rstrip() + '\n' for line in task_input.stdin])
         else:
             infile = os.path.abspath(task_input.stdin)
 

@@ -370,7 +370,10 @@ def test_rp_raptor_local(rp_task_manager):
 
     tasks = tmgr.submit_tasks(tds)
     assert len(tasks) == len(tds)
-    # 'arguments' gets wrapped in a Request at the Master by _receive, then
+    # 'arguments' (element 0) gets wrapped in a Request at the Master by _receive_tasks,
+    # then the list of requests is passed to Master.request(), which is presumably
+    # an extension point for derived Master implementations. The base class method
+    # converts requests to dictionaries and adds them to a request queue, from which they are
     # picked up by the Worker in _request_cb. Then picked up in forked interpreter
     # by Worker._dispatch, which checks the *mode* of the Request and dispatches
     # according to native or registered mode implementations. (e.g. 'call' (native) or 'scalems')

@@ -2,13 +2,13 @@
 
 import logging
 import sys
-from typing import Any
-from typing import Dict
+import typing
 from typing import NamedTuple
 from typing import Sequence
 
 import radical.pilot as rp
 import radical.utils as ru
+from radical.pilot.raptor.request import Request
 
 logger = logging.getLogger('scalems_rp_agent')
 
@@ -43,6 +43,68 @@ def encode_as_dict(config: NamedTuple):
     return data
 
 
+_RaptorReturnType = typing.Tuple[typing.Text, typing.Text, typing.SupportsInt]
+"""Raptor worker task return values are interpreted as a tuple (out, err, ret).
+
+The first two elements are cast to output and error strings, respectively.
+
+The third is cast to an integer return code.
+"""
+
+_RaptorWorkData = typing.TypeVar('_RaptorWorkData')
+"""Argument type for a Raptor task implementation.
+
+Constraints on the data type are not yet well-defined.
+Presumably, the object must be "Munch"-able.
+"""
+
+
+class _RequestInput(typing.Mapping):
+    """Input argument for a raptor.Request instantiation.
+
+    Not yet fully specified, but not to be confused with
+    raptor.Request instances.
+
+    A dict-like object with at least a *uid* key.
+    """
+
+
+class RaptorWorkCallable(typing.Protocol[_RaptorWorkData]):
+    def __call__(self, data: _RaptorWorkData) -> _RaptorReturnType:
+        ...
+
+
+class RaptorWorkDescription(typing.Protocol[_RaptorWorkData]):
+    """Represent the content of an *arguments* element in a RaptorTaskDescription.
+
+    A dictionary resembling this structure is converted to radical.pilot.raptor.Request
+    by the Master in radical.pilot.raptor.Master.request().
+
+    Attributes:
+        mode (str): Dispatching key for raptor.Worker._dispatch()
+
+    Note that some keys may be added or overwritten during Master._receive_tasks
+    (e.g. *is_task*, *uid*, *task*).
+    """
+    cores: int
+    timeout: typing.SupportsFloat
+    mode: str  # Must map to a mode (RaptorWorkCallable) in the receiving Worker._modes
+    data: _RaptorWorkData  # Munch-able object to be passed to Worker._modes[*mode*](*data*)
+
+
+class _RaptorTaskDescription(typing.Protocol):
+    """Note the distinctions of a TaskDescription to processed by a raptor.Master.
+
+
+    The single element of *arguments* is a JSON-encoded object that will be
+    deserialized (RaptorWorkDescription) as the prototype for the dictionary used to instantiate the Request.
+    """
+    uid: str  # Unique identifier for the Task across the Session.
+    executable: typing.ClassVar[str] = 'scalems'  # Unused by Raptor tasks.
+    scheduler: str  # The UID of the raptor.Master scheduler task.
+    arguments: typing.Sequence[str]  # Processed by raptor.Master._receive_tasks
+
+
 class ScaleMSMaster(rp.raptor.Master):
 
     def __init__(self, cfg):
@@ -50,14 +112,36 @@ class ScaleMSMaster(rp.raptor.Master):
 
         self._log = ru.Logger(self.uid, ns='radical.pilot')
 
-    def result_cb(self, requests):
+    def result_cb(self, requests: typing.Sequence[Request]):
         for r in requests:
             r['task']['stdout'] = r['out']
 
             logger.info('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
 
+    # What is the relationship between the create_work_items() hook and request()?
+    # def create_work_items(self):
+    #     super().create_work_items()
+
+    def request(self, reqs: typing.Sequence[_RequestInput]):
+        # 'arguments' (element 0) gets wrapped in a Request at the Master by _receive_tasks,
+        # then the list of requests is passed to Master.request(), which is presumably
+        # an extension point for derived Master implementations. The base class method
+        # converts requests to dictionaries and adds them to a request queue, from which they are
+        # picked up by the Worker in _request_cb. Then picked up in forked interpreter
+        # by Worker._dispatch, which checks the *mode* of the Request and dispatches
+        # according to native or registered mode implementations. (e.g. 'call' (native) or 'scalems')
+
+        # TODO: This seems like the place to insert special processing for, say, non-Worker tasks or control signals.
+        return super().request(reqs)
+
+    # def _receive_tasks(self, tasks: typing.Sequence[dict]):
+    #     # The 'arguments' key of each element in *tasks* is a JSON-encoded object
+    #     # with the "work" schema: mode, cores, timeout, and data keys.
+    #     super()._receive_tasks(tasks)
+
 
 def main():
+    # The command-line argument is a JSON file encoding a SchedulerConfig
     cfg = ru.Config(cfg=ru.read_json(sys.argv[1]))
     master = ScaleMSMaster(cfg)
 

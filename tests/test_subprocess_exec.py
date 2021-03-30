@@ -58,7 +58,7 @@ async def test_exec_local(cleandir):
     with scalems.context.scope(context):
         # TODO: Input type checking.
         try:
-            cmd = executable(('/bin/cat', '-'), stdin=('hi there\n',), stdout='stdout.txt')
+            cmd = executable(('/bin/cat', '-'), stdin=('hi there\n', 'hello world'), stdout='stdout.txt')
         except Exception as e:
             raise
         assert isinstance(cmd, scalems.context.ItemView)
@@ -73,4 +73,7 @@ async def test_exec_local(cleandir):
         result = cmd.result()  # type: scalems.subprocess.SubprocessResult
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
-            assert fh.read().startswith('hi there')
+            output = list([line.rstrip() for line in fh])
+        assert output[0] == 'hi there'
+        assert output[1] == 'hello world'
+        assert len(output) == 2

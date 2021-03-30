@@ -38,7 +38,7 @@ def expand_input(infile, include_files=[], filetype=None):
          is_firstline = True
       with open(infile, "r") as ifile:
          for line in ifile:
-            if line.startswith("read_data"):
+            if line.startswith("XXXXread_data"):  # OK, we DON'T want this read for now
                vals = line.split()
                try:
                   if vals[1] in [pathlib.Path(name).parts[-1] for name in include_files]:

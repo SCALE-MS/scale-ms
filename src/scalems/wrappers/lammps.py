@@ -98,22 +98,24 @@ def modify_input(substitutions = {}, input_commands={}):
          if command.starts_with(k):
             input_commands[i] = f"{k} {input_commands[k]}"
             
-def simulate(lammps_binary, input_commands):
+def simulate(lammps_binary, input_commands, input_type='file'):
 
    '''
    lammps_binary = binary to use for lammps
    input_commands = a file containing the input commands
+   input_type = 'file' or 'commands'
    '''
    
    #MRS: LAMMPS can also take commands from STDIN, so it might make more sense to pass them in from
    #STDIN.  However, it expects a series of lines from stdin, and scalems appears remove all the newlines.
-   #s=''
-   #simulation = scalems.executable(argv=[lammps_binary], stdin = s.join(input_commands), stdout='stdout')
-   simulation = scalems.executable(argv=[lammps_binary], inputs={'-in':input_commands}, stdout='stdout')
-   
-   # output files are specified in the input file.  Should we parse the lammps file to
-   # figure out these files, or just let lammps handle them
-   
+   if input_type == 'file':
+      simulation = scalems.executable(argv=[lammps_binary], inputs={'-in':input_commands}, stdout='stdout')
+   elif input_type == 'commands':
+      simulation = scalems.executable(argv=[lammps_binary], stdin = input_commands, stdout='stdout')
+   else:
+      raise MissingImplementationError(f'imput_type={input_type} is not supported')
+   return simulation
+
 def internal_to_pdb(structure):
    # lammps doesn't have any files that handle processing cordinates.  That's done by other programs.
    # it can dump output with a larger number of output formats.  See:

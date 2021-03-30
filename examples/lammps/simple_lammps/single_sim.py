@@ -13,7 +13,7 @@ from pathlib import Path
 
 import scalems
 from scalems.wrappers.lammps import make_input, simulate
-
+from scalems.exceptions import MissingImplementationError
 
 # Allow log level to be set from the command line.
 parser = argparse.ArgumentParser('Run a single simulation.')
@@ -46,20 +46,24 @@ initial_structure = os.path.join(data_dir,'lj_bulk.lmp')  # GROMACS structure fi
                                  
 simulation_parameters = os.path.join(data_dir,'lj_bulk.input')
 included_inputs = [initial_structure]
+input_type = 'file'
+#input_type = 'commands'
 
 # Define the entry point to the script.
 @scalems.app
 def main():
-    sim_input = make_input(
-        simulation_parameters = simulation_parameters,
-        included_inputs = included_inputs, return_file = 'commands.lammps')
-        #included_inputs = included_inputs)
-
-    md = simulate(lammps_binary,os.path.join(script_dir,sim_input))
-    # Indicate where to force dependency resolution. This is an opportunity for
-    # user-provided exception handling and inspection.
-    #scalems.wait(md)
-    # TODO: Update scalems.run() and scalems.wait() to make sure that the
-    #  dispatching has completed before the above returns.
-    # TODO: What is the return value of a scalems.app?
-    #  Maybe a final staging directive?
+    if input_type == 'file':
+        # run with file input.
+        sim_input = make_input(
+            simulation_parameters = simulation_parameters,
+            included_inputs = included_inputs, return_file = 'commands.lammps')
+        simulate(lammps_binary,os.path.join(script_dir,sim_input), input_type='file')
+    elif input_type == 'commands':
+        # run with a list of commands
+        sim_input = make_input(
+            simulation_parameters = simulation_parameters,
+            included_inputs = included_inputs)
+        simulate(lammps_binary,sim_input,input_type='commands')        
+    else:
+        raise MissingImplementationError(f'imput_type={input_type} is not supported')
+        

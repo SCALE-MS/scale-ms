@@ -31,8 +31,6 @@ def expand_input(infile, include_files=[], filetype=None):
    '''
 
    all_lines = []
-   import pdb
-   pdb.set_trace()
    try:
       if filetype == 'datafile':
          is_firstline = True

@@ -51,14 +51,14 @@ Step Temp E_pair Press
     8000     119.3163   -207.70268    31.476673 
     9000    121.47514   -211.38774    22.606323 
    10000    123.79562   -207.49273    37.089733 
-Loop time of 0.588685 on 1 procs for 10000 steps with 400 atoms
+Loop time of 0.622394 on 1 procs for 10000 steps with 400 atoms
 
-Pair  time (%) = 0.356243 (60.515)
-Bond  time (%) = 0.000426769 (0.0724953)
-Neigh time (%) = 0.000651836 (0.110728)
-Comm  time (%) = 0.0212216 (3.60492)
-Outpt time (%) = 0.0034709 (0.589602)
-Other time (%) = 0.206671 (35.1072)
+Pair  time (%) = 0.378362 (60.7914)
+Bond  time (%) = 0.000483513 (0.077686)
+Neigh time (%) = 0.000583172 (0.0936982)
+Comm  time (%) = 0.0242972 (3.90384)
+Outpt time (%) = 0.00388455 (0.624131)
+Other time (%) = 0.214784 (34.5093)
 
 Nlocal:    400 ave 400 max 400 min
 Histogram: 1 0 0 0 0 0 0 0 0 0

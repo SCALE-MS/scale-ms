@@ -13,7 +13,6 @@ from pathlib import Path
 
 import scalems
 from scalems.wrappers.lammps import make_input, simulate
-from scalems.exceptions import MissingImplementationError
 
 # Allow log level to be set from the command line.
 parser = argparse.ArgumentParser('Run a single simulation.')
@@ -57,13 +56,13 @@ def main():
         sim_input = make_input(
             simulation_parameters = simulation_parameters,
             included_inputs = included_inputs, return_file = 'commands.lammps')
-        simulate(lammps_binary,os.path.join(script_dir,sim_input), input_type='file')
+        simulate(lammps_binary,os.path.join(script_dir,sim_input), input_type=input_type)
     elif input_type == 'commands':
         # run with a list of commands
         sim_input = make_input(
             simulation_parameters = simulation_parameters,
             included_inputs = included_inputs)
-        simulate(lammps_binary,sim_input,input_type='commands')        
+        simulate(lammps_binary,sim_input,input_type=input_type)
     else:
-        raise MissingImplementationError(f'imput_type={input_type} is not supported')
+        raise RuntimeError(f'imput_type={input_type} is not supported')
         

@@ -20,7 +20,7 @@ import scalems
 # Declare the public interface of this wrapper module.
 __all__ = ['make_input', 'internal_to_xyz', 'collect_coordinates', 'simulate', 'modify_input']
 
-def expand_input(infile,include_files=[]): 
+def expand_input(infile, include_files=[], filetype=None): 
    '''
    parameters
    
@@ -31,21 +31,31 @@ def expand_input(infile,include_files=[]):
    '''
 
    all_lines = []
+   import pdb
+   pdb.set_trace()
    try:
-       with open(infile, "r") as ifile:
-           for line in ifile:
-               if line.startswith("read_data"):
-                  vals = line.split()
-                  try:
-                     if vals[1] in [pathlib.Path(name).parts[-1] for name in include_files]:
-                        for incl in include_files:
-                           if pathlib.Path(incl).parts[-1] == vals[1]:
-                              more_lines = expand_input(incl,include_files.remove(incl))
+      if filetype == 'datafile':
+         is_firstline = True
+      with open(infile, "r") as ifile:
+         for line in ifile:
+            if line.startswith("read_data"):
+               vals = line.split()
+               try:
+                  if vals[1] in [pathlib.Path(name).parts[-1] for name in include_files]:
+                     for incl in include_files:
+                        if pathlib.Path(incl).parts[-1] == vals[1]:
+                           more_lines = expand_input(incl,include_files.remove(incl),filetype='datafile')
                         all_lines.extend(more_lines)
-                  except:
-                     BaseException(f"{vals[1]} in include command not given in list of include files")
-               else:    
-                  all_lines.append(line)
+               except:
+                  BaseException(f"{vals[1]} in include command not given in list of include files")
+            else:
+               if filetype == 'datafile':
+                  if is_firstline:
+                     is_firstline = False
+                  else:
+                     all_lines.append(line)
+               else:
+                  all_lines.append(line)               
    except:
        BaseException(f"{infile} does not exist")
                        
@@ -99,9 +109,8 @@ def simulate(lammps_binary, input_commands):
    
    #MRS: LAMMPS can also take commands from STDIN, so it might make more sense to pass them in from
    #STDIN.  However, it expects a series of lines from stdin, and scalems appears remove all the newlines.
-   import pdb
-   pdb.set_trace()
-   #simulation = scalems.executable(argv=[lammps_binary], stdin = tuple(input_commands), stdout='stdout')
+   #s=''
+   #simulation = scalems.executable(argv=[lammps_binary], stdin = s.join(input_commands), stdout='stdout')
    simulation = scalems.executable(argv=[lammps_binary], inputs={'-in':input_commands}, stdout='stdout')
    
    # output files are specified in the input file.  Should we parse the lammps file to

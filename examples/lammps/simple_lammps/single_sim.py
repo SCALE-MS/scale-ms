@@ -53,7 +53,9 @@ def main():
     sim_input = make_input(
         simulation_parameters = simulation_parameters,
         included_inputs = included_inputs, return_file = 'commands.lammps')
-    md = simulate(lammps_binary,sim_input)
+        #included_inputs = included_inputs)
+
+    md = simulate(lammps_binary,os.path.join(script_dir,sim_input))
     # Indicate where to force dependency resolution. This is an opportunity for
     # user-provided exception handling and inspection.
     #scalems.wait(md)

@@ -26,19 +26,26 @@ USER root
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
+    apt-get -yq --no-install-suggests --no-install-recommends install apt-utils build-essential software-properties-common && \
     apt-get install -y \
         curl \
         dnsutils \
         gcc \
         git \
         iputils-ping \
+        language-pack-en \
+        locales \
         openmpi-bin \
         openssh-server \
         python3.8-dev \
         python3-venv \
+        tox \
         vim \
         wget && \
     rm -rf /var/lib/apt/lists/*
+
+RUN locale-gen en_US.UTF-8 && \
+    update-locale LANG=en_US.UTF-8
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
@@ -47,6 +54,7 @@ RUN apt-get update && \
          && \
     rm -rf /var/lib/apt/lists/*
 
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 
@@ -124,6 +132,7 @@ ENV RADICAL_PILOT_DBURL="mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROO
 
 RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 
+# Set user "rp" password to "rp".
 RUN echo "rp\nrp" | passwd rp
 
 WORKDIR /home/rp

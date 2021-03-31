@@ -19,7 +19,6 @@ num_simulations = 1000
 #    initial_input = scalems.broadcast(initial_simulation_input, shape=(N,))
 initial_input = [initial_simulation_input] * num_simulations
 
-
 # Get the Future for the sequenced iterable of MD trajectories.
 trajectory_sequence = simulate(input=initial_input).trajectory
 

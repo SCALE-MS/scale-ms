@@ -1,6 +1,7 @@
 """Hold the reusable part of the various workflows in this example."""
 
-__all__ = ['scalems', 'initial_simulation_input', 'num_clusters', 'initial_pdb', 'collect_coordinates', 'msmtool', 'simulate', 'modify_input']
+__all__ = ['scalems', 'initial_simulation_input', 'num_clusters', 'initial_pdb', 'collect_coordinates', 'msmtool',
+           'simulate', 'modify_input']
 
 import scalems
 

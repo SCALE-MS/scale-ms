@@ -27,7 +27,7 @@ USER root
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get -yq --no-install-suggests --no-install-recommends install apt-utils build-essential software-properties-common && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
         curl \
         dnsutils \
         gcc \
@@ -49,7 +49,7 @@ RUN locale-gen en_US.UTF-8 && \
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
         python3.8-venv \
          && \
     rm -rf /var/lib/apt/lists/*
@@ -60,10 +60,11 @@ RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 
 USER rp
 
-RUN (cd ~rp && python3.8 -m venv rp-venv)
+WORKDIR /home/rp
 
-RUN (cd ~rp && \
-    rp-venv/bin/pip install --upgrade \
+RUN python3.8 -m venv rp-venv
+
+RUN rp-venv/bin/pip install --upgrade \
         pip \
         setuptools \
         wheel && \
@@ -79,11 +80,10 @@ RUN (cd ~rp && \
         pytest \
         pytest-asyncio \
         python-hostlist \
-        setproctitle \
-        )
+        setproctitle
 
 RUN . ~rp/rp-venv/bin/activate && \
-    pip install --upgrade \
+    pip install --no-cache-dir --upgrade \
         'radical.saga>=1.5.2' \
         'radical.utils>=1.5.2'
 
@@ -104,8 +104,7 @@ ARG RPREF="project/scalems"
 #    . ~rp/rp-venv/bin/activate && \
 #    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
 # OR first get sources, then
-RUN cd ~rp && \
-    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     . ~rp/rp-venv/bin/activate && \
     cd ~rp/radical.pilot && \
     pip install .
@@ -135,4 +134,4 @@ RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 # Set user "rp" password to "rp".
 RUN echo "rp\nrp" | passwd rp
 
-WORKDIR /home/rp
+USER mongodb

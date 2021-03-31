@@ -10,7 +10,7 @@ FROM ubuntu:focal
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get -yq --no-install-suggests --no-install-recommends install apt-utils build-essential software-properties-common && \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
         curl \
         dnsutils \
         gcc \
@@ -50,14 +50,14 @@ CMD ["/usr/sbin/sshd", "-D"]
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 USER rp
 
-RUN (cd ~rp && python3 -m venv rp-venv)
+WORKDIR /home/rp
+RUN python3 -m venv rp-venv
 
-RUN (cd ~rp && \
-    rp-venv/bin/pip install --upgrade \
+RUN rp-venv/bin/pip install --no-cache-dir --upgrade \
         pip \
         setuptools \
         wheel && \
-    rp-venv/bin/pip install --upgrade \
+    rp-venv/bin/pip install --no-cache-dir --upgrade \
         build \
         coverage \
         flake8 \
@@ -69,11 +69,10 @@ RUN (cd ~rp && \
         pytest \
         pytest-asyncio \
         python-hostlist \
-        setproctitle \
-        )
+        setproctitle
 
 RUN . ~rp/rp-venv/bin/activate && \
-    pip install --upgrade \
+    pip install --no-cache-dir --upgrade \
         'radical.saga>=1.5.2' \
         'radical.utils>=1.5.2'
 
@@ -87,10 +86,10 @@ ARG RPREF="project/scalems"
 #    pip install -e . \
 #    )
 
-RUN (cd ~rp && \
-    . ~rp/rp-venv/bin/activate && \
+WORKDIR /home/rp
+RUN . ~rp/rp-venv/bin/activate && \
     pip uninstall -y radical.pilot && \
-    pip install --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
+    pip install --no-cache-dir --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
 
 RUN  mkdir -p ~/.radical/pilot/configs
 
@@ -107,8 +106,9 @@ RUN mkdir ~rp/.ssh && \
 
 # If using the PyCharm debug server, install the pydevd-pycharm package corresponding to the IDE version,
 # and set up the IDE to sync the project with an agreed-upon container directory: `/tmp/pycharm_scalems`
+ARG PYCHARM=203.7717.65
 RUN . ~rp/rp-venv/bin/activate && \
-    pip install pydevd-pycharm~=203.7717.65 && \
+    pip install --no-cache-dir pydevd-pycharm~=$PYCHARM && \
     mkdir /tmp/pycharm_scalems
 
 
@@ -127,3 +127,5 @@ RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 
 # Set user "rp" password to "rp".
 RUN echo "rp\nrp" | passwd rp
+
+USER mongodb

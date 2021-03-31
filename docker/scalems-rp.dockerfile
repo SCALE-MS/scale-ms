@@ -22,7 +22,8 @@
 #     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile
-FROM scalems/rp-complete
+ARG TAG=latest
+FROM scalems/rp-complete:$TAG
 
 USER rp
 WORKDIR /home/rp

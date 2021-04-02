@@ -46,6 +46,7 @@ from typing import Any
 
 import packaging.version
 from radical import pilot as rp
+from scalems.exceptions import APIError
 
 import scalems.context
 from scalems.exceptions import DispatchError
@@ -277,7 +278,7 @@ class RPFinalTaskState:
 def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
     """Prototype for RP.Task callback.
 
-    Partially bind *final* parameter with functools.partial to get a callable
+    To use, partially bind the *final* parameter (with functools.partial) to get a callable
     with the RP.Task callback signature.
 
     Register with *task* to be called when the rp.Task state changes.
@@ -285,6 +286,7 @@ def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
     logger.debug(f'Callback triggered by {repr(obj)} state change to {repr(state)}.')
     try:
         # Note: assertions and exceptions are not useful in RP callbacks.
+        # TODO: Can/should we register the call-back just for specific states?
         if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
             # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
             if state == rp.states.DONE:
@@ -404,6 +406,120 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     return wrapped_task
 
 
+def _describe_task(item: scalems.context.Task, scheduler: str) -> rp.TaskDescription:
+    """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
+
+    The TaskDescription will be submitted to the named *scheduler*,
+    where *scheduler* is the UID of a task managing the life of a rp.raptor.Master instance.
+
+    Caller is responsible for ensuring that *scheduler* is valid.
+    """
+    # Warning: TaskDescription class does not have a strongly defined interface.
+    # Check docs for schema.
+    # Ref: scalems_rp_agent._RaptorTaskDescription
+    task_description = rp.TaskDescription(
+        from_dict=dict(
+            executable='scalems'
+        )
+    )
+    task_description.uid = item.uid()
+    task_description.scheduler = str(scheduler)
+
+    task_description.arguments = [item.serialize()]
+
+    # TODO: Check for and activate an appropriate venv
+    # using
+    #     task_description.pre_exec = ...
+    # or
+    #     task_description.named_env = ...
+
+    return task_description
+
+
+async def submit_rp_task(item: scalems.context.Task, task_manager: rp.TaskManager, submitted: asyncio.Event = None, scheduler: str = None):
+    """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
+
+    Registers a Future for the task result with *item*.
+
+    Args:
+        item: The workflow item to be submitted
+        task_manager: A radical.pilot.TaskManager instance through which the task should be submitted.
+        submitted: (Output parameter) Caller-provided Event to be set once the RP Task has been submitted.
+        scheduler (str): The string name of the "scheduler," corresponding to the UID of a Task running a rp.raptor.Master.
+
+    Returns an asyncio.Task for a submitted rp.Task.
+
+    The *submitted* (output) event is likely a short-term placeholder and subject to change.
+    For instance, the use case for waiting on such an event could be met by waiting on the
+    state change of the workflow item to a SUBMITTED state. However, note that this function
+    will block for a short time at the rp.TaskManager.submit_tasks() call, so it is useful
+    to separate the submission event from the completion of this coroutine early in development
+    while we decide whether and how to relegate RP calls to threads separated from that of
+    the event loop.
+
+    The returned asyncio.Task can be used to cancel the rp.Task (and the Future)
+    or to await the RP.Task cleanup.
+
+    To submit tasks as a batch, await an array of submit_rp_task() results in the
+    same dispatching context. (TBD)
+
+    Notes:
+
+        workflow manager maintains the workflow state without expensive or stateful volatile resources,
+        and can mediate updates to the managed workflow at any time. Items enter the graph in an IDLE state. The
+        WorkflowManager can provide Futures for the results of the managed items. For IDLE items, the WorkflowManager
+        retains a weakref to the issued Futures, which it can use to make sure that there is only zero or one Future for
+        a particular result.
+
+        WorkflowManager collaborates with Dispatcher to transition the graph to an "active" or "executing" state.
+        This transition is mediated through the dispatcher_lock.
+
+        Dispatcher sequences and queues workflow items to be handled, pushing them to a dispatch_queue. No state
+        change to the workflow item seems necessary at this time.
+
+        The dispatch_queue is read by an ExecutionManager. Items may be processed immediately or staged in a
+        command_queue. Workflow items are then either SUBMITTED or BLOCKED (awaiting dependencies). Optionally,
+        Items may be marked ELIGIBLE and re-queued for batch submission.
+
+        If the ExecutionManager is able to submit a task, the Task has a call-back registered for the workflow item.
+        The WorkflowManager needs to convert any Future weakrefs to strong references when items are SUBMITTED,
+        and the workflow Futures are subscribed to the item. Tasks are wrapped in a scalems object that the
+        WorkflowManager is able to take ownership of. BLOCKED items are wrapped in Tasks which are subscribed to
+        their dependencies (WorkflowItems should already be subscribed to WorkflowItem Futures for any dependencies)
+        and stored by the ExecutionManager. When the call-backs for all of the dependencies indicate the Item should
+        be processed into an upcoming workload, the Item becomes ELIGIBLE, and its wrapper Task (in collaboration
+        with the ExecutionManager) puts it in the command_queue.
+
+        As an optimization, and to support co-scheduling, a WorkflowItem call-back can provide notification of state
+        changes. For instance, a BLOCKED item may become ELIGIBLE once all of its dependencies are SUBMITTED,
+        when the actual Executor has some degree of data flow management capabilities.
+
+    """
+    if isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
+        # We might want a contextvars.Context to hold the current rp.Master instance name.
+        rp_task_description = _describe_task(item, scheduler)
+    else:
+        raise APIError('Caller must provide the UID of a submitted *scheduler* task.')
+
+    loop = asyncio.get_running_loop()
+    rp_task_result_future = loop.create_future()
+
+    # Warning: in the long run, we should not extend the life of the reference returned
+    # by edit_item, and we need to consider the robust way to publish item results.
+    # TODO: Translate RP result to item result type.
+    rp_task_result_future.add_done_callback(item.set_result)
+
+    # TODO: Move slow blocking RP calls to a separate RP control thread.
+    rp_task = task_manager.submit_tasks(rp_task_description)
+    # TODO: What checks can/should we do to allow checks that dependencies have been successfully scheduled?
+    if isinstance(submitted, asyncio.Event):
+        submitted.set()
+
+    rp_task_watcher = await rp_task(rptask=rp_task, future=rp_task_result_future)
+
+    return rp_task_watcher
+
+
 class RPDispatchingExecutor:
     """Client side manager for work dispatched through RADICAL Pilot.
 
@@ -417,7 +533,7 @@ class RPDispatchingExecutor:
     scheduler: typing.Union[rp.Task, None]
     session: typing.Union[rp.Session, None]
     source_context: scalems.context.WorkflowManager
-    rp_tasks: typing.Sequence[rp.Task]
+    rp_tasks: typing.List[asyncio.Task]
 
     _dispatcher_lock: asyncio.Lock
     _pilot_description: rp.PilotDescription
@@ -702,6 +818,7 @@ class RPDispatchingExecutor:
             # end TODO
             assert self.scheduler is None
             self.scheduler = scheduler
+            # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
             # Note: The worker script name only appears in the config file.
 
         except asyncio.CancelledError as e:
@@ -731,37 +848,53 @@ class RPDispatchingExecutor:
                         return
                     else:
                         raise ProtocolError('Unknown command: {}'.format(command['control']))
+                else:
+                    if 'add_item' not in command:
+                        # TODO: We might want a call-back or Event to force errors before the queue-runner task is awaited.
+                        raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
 
-                # Define the raptor.scalems tasks and submit them to the master (scheduler)
-                def test_workload():
-                    tds = list()
-                    for i in range(2):
-                        uid = 'scalems.%06d' % i
-                        # ------------------------------------------------------------------
-                        # work serialization goes here
-                        # This dictionary is interpreted by rp.raptor.Master.
-                        work = json.dumps({'mode': 'call',
-                                           'cores': 1,
-                                           'timeout': 10,
-                                           'data': {'method': 'hello',
-                                                    'kwargs': {'world': uid}}})
-                        # ------------------------------------------------------------------
-                        tds.append(rp.TaskDescription({
-                            'uid': uid,
-                            'executable': 'scalems',
-                            # This field is ignored by the ScaleMSMaster that receives this submission.
-                            'scheduler': 'raptor.scalems',  # 'scheduler' references the task implemented as a
-                            'arguments': [work],  # Processed by raptor.Master._receive_tasks
-                            # 'output_staging': []
-                            'pre_exec': self._pre_exec
-                            # 'named_env': 'scalems_env'
-                        }))
-                    tasks = task_manager.submit_tasks(tds)
-                    assert len(tasks) == len(tds)
-                    return tasks
+                key = command['add_item']
+                with self.source_context.edit_item(key) as item:
+                    if not isinstance(item, scalems.context.Task):
+                        raise InternalError(
+                            'Bug: Expected {}.edit_item() to return a scalems.context.Task'.format(repr(self.source_context)))
 
-                # Client side queue management goes here.
-                self.rp_tasks = test_workload()
+                    # TODO: Ensemble handling
+                    item_shape = item.description().shape()
+                    if len(item_shape) != 1 or item_shape[0] != 1:
+                        raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
+
+                    # Bind the WorkflowManager item to an RP Task.
+
+                    # TODO: Optimization: skip tasks that are already done.
+                    # TODO: Check task dependencies.
+                    submitted = asyncio.Event()  # Not yet used.
+                    rp_task = submit_rp_task(item,
+                                             task_manager=task_manager,
+                                             submitted=submitted,
+                                             scheduler=self.scheduler.uid)
+
+                    self.rp_tasks.append(rp_task)
+
+                    # This is the role of the Executor, not the Dispatcher.
+                    # task_type: scalems.context.ResourceType = item.description().type()
+                    # # Note that we could insert resource management here. We could create
+                    # # tasks until we run out of free resources, then switch modes to awaiting
+                    # # tasks until resources become available, then switch back to placing tasks.
+                    # execution_context = _ExecutionContext(source_context, key)
+                    # if execution_context.done():
+                    #     if isinstance(key, bytes):
+                    #         id = key.hex()
+                    #     else:
+                    #         id = str(key)
+                    #     logger.info(f'Skipping task that is already done. ({id})')
+                    #     # TODO: Update local status and results.
+                    # else:
+                    #     assert not item.done()
+                    #     assert not source_context.item(key).done()
+                    #     await _execute_item(task_type=task_type,
+                    #                         item=item,
+                    #                         execution_context=execution_context)
 
             finally:
                 # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
@@ -815,19 +948,28 @@ class RPDispatchingExecutor:
                     finally:
                         if not self.command_queue.empty():
                             logger.error('Command queue never emptied.')
-                        task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
+
+                        # This should be encapsulated into the task watcher and just gathered.
+                        # Do we need to wait for the RP Tasks?
+                        # task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
+                        # if len(self.rp_tasks) > 0:
+                        #     logger.debug('Waiting for RP tasks: {}'.format(', '.join([t.uid for t in self.rp_tasks])))
+                        #     states = task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
+                        #     assert states
+                        #     logger.debug('Worker tasks complete.')
+                        #     for t in self.rp_tasks:
+                        #         logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
+                        #         if t.state != rp.states.DONE or t.exit_code != 0:
+                        #             logger.error(f'RP Task unsuccessful: {repr(t)}')
+                        # end annotation
+
+                        # Wait for the watchers.
                         if len(self.rp_tasks) > 0:
-                            logger.debug('Waiting for RP tasks: {}'.format(', '.join([t.uid for t in self.rp_tasks])))
-                            states = task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
-                            assert states
-                            logger.debug('Worker tasks complete.')
-                            for t in self.rp_tasks:
-                                logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-                                if t.state != rp.states.DONE or t.exit_code != 0:
-                                    logger.error(f'RP Task unsuccessful: {repr(t)}')
+                            results = await asyncio.gather(self.rp_tasks)
 
                         # Cancel the master.
                         logger.debug('Canceling the master scheduling task.')
+                        task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
                         task_manager.cancel_tasks(uids=self.scheduler.uid)
                         # Cancel blocks until the task is done so the following wait would (currently) be redundant,
                         # but there is a ticket open to change this behavior.

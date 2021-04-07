@@ -114,7 +114,7 @@ class ScaleMSMaster(rp.raptor.Master):
 
     def result_cb(self, requests: typing.Sequence[Request]):
         for r in requests:
-            r['task']['stdout'] = r['out']
+            r['task']['stdout'] = r.result['out']
 
             logger.info('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
 

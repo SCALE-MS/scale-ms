@@ -1,4 +1,4 @@
-"""Provide the entry point for SCALE-MS tasks dispatched by scalems_rp_agent."""
+"""Provide the entry point for SCALE-MS tasks dispatched by scalems_rp_master."""
 
 import logging
 import sys
@@ -45,6 +45,7 @@ def main():
     the important place for the mode to be registered is at the forked interpreter,
     not the interpreter running this main() function.
     """
+    # Master generates a file to be appended to the argument list.
     worker = ScaleMSWorker(sys.argv[1])
     worker.start()
     time.sleep(5)

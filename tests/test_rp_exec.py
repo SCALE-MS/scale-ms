@@ -12,9 +12,7 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 import asyncio
 import json
 import logging
-import os
 import subprocess
-import tempfile
 import typing
 import warnings
 
@@ -330,7 +328,7 @@ def test_rp_raptor_local(rp_task_manager, rp_venv):
     scheduler = tmgr.submit_tasks(td)
     # Wait for the state after TMGR_STAGING_INPUT
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
-    scheduler.wait(state=[rp.states.AGENT_STAGING_INPUT_PENDING] + rp.FINAL)
+    scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
 
     assert scheduler.state not in {rp.states.FAILED, rp.states.CANCELED}
 

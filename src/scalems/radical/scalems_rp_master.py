@@ -77,8 +77,8 @@ class _RaptorTaskDescription(typing.Protocol):
 
 class ScaleMSMaster(rp.raptor.Master):
 
-    def __init__(self):
-        rp.raptor.Master.__init__(self)
+    def __init__(self, *args, **kwargs):
+        rp.raptor.Master.__init__(self, *args, **kwargs)
 
         self._log = ru.Logger(self.uid, ns='radical.pilot')
 
@@ -111,17 +111,31 @@ class ScaleMSMaster(rp.raptor.Master):
 
 
 def main():
-    master = ScaleMSMaster()
-
-    master.submit(
-        descr=rp.TaskDescription({
+    # TODO: Test both with and without a provided config file.
+    kwargs = {}
+    if len(sys.argv) > 1:
+        cfg = ru.Config(cfg=ru.read_json(sys.argv[1]))
+        kwargs['cfg'] = cfg
+        descr = cfg.worker_descr,
+        count = cfg.n_workers,
+        cores = cfg.cpn,
+        gpus = cfg.gpn
+    else:
+        descr = rp.TaskDescription({
             'uid': 'raptor.worker',
             'executable': 'scalems_rp_worker',
             'arguments': []
-        }),
-        count=1,
-        cores=1,
-        gpus=0)
+        })
+        count = 1
+        cores = 1
+        gpus = 0
+    master = ScaleMSMaster(**kwargs)
+
+    master.submit(
+        descr=descr,
+        count=count,
+        cores=cores,
+        gpus=gpus)
 
     master.start()
     master.join()

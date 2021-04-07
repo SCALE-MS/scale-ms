@@ -291,7 +291,7 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
     assert False
 
 
-def test_rp_raptor_local(rp_task_manager):
+def test_rp_raptor_local(rp_task_manager, rp_venv):
     """Test the core RADICAL Pilot functionality that we rely on using local.localhost.
 
     Use sample 'master' and 'worker' scripts for to exercise the RP "raptor" features.
@@ -299,6 +299,10 @@ def test_rp_raptor_local(rp_task_manager):
     import radical.pilot as rp
     tmgr = rp_task_manager
 
+    if rp_venv:
+        pre_exec = ['. {}/bin/activate'.format(rp_venv)]
+    else:
+        pre_exec = None
     # TODO: Use master and worker scripts from the installed scalems package.
     sms_check = tmgr.submit_tasks(
         rp.TaskDescription(
@@ -306,7 +310,7 @@ def test_rp_raptor_local(rp_task_manager):
                 # 'executable': py_venv,
                 'executable': '/usr/bin/which',
                 'arguments': ['scalems_rp_worker'],
-                'pre_exec': ['. /home/rp/rp-venv/bin/activate']
+                'pre_exec': pre_exec
                 # 'named_env': 'scalems_env'
             }
         )
@@ -318,7 +322,7 @@ def test_rp_raptor_local(rp_task_manager):
     from scalems.radical import scalems_rp_agent
     scheduler_config = scalems_rp_agent.SchedulerConfig(
         worker_descr=scalems_rp_agent.WorkerDescription(
-            pre_exec=[". /home/rp/rp-venv/bin/activate"]
+            pre_exec=pre_exec
         ))
 
     # We can probably make the config file a permanent part of the local metadata,
@@ -336,7 +340,7 @@ def test_rp_raptor_local(rp_task_manager):
                 'uid': 'raptor.scalems',
                 'executable': 'scalems_rp_agent'})
         td.arguments = [config_file_name]
-        td.pre_exec = ['. /home/rp/rp-venv/bin/activate']
+        td.pre_exec = pre_exec
         td.input_staging = {
                     'source': path,
                     'target': config_file_name,

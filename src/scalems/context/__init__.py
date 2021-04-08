@@ -33,6 +33,7 @@ import queue
 import typing
 import weakref
 
+from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import DuplicateKeyError
 from scalems.exceptions import InternalError
@@ -52,7 +53,20 @@ logger.debug('Importing {}'.format(__name__))
 # 2. set itself as the dispatcher in the new Context.
 # 3. run within the new Context.
 # 4. ensure the Context is destroyed (remove circular references)
-_dispatcher = contextvars.ContextVar('dispatcher', default=None)
+_dispatcher = contextvars.ContextVar('_dispatcher', default=None)
+
+
+class QueueItem(dict, typing.Mapping[str, typing.Any]):
+    """Queue items are either workflow items or control messages."""
+
+    def _hexify(self):
+        for key, value in self.items():
+            if isinstance(value, bytes):
+                value = value.hex()
+            yield key, value
+
+    def __str__(self) -> str:
+        return str(dict(self._hexify()))
 
 
 class ResourceType:
@@ -328,7 +342,7 @@ class Task:
 # at least in early versions, as we handle (a) subprocess-type items, (b) function-based items,
 # and (c) data staging details for (1) local execution and (2) remote (RADICAL Pilot) execution.
 @functools.singledispatch
-def workflow_item_director_factory(item, *, context, label: str = None):
+def workflow_item_director_factory(item, *, context, label: str = None) -> typing.Callable[..., ItemView]:
     """
 
     Get a workflow item director for a context and input type.
@@ -340,12 +354,12 @@ def workflow_item_director_factory(item, *, context, label: str = None):
 
 # TODO: Do we really want to handle dispatching on type _or_ instance args?
 @workflow_item_director_factory.register
-def _(item_type: type, *, context, label: str = None):
+def _(item_type: type, *, context, label: str = None) ->  typing.Callable[..., ItemView]:
     # When dispatching on a class instead of an instance, just construct an
     # object of the indicated type and re-dispatch. Note that implementers of
     # item types must register an overload with this singledispatch function.
     # TODO: Consider how best to register operations and manage their state.
-    def constructor_proxy_director(*args, **kwargs):
+    def constructor_proxy_director(*args, **kwargs) -> ItemView:
         if not isinstance(item_type, type):
             raise ProtocolError(
                 'This function is intended for a dispatching path on which *item_type* is a `type` object.')
@@ -445,8 +459,34 @@ class WorkflowManager(abc.ABC):
 
         self._dispatcher: typing.Union[weakref.ref, None] = None
         self._dispatcher_lock = asyncio.Lock()
-        # Rely on the GIL to provide a simple event hook.
-        # self._event_hooks = {'add_item': {}}
+
+        self._event_hooks: typing.Mapping[str, set] = {'add_item': set()}
+
+
+    def loop(self):
+        return self._asyncio_event_loop
+
+    def subscribe(self, event: str, callback: typing.Callable[[dict], None]):
+        """Register a callback for method call events.
+
+        Currently, only the add_item method provides a subscribable event.
+
+        Registered callbacks will be called before the subscribed-to method returns.
+        The callback will be given a dictionary with the event name as a key
+        and a value that is the same as the argument(s) to the method.
+
+        Unsubscribe with unsubscribe() to avoid unexpected behavior and to avoid
+        prolonging the life of the object providing the callback.
+        """
+        hook: set = self._event_hooks[event]
+        # TODO: Do we need to allow the callback to include a contextvars.Context with the registration?
+        if callback in hook:
+            raise ValueError('Provided callback is already registered.')
+        hook.add(callback)
+
+    def unsubscribe(self, event: str, callback: typing.Callable[[dict], None]):
+        hook: set = self._event_hooks[event]
+        hook.remove(callback)
 
     def item(self, identifier) -> ItemView:
         """Access an item in the managed workflow.
@@ -606,23 +646,234 @@ class WorkflowManager(abc.ABC):
         # TODO: Register input factory (dependent on dispatcher and task factory / executor).
         # TODO: Register results handler (dependent on dispatcher end points).
 
-        # TODO: Use an abstract event hook for `add_item` and other (decorated) methods.
+        # TODO: Consider an abstract event hook for `add_item` and other (decorated) methods.
         # Internal functionality can probably explicitly register and unregister, accounting
         # for the current details of thread safety. External access will need to be in
         # terms of a concurrency framework, so we can use a scoped `async with event_subscription`
-        # to create an asynchronous iterator (with some means to externally end the subscription,
+        # to create an asynchronous iterator that a coroutine can use to receive add_item messages
+        # (with some means to externally end the subscription,
         # either through the generator protocol directly or through logic in the provider of the iterator)
-        dispatcher_queue = getattr(self, '_queue', None)
-        # During development, a WorkflowManager implementation may not have a self._queue.
-        # self._queue may be removed by another thread before we add the item to it,
-        # but that is fine. There is nothing wrong with abandoning an unneeded queue.
-        if dispatcher_queue is not None:
-            logger.debug('Running dispatcher detected. Entering live dispatching hook.')
-            # Add the AddItem message to the queue.
-            assert isinstance(dispatcher_queue, queue.SimpleQueue)
-            dispatcher_queue.put({'add_item': task_description})
+        for callback in self._event_hooks['add_item']:
+            # TODO: Do we need to provide a contextvars.Context object to the callback?
+            logger.debug(f'Running dispatching hook for add_item subscriber {repr(callback)}.')
+            callback({'add_item': task_description})
+        #
+        # dispatcher_queue = getattr(self, '_queue', None)
+        # # During development, a WorkflowManager implementation may not have a self._queue.
+        # # self._queue may be removed by another thread before we add the item to it,
+        # # but that is fine. There is nothing wrong with abandoning an unneeded queue.
+        # if dispatcher_queue is not None:
+        #     logger.debug('Running dispatcher detected. Entering live dispatching hook.')
+        #     # Add the AddItem message to the queue.
+        #     assert isinstance(dispatcher_queue, queue.SimpleQueue)
+        #     dispatcher_queue.put({'add_item': task_description})
 
         return task_view
+
+
+class Dispatcher:
+    """Maintain the active dispatching state for a managed workflow.
+
+    The Dispatcher, WorkflowManager, and Executor lifetimes do not need to be
+    coupled, but their periods of activity should be synchronized in certain ways
+    (aided using the Python context manager protocol).
+
+    The Dispatcher must have access to an active Executor while the Dispatcher
+    is active.
+
+    When entering the Dispatcher context manager, a task is created to transfer items
+    from the dispatch queue to the execution queue. The task is allowed to drain the
+    queue before the context manager yields to the ``with`` block. The task will
+    continue to process the queue asynchronously if new items appear.
+
+    When exiting the Dispatcher context manager, the items currently in the
+    dispatching queue are processed and the the dispatcher task is finalized.
+
+    The dispatcher queue is a queue.SimpleQueue so that WorkflowManager.add_item()
+    can easily use a concurrency-safe callback to add items whether or not the
+    dispatcher is active.
+    """
+
+    command_queue: asyncio.Queue
+    source_context: WorkflowManager
+
+    _dispatcher_lock: asyncio.Lock
+    _queue_runner_task: asyncio.Task
+
+    def __init__(self,
+                 source_context: WorkflowManager,
+                 command_queue: asyncio.Queue,
+                 dispatcher_lock=None,
+                 ):
+        """Create a queue-based workflow dispatcher.
+
+        Initialization and deinitialization occurs through
+        the Python (async) context manager protocol.
+        """
+
+        self.source_context = source_context
+        self._dispatcher_queue = queue.SimpleQueue()
+        self.command_queue = command_queue
+
+        if not isinstance(dispatcher_lock, asyncio.Lock):
+            raise TypeError('An asyncio.Lock is required to control dispatcher state.')
+        self._dispatcher_lock = dispatcher_lock
+
+        self._exception = None
+
+    async def __aenter__(self):
+        try:
+            # Get a lock while the state is changing.
+            async with self._dispatcher_lock:
+                if _dispatcher.get(None):
+                    raise APIError('There is already an active dispatcher in this Context.')
+                _dispatcher.set(self)
+                # Launch queue processor (proxy executor).
+                runner_started = asyncio.Event()
+                runner_task = asyncio.create_task(self._queue_runner(runner_started))
+                await runner_started.wait()
+                self._queue_runner_task = runner_task
+                # Dont' forget to unsubscribe!
+                self.source_context.subscribe('add_item', self._dispatcher_queue.put)
+
+            return self
+        except Exception as e:
+            self._exception = e
+            raise e
+
+    async def _single_iteration_queue(self, source: queue.SimpleQueue, target: asyncio.Queue):
+        command: QueueItem = source.get_nowait()
+        logger.debug(f'Processing command {repr(command)}')
+        await self.command_queue.put(command)
+        # TODO: Use formal RPC protocol.
+        if 'control' in command:
+            # Note that we don't necessarily need to stop managing the dispatcher queue at this point,
+            # but the Executor will be directed to shut down, so we must not put anything else onto the
+            # command queue until we have a new command queue or a new executor.
+            if command['control'] == 'stop':
+                raise asyncio.CancelledError()
+            else:
+                raise ProtocolError('Unknown command: {}'.format(command['control']))
+        else:
+            if 'add_item' not in command:
+                # TODO: We might want a call-back or Event to force errors before the queue-runner task is awaited.
+                raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
+        return command
+
+    async def _queue_runner(self, processing_state: asyncio.Event):
+        processing_state.set()
+        while True:
+            try:
+                await asyncio.shield(self._single_iteration_queue(source=self._dispatcher_queue, target=self.command_queue))
+            except queue.Empty:
+                # Wait a moment and try again.
+                await asyncio.sleep(0.5)
+
+    async def _drain_queue(self):
+        """Wait until the dispatcher queue is empty, then return."""
+        while not self._dispatcher_queue.empty():
+            await asyncio.sleep(0.1)
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Clean up at context exit.
+
+        Drain the dispatching queue and exit.
+
+        Unsubscribes from the WorkflowManager add_item hook, deactivates the dispatching context, and exits.
+        Does not cancel or send instructions to the Executor managing the command queue.
+        """
+        # Note that this coroutine could take a long time and could be cancelled at several points.
+        cancelled_error = None
+        async with self._dispatcher_lock:
+            try:
+                self.source_context.unsubscribe('add_item', self._dispatcher_queue.put)
+                _dispatcher.set(None)
+
+                # Stop the dispatcher.
+                logger.debug('Stopping the SCALEMS RP dispatching executor.')
+
+                # Wait for the queue to drain or the queue runner to exit or fail.
+                drain = asyncio.create_task(self._drain_queue())
+                done, pending = await asyncio.wait({drain, self._queue_runner_task}, return_when=asyncio.FIRST_COMPLETED)
+                assert len(done) > 0
+                if self._queue_runner_task not in done:
+                    if drain in done:
+                        self._queue_runner_task.cancel()
+                done, _ = await asyncio.wait({self._queue_runner_task})
+                assert self._queue_runner_task in done
+                if not self._queue_runner_task.cancelled():
+                    exception = self._queue_runner_task.exception()
+                else:
+                    exception = None
+                if exception:
+                    logger.exception('Dispatcher queue processing encountered exception', exc_info=exception)
+                    if self._exception:
+                        logger.error('Dispatcher is already holding an exception.')
+                    else:
+                        self._exception = exception
+
+            except asyncio.CancelledError as e:
+                logger.debug('Dispatcher context manager received cancellation while exiting.')
+                cancelled_error = e
+            except Exception as e:
+                logger.exception('Exception while stopping dispatcher.', exc_info=e)
+                if self._exception:
+                    logger.error('Dispatcher is already holding an exception.')
+                else:
+                    self._exception = e
+            finally:
+                # Should we do any other clean-up here?
+                ...
+        if cancelled_error:
+            raise cancelled_error
+
+        # Only return true if an exception should be suppressed (because it was handled).
+        # TODO: Catch internal exceptions for useful logging and user-friendliness.
+        if exc_type is not None:
+            return False
+
+    def __await__(self):
+        """Implement the asyncio task represented by this object."""
+        # Note that this is not a native coroutine object; we cannot `await`
+        # The role of object.__await__() is to return an iterator that will be
+        # run to exhaustion in the context of an event loop.
+        # We assume that most of the asyncio activity happens through the
+        # async context mananager behavior and other async member functions.
+        # If we choose to `await instance` at all, we need a light-weight
+        # iteration we can perform to surrender control of the event loop,
+        # and then just do some sort of tidying or reporting that doesn't fit well
+        # into __aexit__(), such as the ability to return a value.
+
+        # # Note: We can't do this without first wait on some sort of Done event...
+        # failures = []
+        # for t in self.rp_tasks:
+        #     logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
+        #     if t.state != rp.states.DONE or t.exit_code != 0:
+        #         logger.error(f'RP Task unsuccessful: {repr(t)}')
+        #         failures.append(t)
+        # if len(failures) > 0:
+        #     warnings.warn('Unsuccessful tasks: ' + ', '.join([repr(t) for t in failures]))
+
+        yield
+        if self._exception:
+            raise self._exception
+
+        # # If we want to provide a "Future-like" interface, we should support the callback
+        # # protocols and implement the following generator function.
+        # if not self.done():
+        #     self._asyncio_future_blocking = True
+        #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio.isfuture
+        #
+        #     yield self  # This tells Task to wait for completion.
+        # if not self.done():
+        #     raise RuntimeError("The dispatcher task was not 'await'ed.")
+        # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
+        # to be raised upon exit from the generator."
+        # The Task works like a `result = yield from awaitable` expression.
+        # The iterator (generator) yields until exhausted,
+        # then raises StopIteration with the value returned in by the generator function.
+        # return self.result()  # May raise too.
+        # # Otherwise, the only allowed value from the iterator is None.
 
 
 class Scope(typing.NamedTuple):

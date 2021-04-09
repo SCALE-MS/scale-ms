@@ -28,8 +28,6 @@ RUN apt-get update && \
 
 RUN locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8
-#    update-locale LANG=en_US.UTF-8 && \
-#    dpkg-reconfigure --frontend noninteractive locales
 
 
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
@@ -76,6 +74,10 @@ RUN . ~rp/rp-venv/bin/activate && \
         'radical.saga>=1.5.2' \
         'radical.utils>=1.5.2'
 
+RUN  mkdir -p ~/.radical/pilot/configs
+
+COPY --chown=rp:radical resource_local.json /home/rp/.radical/pilot/configs
+
 ARG RPREF="project/scalems"
 
 # Note: radical.pilot does not work properly with an "editable install"
@@ -91,10 +93,6 @@ RUN . ~rp/rp-venv/bin/activate && \
     pip uninstall -y radical.pilot && \
     pip install --no-cache-dir --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
 
-RUN  mkdir -p ~/.radical/pilot/configs
-
-COPY --chown=rp:radical resource_local.json /home/rp/.radical/pilot/configs
-
 # WARNING!!! Security risk!
 # Allow rp user to trivially ssh into containers created from this image.
 RUN mkdir ~rp/.ssh && \
@@ -106,7 +104,7 @@ RUN mkdir ~rp/.ssh && \
 
 # If using the PyCharm debug server, install the pydevd-pycharm package corresponding to the IDE version,
 # and set up the IDE to sync the project with an agreed-upon container directory: `/tmp/pycharm_scalems`
-ARG PYCHARM=203.7717.65
+ARG PYCHARM=211.6693.115
 RUN . ~rp/rp-venv/bin/activate && \
     pip install --no-cache-dir pydevd-pycharm~=$PYCHARM && \
     mkdir /tmp/pycharm_scalems

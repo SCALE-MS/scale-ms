@@ -9,6 +9,7 @@ In turn, the initial RP dispatching will probably use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 """
+import os
 import asyncio
 import json
 import logging
@@ -302,6 +303,8 @@ def test_rp_raptor_staging():
 
     import radical.pilot as rp
     session = rp.Session()
+    fname = '%d.dat' % os.getpid()
+    os.system('/bin/sh -c "/bin/date > /tmp/%s"' % fname)
 
     try:
         pmgr    = rp.PilotManager(session=session)
@@ -311,7 +314,7 @@ def test_rp_raptor_staging():
                    'runtime'       : 30,
                    'exit_on_error' : True,
                    'cores'         : 1,
-                   'input_staging' : ['/etc/passwd']
+                   'input_staging' : ['/tmp/%s' % fname]
                   }
         pdesc = rp.PilotDescription(pd_init)
         pilot = pmgr.submit_pilots(pdesc)
@@ -321,9 +324,9 @@ def test_rp_raptor_staging():
         td  = rp.TaskDescription({
                 'uid'           : uid,
                 'executable'    : 'scalems_rp_master',
-                'input_staging' : [{'source': 'pilot:///passwd',
-                                    'target': 'pilot:///passwd.%s.lnk' % uid,
-                                    'action': rp.LINK}]}
+                'input_staging' : [{'source': 'pilot:///%s' % fname,
+                                    'target': 'pilot:///%s.%s.lnk' % (fname, uid),
+                                    'action': rp.LINK}]})
 
         master = tmgr.submit_tasks(td)
 
@@ -341,13 +344,13 @@ def test_rp_raptor_staging():
             tds.append(rp.TaskDescription({
                 'uid'            : uid,
                 'executable'     : '-',
-                'input_staging'  : [{'source': 'pilot:///passwd.%s.lnk' % master.uid,
-                                     'target': 'task:///passwd',
+                'input_staging'  : [{'source': 'pilot:///%s.%s.lnk' % (fname, master.uid),
+                                     'target': 'task:///%s' % fname,
                                      'action': rp.COPY}],
-                'output_staging' : [{'source': 'task:///passwd',
-                                     'target': 'client:///passwd.%s.out' % uid,
+                'output_staging' : [{'source': 'task:///%s' % fname,
+                                     'target': 'client:///%s.%s.out' % (fname, uid),
                                      'action': rp.TRANSFER}],
-                'scheduler'      : 'task.000000',  # master ID from above
+                'scheduler'      : master.uid,
                 'arguments'      : [json.dumps(work)]
             }))
 
@@ -360,10 +363,15 @@ def test_rp_raptor_staging():
 
         for t in tasks:
             print(t)
-            assert(os.path.exists('./passwd.%s.out' % t.uid))
+            assert(os.path.exists('./%s.%s.out' % (fname, t.uid)))
+            try:
+                os.unlink('./%s.%s.out' % (fname, t.uid))
+            except:
+                pass
 
     finally:
         session.close(download=False)
+        os.unlink('/tmp/%s' % fname)
 
 
 # ------------------------------------------------------------------------------

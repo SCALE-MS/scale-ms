@@ -101,6 +101,8 @@ class ScaleMSMaster(rp.raptor.Master):
         # by Worker._dispatch, which checks the *mode* of the Request and dispatches
         # according to native or registered mode implementations. (e.g. 'call' (native) or 'scalems')
 
+        for req in reqs:
+            logger.info(f'Received request: {repr(req)}')
         # TODO: This seems like the place to insert special processing for, say, non-Worker tasks or control signals.
         return super().request(reqs)
 

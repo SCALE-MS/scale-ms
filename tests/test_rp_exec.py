@@ -475,7 +475,7 @@ def test_rp_raptor_local(rp_task_manager, rp_venv):
     td.pre_exec = pre_exec
     # td.named_env = 'scalems_env'
     scheduler = tmgr.submit_tasks(td)
-    # Wait for the state after TMGR_STAGING_INPUT
+
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
     scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
 
@@ -487,7 +487,8 @@ def test_rp_raptor_local(rp_task_manager, rp_venv):
         uid = 'scalems.%06d' % i
         # ------------------------------------------------------------------
         # work serialization goes here
-        # This dictionary is interpreted by rp.raptor.Master.
+        # This dictionary is interpreted by rp.raptor.Master and used to construct
+        # a request for an instance of a rp.raptor.Worker (or subclass).
         work = json.dumps({'mode': 'call',
                            'cores': 1,
                            'timeout': 10,
@@ -620,12 +621,14 @@ async def test_exec_rp(pilot_description):
     with scalems.context.scope(context):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
+        cmd1 = scalems.executable(('/bin/echo',))
         async with context.dispatch():
-            ...
-
-        # TODO: re-enable test for basic executable wrapper.
-        # async with context.dispatch():
-        #     cmd = scalems.executable(('/bin/echo',))
+            cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
+            # TODO: Clarify whether/how result() method should work in this scope.
+            # TODO: Make scalems.wait(cmd) work as expected in this scope.
+        assert cmd1.done() and cmd2.done()
+        logger.info(cmd1.result())
+        logger.info(cmd2.result())
 
     # Test active context scoping.
     assert scalems.context.get_context() is original_context

@@ -381,7 +381,7 @@ def executable(*args, context=None, **kwargs):
     # TODO: This would be more readable in a form like workflow.add_item(Subprocess, bound_input)
 
     try:
-        task_view = director(input=bound_input)
+        task_view: _context.ItemView = director(input=bound_input)
     except TypeError as e:
         logger.error('Invalid input in SubprocessInput: ' + str(e))
         raise

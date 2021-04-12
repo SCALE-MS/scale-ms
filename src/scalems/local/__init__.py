@@ -19,30 +19,17 @@ import os
 import pathlib
 import queue
 import typing
-from typing import Any
 
 import scalems.context
 from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
-from scalems.subprocess._subprocess import SubprocessTask
+from ..subprocess._subprocess import SubprocessTask
 from . import operations
+from ..context import QueueItem
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-
-class QueueItem(typing.Dict[str, Any]):
-    """Queue items are either workflow items or control messages."""
-
-    def _hexify(self):
-        for key, value in self.items():
-            if isinstance(value, bytes):
-                value = value.hex()
-            yield key, value
-
-    def __str__(self) -> str:
-        return str(dict(self._hexify()))
 
 
 # TO DO NEXT: Implement the queue, dispatcher, executor (and internal queue)
@@ -99,7 +86,7 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
 
             # 2. Get snapshot of current workflow state with which to initialize the dispatcher.
             # TODO: Topologically sort DAG!
-            initial_task_list = list(self.task_map.keys())
+            initial_task_list: typing.Sequence[bytes] = list(self.tasks.keys())
             #  It is now okay to yield.
 
             # 3. Bind a new executor to its queue.
@@ -141,7 +128,7 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
             #  of receipt of the Stop command.
             # TODO: Check status...
             if not dispatcher_queue.empty():
-                logger.error('Dispatcher finished while items remain in dispatcher queue. Approximate size: {}'.format(
+                logger.error('Queuer finished while items remain in dispatcher queue. Approximate size: {}'.format(
                     dispatcher_queue.qsize()))
 
             # Stop the executor.

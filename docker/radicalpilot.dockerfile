@@ -109,7 +109,8 @@ RUN . ~rp/rp-venv/bin/activate && \
     pip install --no-cache-dir pydevd-pycharm~=$PYCHARM && \
     mkdir /tmp/pycharm_scalems
 
-
+# Ending the Dockerfile with a default CMD run as root triggers a warning
+# with Dockerfile linters, but is necessary to start the sshd.
 USER root
 
 # Set the environment variable that Radical Pilot uses to find its MongoDB instance.
@@ -125,5 +126,3 @@ RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 
 # Set user "rp" password to "rp".
 RUN echo "rp\nrp" | passwd rp
-
-USER mongodb

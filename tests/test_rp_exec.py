@@ -277,24 +277,6 @@ def test_staging(sdist, rp_task_manager):
     # Unpack and install the sdist.
     # Confirm matching versions.
     # TODO: Test both with and without a provided config file.
-    descr = rp.TaskDescription({
-        'uid': 'raptor.worker',
-        'executable': 'scalems_rp_worker',
-        'arguments': []
-    })
-    count = 1
-    cores = 1
-    gpus = 0
-
-    master.submit(
-        descr=descr,
-        count=count,
-        cores=cores,
-        gpus=gpus)
-
-    master.start()
-    master.join()
-    master.stop()
     assert False
 
 
@@ -310,7 +292,7 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
 
 # ------------------------------------------------------------------------------
 #
-def test_rp_raptor_am():
+def test_rp_raptor_staging():
 
     # - upon pilot startup, transfer a file (`/etc/passwd`) to the pilot sandbox
     # - upon master startup, create a link to that file for each master
@@ -603,6 +585,6 @@ async def test_file_staging():
 
 if __name__ == '__main__':
 
-    test_rp_raptor_am()
+    test_rp_raptor_staging()
 
 

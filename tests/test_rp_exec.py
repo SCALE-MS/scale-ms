@@ -276,6 +276,25 @@ def test_staging(sdist, rp_task_manager):
     # Create through an RP task that includes the sdist as input staging data.
     # Unpack and install the sdist.
     # Confirm matching versions.
+    # TODO: Test both with and without a provided config file.
+    descr = rp.TaskDescription({
+        'uid': 'raptor.worker',
+        'executable': 'scalems_rp_worker',
+        'arguments': []
+    })
+    count = 1
+    cores = 1
+    gpus = 0
+
+    master.submit(
+        descr=descr,
+        count=count,
+        cores=cores,
+        gpus=gpus)
+
+    master.start()
+    master.join()
+    master.stop()
     assert False
 
 
@@ -288,6 +307,84 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
     """
     assert False
 
+
+# ------------------------------------------------------------------------------
+#
+def test_rp_raptor_am():
+
+    # - upon pilot startup, transfer a file (`/etc/passwd`) to the pilot sandbox
+    # - upon master startup, create a link to that file for each master
+    # - for each task, copy the file into the task sandbox
+    # - upon task completion, transfer the files to the client (and rename them)
+
+
+    import radical.pilot as rp
+    session = rp.Session()
+
+    try:
+        pmgr    = rp.PilotManager(session=session)
+        tmgr    = rp.TaskManager(session=session)
+
+        pd_init = {'resource'      : 'local.localhost',
+                   'runtime'       : 30,
+                   'exit_on_error' : True,
+                   'cores'         : 1,
+                   'input_staging' : ['/etc/passwd']
+                  }
+        pdesc = rp.PilotDescription(pd_init)
+        pilot = pmgr.submit_pilots(pdesc)
+        tmgr.add_pilots(pilot)
+
+        uid = 'scalems.master.001'
+        td  = rp.TaskDescription({
+                'uid'           : uid,
+                'executable'    : 'scalems_rp_master',
+                'input_staging' : [{'source': 'pilot:///passwd',
+                                    'target': 'pilot:///passwd.%s.lnk' % uid,
+                                    'action': rp.LINK}]}
+
+        master = tmgr.submit_tasks(td)
+
+        # FIXME: needs a fix in RP
+        # master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+
+        tds = list()
+        for i in range(3):
+            uid  = 'scalems.%06d' % i
+            work = {'mode'   : 'call',
+                    'cores'  : 1,
+                    'timeout': 10,
+                    'data'   : {'method': 'hello',
+                                'kwargs': {'world': uid}}}
+            tds.append(rp.TaskDescription({
+                'uid'            : uid,
+                'executable'     : '-',
+                'input_staging'  : [{'source': 'pilot:///passwd.%s.lnk' % master.uid,
+                                     'target': 'task:///passwd',
+                                     'action': rp.COPY}],
+                'output_staging' : [{'source': 'task:///passwd',
+                                     'target': 'client:///passwd.%s.out' % uid,
+                                     'action': rp.TRANSFER}],
+                'scheduler'      : 'task.000000',  # master ID from above
+                'arguments'      : [json.dumps(work)]
+            }))
+
+        tasks = tmgr.submit_tasks(tds)
+        assert len(tasks) == len(tds)
+        tmgr.wait_tasks(uids=[t.uid for t in tasks])
+
+        tmgr.cancel_tasks(uids=master.uid)
+        tmgr.wait_tasks()
+
+        for t in tasks:
+            print(t)
+            assert(os.path.exists('./passwd.%s.out' % t.uid))
+
+    finally:
+        session.close(download=False)
+
+
+# ------------------------------------------------------------------------------
 
 def test_rp_raptor_local(rp_task_manager, rp_venv):
     """Test the core RADICAL Pilot functionality that we rely on using local.localhost.
@@ -502,3 +599,10 @@ async def test_chained_commands():
 async def test_file_staging():
     """Test a simple SCALE-MS style command chain that places a file and then retrieves it."""
     assert False
+
+
+if __name__ == '__main__':
+
+    test_rp_raptor_am()
+
+

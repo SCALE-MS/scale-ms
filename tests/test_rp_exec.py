@@ -300,27 +300,42 @@ def test_rp_raptor_staging():
     # - for each task, copy the file into the task sandbox
     # - upon task completion, transfer the files to the client (and rename them)
 
-
+    import time
     import radical.pilot as rp
+
     session = rp.Session()
     fname = '%d.dat' % os.getpid()
-    os.system('/bin/sh -c "/bin/date > /tmp/%s"' % fname)
+    fpath = os.path.join('/tmp', fname)
+    data: str = time.asctime()
 
     try:
         pmgr    = rp.PilotManager(session=session)
         tmgr    = rp.TaskManager(session=session)
 
+        # Illustrate data staging as part of the Pilot launch.
+        # By default, file is copied to the root of the Pilot sandbox,
+        # where it can be referenced as 'pilot:///filename'
+        # Alternatively: pilot.stage_in() and pilot.stage_output() (blocking calls)
         pd_init = {'resource'      : 'local.localhost',
                    'runtime'       : 30,
                    'exit_on_error' : True,
                    'cores'         : 1,
-                   'input_staging' : ['/tmp/%s' % fname]
+                   'input_staging' : [fpath]
                   }
         pdesc = rp.PilotDescription(pd_init)
-        pilot = pmgr.submit_pilots(pdesc)
+        with open(fpath, 'w') as fh:
+            fh.writelines([data])
+        try:
+            pilot = pmgr.submit_pilots(pdesc)
+            # Confirmation that the input file has been staged by waiting for pilot state.
+            pilot.wait(state=[rp.states.PMGR_ACTIVE] + rp.FINAL)
+        finally:
+            os.unlink(fpath)
+
         tmgr.add_pilots(pilot)
 
         uid = 'scalems.master.001'
+        # Illustrate another mode of data staging with the Master task submission.
         td  = rp.TaskDescription({
                 'uid'           : uid,
                 'executable'    : 'scalems_rp_master',
@@ -330,15 +345,25 @@ def test_rp_raptor_staging():
 
         master = tmgr.submit_tasks(td)
 
-        # FIXME: needs a fix in RP
-        # master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+        # Illustrate availability of scheduler and of data staged with Master task.
+        # When the task enters AGENT_SCHEDULING_PENDING it has passed all input staging,
+        # and the files will be available.
+        # (see https://docs.google.com/drawings/d/1q5ehxIVdln5tXEn34mJyWAmxBk_DqZ5wwkl3En-t5jo/)
+
+        # Confirm that Master script is running (and ready to receive raptor tasks)
+        master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
 
         tds = list()
+        # Illustrate data staging as part of raptor task submission.
+        # Note that tasks submitted by the client
+        # a sandboxed task directory, whereas those submitted by the Master (through Master.request(),
+        # through the wrapper script or the Master.create_initial_tasks() hook) do not,
+        # and do not have a data staging phase.
         for i in range(3):
             uid  = 'scalems.%06d' % i
             work = {'mode'   : 'call',
                     'cores'  : 1,
-                    'timeout': 10,
+                    'timeout': 10,  # seconds
                     'data'   : {'method': 'hello',
                                 'kwargs': {'world': uid}}}
             tds.append(rp.TaskDescription({
@@ -353,25 +378,41 @@ def test_rp_raptor_staging():
                 'scheduler'      : master.uid,
                 'arguments'      : [json.dumps(work)]
             }))
-
+        # TODO: Organize client-side data with managed hierarchical paths.
+        # Question: RP maintains a filesystem hierarchy on the client side, correct?
+        # Answer: only for profiling and such: do not use for data or user-facing stuff.
         tasks = tmgr.submit_tasks(tds)
+        # TODO: Clarify the points at which the data exists or is accessed.
+        # * When the (client-submitted) task enters AGENT_STAGING_OUTPUT_PENDING,
+        #   it has finished executing and output data should be accessible as 'task:///outfile'.
+        # * When the (client-submitted) task reaches one of the rp.FINAL stages, it has finished
+        #   output staging and files are accessible at the location specified in 'output_staging'.
+        # * Tasks submitted directly by the Master (example?) do not perform output staging;
+        #   data is written before entering Master.result_cb().
+        # RP Issue: client-submitted Tasks need to be accessible through a path that is common
+        # with the Master-submitted (`request()`) tasks. (SCALE-MS #108)
+
         assert len(tasks) == len(tds)
         tmgr.wait_tasks(uids=[t.uid for t in tasks])
 
         tmgr.cancel_tasks(uids=master.uid)
         tmgr.wait_tasks()
 
+        # Note that these map as follows:
+        #     * 'client:///' == $PWD
+        #     * 'task:///' == task.sandbox  # TODO: Confirm
+        #     * 'pilot:///' == urllib.parse.urlparse(pilot.pilot_sandbox).path
+
         for t in tasks:
             print(t)
-            assert(os.path.exists('./%s.%s.out' % (fname, t.uid)))
-            try:
-                os.unlink('./%s.%s.out' % (fname, t.uid))
-            except:
-                pass
+            outfile = './%s.%s.out' % (fname, t.uid)
+            assert(os.path.exists(outfile))
+            with open(outfile, 'r') as outfh:
+                assert outfh.readline().rstrip() == data
+            os.unlink(outfile)
 
     finally:
         session.close(download=False)
-        os.unlink('/tmp/%s' % fname)
 
 
 # ------------------------------------------------------------------------------
@@ -460,7 +501,7 @@ def test_rp_raptor_local(rp_task_manager, rp_venv):
     # Cancel blocks until the task is done so the following wait it currently redundant,
     # but there is a ticket open to change this behavior.
     # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-    # tmgr.wait_tasks([scheduler.uid])
+    tmgr.wait_tasks([scheduler.uid])
 
     for t in tasks:
         print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))

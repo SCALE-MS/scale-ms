@@ -421,7 +421,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 
         # Note that these map as follows:
         #     * 'client:///' == $PWD
-        #     * 'task:///' == task.sandbox  # TODO: Confirm
+        #     * 'task:///' == urllib.parse.urlparse(task.sandbox).path
         #     * 'pilot:///' == urllib.parse.urlparse(pilot.pilot_sandbox).path
 
         for t in tasks:

@@ -151,7 +151,7 @@ def test_prepare_venv(rp_task_manager, sdist):
                              'named_env': 'scalems_env'})
     task = tmgr.submit_tasks(td)
     tmgr.wait_tasks()
-    logger.info(task.stdout)
+    logger.debug(f'RP version details and scalems location: {task.stdout}')
     assert task.exit_code == 0
 
 

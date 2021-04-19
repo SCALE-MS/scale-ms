@@ -293,7 +293,7 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
 
 # ------------------------------------------------------------------------------
 #
-def test_rp_raptor_staging():
+def test_rp_raptor_staging(pilot_description):
 
     # - upon pilot startup, transfer a file (`/etc/passwd`) to the pilot sandbox
     # - upon master startup, create a link to that file for each master
@@ -316,17 +316,12 @@ def test_rp_raptor_staging():
         # By default, file is copied to the root of the Pilot sandbox,
         # where it can be referenced as 'pilot:///filename'
         # Alternatively: pilot.stage_in() and pilot.stage_output() (blocking calls)
-        pd_init = {'resource'      : 'local.localhost',
-                   'runtime'       : 30,
-                   'exit_on_error' : True,
-                   'cores'         : 1,
-                   'input_staging' : [fpath]
-                  }
-        pdesc = rp.PilotDescription(pd_init)
+        pilot_description.exit_on_error = True
+        pilot_description.input_staging = [fpath]
         with open(fpath, 'w') as fh:
             fh.writelines([data])
         try:
-            pilot = pmgr.submit_pilots(pdesc)
+            pilot = pmgr.submit_pilots(pilot_description)
             # Confirmation that the input file has been staged by waiting for pilot state.
             pilot.wait(state=[rp.states.PMGR_ACTIVE] + rp.FINAL)
         finally:
@@ -633,7 +628,12 @@ async def test_file_staging():
 
 
 if __name__ == '__main__':
-
-    test_rp_raptor_staging()
+    import radical.pilot as rp
+    pd_init = {'resource': 'local.localhost',
+               'runtime': 30,
+               'cores': 1,
+               }
+    pdesc = rp.PilotDescription(pd_init)
+    test_rp_raptor_staging(pdesc)
 
 

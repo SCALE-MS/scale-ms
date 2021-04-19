@@ -26,13 +26,10 @@ Executor:
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
 import asyncio
-import concurrent
 import contextlib
-import copy
 import dataclasses
 import functools
 import inspect
-import json
 import logging
 import os
 import queue
@@ -41,7 +38,6 @@ import tempfile
 import threading
 import typing
 import warnings
-from concurrent.futures import Future
 from typing import Any
 
 import packaging.version
@@ -416,7 +412,7 @@ def _describe_task(item: scalems.context.Task, scheduler: str) -> rp.TaskDescrip
     """
     # Warning: TaskDescription class does not have a strongly defined interface.
     # Check docs for schema.
-    # Ref: scalems_rp_agent._RaptorTaskDescription
+    # Ref: scalems_rp_master._RaptorTaskDescription
     task_description = rp.TaskDescription(
         from_dict=dict(
             executable='scalems'
@@ -620,7 +616,8 @@ class RPDispatchingExecutor:
             # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
             self.session = rp.Session(uid=session_id, cfg=session_config)
             session_id = self.session.uid
-            session_config = copy.deepcopy(self.session.cfg.as_dict())
+            # Do we want to log this somewhere?
+            # session_config = copy.deepcopy(self.session.cfg.as_dict())
             logger.debug('RP dispatcher acquired session {}'.format(session_id))
 
             # We can launch an initial Pilot, but we may have to run further Pilots
@@ -775,40 +772,37 @@ class RPDispatchingExecutor:
             #
 
             # TODO: encapsulate in a function that we can run in a separate rp control thread.
-            from scalems.radical import scalems_rp_agent
+            from scalems.radical import scalems_rp_master
 
             _activate_venv: str = '. ' + os.path.join(self._target_venv, 'bin', 'activate')
-            scheduler_config = scalems_rp_agent.SchedulerConfig(
-                worker_descr=scalems_rp_agent.WorkerDescription(
-                    pre_exec=[_activate_venv]
-                ))
 
             # This is the name that should be resolvable in an active venv for the script we install
-            # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_agent').name
-            master_script = 'scalems_rp_agent'
+            # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+            master_script = 'scalems_rp_master'
 
             scheduler_name = 'raptor.scalems'
             # We can probably make the config file a permanent part of the local metadata,
             # but we don't really have a scheme for managing local metadata right now.
             with tempfile.TemporaryDirectory() as dir:
-                config_file_name = 'raptor_scheduler_config.json'
-                config_file_path = os.path.join(dir, config_file_name)
-                with open(config_file_path, 'w') as fh:
-                    encoded = scalems_rp_agent.encode_as_dict(scheduler_config)
-                    json.dump(encoded, fh, indent=2)
+                # TODO: We will need a way to specify the venv details.
+                # config_file_name = 'raptor_scheduler_config.json'
+                # config_file_path = os.path.join(dir, config_file_name)
+                # with open(config_file_path, 'w') as fh:
+                #     encoded = scalems_rp_master.encode_as_dict(scheduler_config)
+                #     json.dump(encoded, fh, indent=2)
 
                 # define a raptor.scalems master and launch it within the pilot
                 td = rp.TaskDescription(
                     {
                         'uid': scheduler_name,
                         'executable': master_script})
-                td.arguments = [config_file_name]
+                # td.arguments = [config_file_name]
                 td.pre_exec = [_activate_venv]
-                td.input_staging = {
-                    'source': config_file_path,
-                    'target': config_file_name,
-                    'action': rp.TRANSFER
-                }
+                # td.input_staging = {
+                #     'source': config_file_path,
+                #     'target': config_file_name,
+                #     'action': rp.TRANSFER
+                # }
                 # td.named_env = 'scalems_env'
                 logger.debug('Launching RP scheduler.')
                 scheduler = task_manager.submit_tasks(td)

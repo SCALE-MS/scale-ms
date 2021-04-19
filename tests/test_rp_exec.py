@@ -15,6 +15,7 @@ import json
 import logging
 import subprocess
 import typing
+import urllib.parse
 import warnings
 
 import pytest
@@ -101,7 +102,6 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert remotename != localname
 
 
-@pytest.mark.skip(reason='https://github.com/radical-cybertools/radical.pilot/issues/2347')
 def test_prepare_venv(rp_task_manager, sdist):
     # NOTE: *sdist* is a path of an sdist archive that we could stage for the venv installation.
     # QUESTION: Can't we use the radical.pilot package archive that was already placed for bootstrapping the pilot?
@@ -124,6 +124,14 @@ def test_prepare_venv(rp_task_manager, sdist):
     # It looks like either the pytest fixture should deliver something other than the TaskManager,
     # or the prepare_venv part should be moved to a separate function, such as in conftest...
 
+    sdist_filename = os.path.basename(sdist)
+    pilot.stage_in([{'source': sdist,
+                     'target': 'pilot:///' + sdist_filename,
+                     'action': rp.TRANSFER}])
+    sandbox_path = urllib.parse.urlparse(pilot.pilot_sandbox).path
+    sdist_path = os.path.join(sandbox_path, sdist_filename)
+    logger.debug(f'sdist path: {sdist_path}')
+
     tmgr = rp_task_manager
 
     pilot.prepare_env({
@@ -131,8 +139,7 @@ def test_prepare_venv(rp_task_manager, sdist):
             'type': 'virtualenv',
             'version': '3.8',
             'setup': [
-                'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems',
-                'scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54'
+                sdist_path
             ]}})
 
     td = rp.TaskDescription({'executable': 'python3',

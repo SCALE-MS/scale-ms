@@ -188,7 +188,7 @@ def pilot_description(request) -> rp.PilotDescription:
         'resource': resource,
         'cores': 4,
         'gpus': 0,
-        'runtime': 600,
+        'runtime': 10,
         'exit_on_error': False
     }
     if access_schema:
@@ -273,5 +273,5 @@ def sdist():
     src_dir = pathlib.Path(__file__).parent.parent
     assert os.path.exists(src_dir / 'tests' / 'conftest.py')
     with tempfile.TemporaryDirectory() as dir:
-        dist = build.ProjectBuilder(src_dir).build(distribution='sdist', output_directory=dir)
+        dist = build.ProjectBuilder(str(src_dir)).build(distribution='sdist', output_directory=dir)
         yield dist

@@ -300,20 +300,33 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
 
 # ------------------------------------------------------------------------------
 #
-def test_rp_raptor_staging(pilot_description):
+def test_rp_raptor_staging(pilot_description, rp_venv):
+    """Test file staging for raptor Master and Worker tasks.
 
-    # - upon pilot startup, transfer a file (`/etc/passwd`) to the pilot sandbox
-    # - upon master startup, create a link to that file for each master
-    # - for each task, copy the file into the task sandbox
-    # - upon task completion, transfer the files to the client (and rename them)
-
+    - upon pilot startup, transfer a file to the pilot sandbox
+    - upon master startup, create a link to that file for each master
+    - for each task, copy the file into the task sandbox
+    - upon task completion, transfer the files to the client (and rename them)
+    """
     import time
     import radical.pilot as rp
+
+    # Note: we need to install the current scalems package to test remotely.
+    # If this is problematic, we can add a check like the following.
+    #     if pilot_description.resource != 'local.localhost' \
+    #             and pilot_description.access_schema \
+    #             and pilot_description.access_schema != 'local':
+    #         pytest.skip('This test is only for local execution.')
 
     session = rp.Session()
     fname = '%d.dat' % os.getpid()
     fpath = os.path.join('/tmp', fname)
     data: str = time.asctime()
+
+    if rp_venv:
+        pre_exec = ['. {}/bin/activate'.format(rp_venv)]
+    else:
+        pre_exec = None
 
     try:
         pmgr    = rp.PilotManager(session=session)
@@ -338,12 +351,16 @@ def test_rp_raptor_staging(pilot_description):
 
         uid = 'scalems.master.001'
         # Illustrate another mode of data staging with the Master task submission.
-        td  = rp.TaskDescription({
-                'uid'           : uid,
-                'executable'    : 'scalems_rp_master',
-                'input_staging' : [{'source': 'pilot:///%s' % fname,
-                                    'target': 'pilot:///%s.%s.lnk' % (fname, uid),
-                                    'action': rp.LINK}]})
+        td = rp.TaskDescription(
+            {
+                'uid': uid,
+                'executable': 'scalems_rp_master',
+                'input_staging': [{'source': 'pilot:///%s' % fname,
+                                   'target': 'pilot:///%s.%s.lnk' % (fname, uid),
+                                   'action': rp.LINK}],
+                'pre_exec': pre_exec
+            }
+        )
 
         master = tmgr.submit_tasks(td)
 
@@ -354,6 +371,7 @@ def test_rp_raptor_staging(pilot_description):
 
         # Confirm that Master script is running (and ready to receive raptor tasks)
         master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+        assert master.state not in {rp.CANCELED, rp.FAILED}
 
         tds = list()
         # Illustrate data staging as part of raptor task submission.
@@ -378,7 +396,8 @@ def test_rp_raptor_staging(pilot_description):
                                      'target': 'client:///%s.%s.out' % (fname, uid),
                                      'action': rp.TRANSFER}],
                 'scheduler'      : master.uid,
-                'arguments'      : [json.dumps(work)]
+                'arguments'      : [json.dumps(work)],
+                'pre_exec': pre_exec
             }))
         # TODO: Organize client-side data with managed hierarchical paths.
         # Question: RP maintains a filesystem hierarchy on the client side, correct?
@@ -408,7 +427,7 @@ def test_rp_raptor_staging(pilot_description):
         for t in tasks:
             print(t)
             outfile = './%s.%s.out' % (fname, t.uid)
-            assert(os.path.exists(outfile))
+            assert os.path.exists(outfile)
             with open(outfile, 'r') as outfh:
                 assert outfh.readline().rstrip() == data
             os.unlink(outfile)
@@ -635,12 +654,15 @@ async def test_file_staging():
 
 
 if __name__ == '__main__':
+    # TODO: Name the intended venv
+    venv = None
+
     import radical.pilot as rp
     pd_init = {'resource': 'local.localhost',
                'runtime': 30,
                'cores': 1,
                }
     pdesc = rp.PilotDescription(pd_init)
-    test_rp_raptor_staging(pdesc)
+    test_rp_raptor_staging(pdesc, venv)
 
 

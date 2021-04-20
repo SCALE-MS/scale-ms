@@ -210,8 +210,8 @@ async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinal
                            or final
         while not finished():
             # Let the watcher wake up periodically to check for state changes.
-            # TODO: Use a control thread to manage *threading* primitives and translate to asyncio primitives.
-            done, pending = await asyncio.wait([future], timeout=0.1, return_when=asyncio.FIRST_COMPLETED)
+            # TODO: (#96) Use a control thread to manage *threading* primitives and translate to asyncio primitives.
+            done, pending = await asyncio.wait([future], timeout=0.05, return_when=asyncio.FIRST_COMPLETED)
             if future.cancelled():
                 if task.state != rp.states.CANCELED:
                     logger.debug('Propagating cancellation from scalems future to rp task.')
@@ -286,6 +286,7 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     functools.update_wrapper(callback, _rp_callback)
     rptask.register_callback(callback)
 
+    asyncio.get_running_loop().slow_callback_duration = 0.2
     watcher_started = asyncio.Event()
     wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask, future=future, final=final, ready=watcher_started))
     # Make sure that the task is cancellable before returning it to the caller.

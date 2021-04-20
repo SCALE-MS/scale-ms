@@ -68,8 +68,7 @@ jobs:
         RADILCAL_PILOT_DBURL:  mongodb://localhost:${{ job.services.mongodb.ports[27017] }}/test
       run: |
         . testenv/bin/activate
-        # python -X dev -m pytest --cov=scalems -rA tests --rp-venv $PWD/testenv
-        python -X dev -m pytest --cov=scalems -rA tests
+        python -X dev -m pytest --cov=scalems -rA tests --rp-venv $PWD/testenv
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:

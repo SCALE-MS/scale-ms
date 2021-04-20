@@ -47,7 +47,7 @@ import logging
 from ._version import get_versions
 from .context import get_context
 from .subprocess import executable
-from .utility import app
+from .utility import app, ScriptEntryPoint
 
 __version__ = get_versions()['version']
 del get_versions

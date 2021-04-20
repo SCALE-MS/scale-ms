@@ -388,7 +388,7 @@ def workflow_item_director_factory(item, *, context, label: str = None) -> typin
 
 # TODO: Do we really want to handle dispatching on type _or_ instance args?
 @workflow_item_director_factory.register
-def _(item_type: type, *, context, label: str = None) ->  typing.Callable[..., ItemView]:
+def _(item_type: type, *, context, label: str = None) -> typing.Callable[..., ItemView]:
     # When dispatching on a class instead of an instance, just construct an
     # object of the indicated type and re-dispatch. Note that implementers of
     # item types must register an overload with this singledispatch function.
@@ -625,9 +625,9 @@ class WorkflowManager(abc.ABC):
                 raise ProtocolError('Already dispatching through {}.'.format(repr(self._dispatcher())))
             if dispatcher is None:
                 dispatcher = Queuer(source_context=self,
-                                             # TODO: Only get queue from executor within executor context manager.
-                                             command_queue=executor.queue(),
-                                             dispatcher_lock=self._dispatcher_lock)
+                                    # TODO: Only get queue from executor within executor context manager.
+                                    command_queue=executor.queue(),
+                                    dispatcher_lock=self._dispatcher_lock)
                 self._dispatcher = dispatcher
             else:
                 self._dispatcher = weakref.proxy(dispatcher)
@@ -943,7 +943,8 @@ class Queuer:
         processing_state.set()
         while True:
             try:
-                await asyncio.shield(self._single_iteration_queue(source=self._dispatcher_queue, target=self.command_queue))
+                await asyncio.shield(
+                    self._single_iteration_queue(source=self._dispatcher_queue, target=self.command_queue))
             except _queue.Empty:
                 # Wait a moment and try again.
                 await asyncio.sleep(0.5)
@@ -980,7 +981,8 @@ class Queuer:
 
                 # Wait for the queue to drain or the queue runner to exit or fail.
                 drain = asyncio.create_task(self._drain_queue())
-                done, pending = await asyncio.wait({drain, self._queue_runner_task}, return_when=asyncio.FIRST_COMPLETED)
+                done, pending = await asyncio.wait({drain, self._queue_runner_task},
+                                                   return_when=asyncio.FIRST_COMPLETED)
                 assert len(done) > 0
                 if self._queue_runner_task not in done:
                     if drain in done:

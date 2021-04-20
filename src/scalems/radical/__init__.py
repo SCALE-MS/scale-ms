@@ -25,24 +25,20 @@ Executor:
 """
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
+import asyncio
 # Note that we import RP early to allow it to monkey-patch some modules early.
 import contextvars
-import json
-
-from radical import pilot as rp
-
-import asyncio
-import contextlib
 import dataclasses
 import functools
+import json
 import logging
 import os
 import threading
 import typing
 import warnings
 
-import weakref
 import packaging.version
+from radical import pilot as rp
 
 from .. import context as _context
 from ..context import QueueItem
@@ -174,7 +170,8 @@ def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
         logger.error(f'Exception encountered during rp.Task callback: {repr(e)}')
 
 
-async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinalTaskState, ready: asyncio.Event) -> rp.Task:
+async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinalTaskState,
+                           ready: asyncio.Event) -> rp.Task:
     """Manage the relationship between an RP.Task and a scalems Future.
 
     Cancel the RP.Task if this task or the scalems.Future is canceled.
@@ -351,7 +348,8 @@ def _describe_task(item: _context.Task, scheduler: str) -> rp.TaskDescription:
     return task_description
 
 
-async def submit(item: _context.Task, task_manager: rp.TaskManager, submitted: asyncio.Event = None, scheduler: str = None) -> asyncio.Task:
+async def submit(item: _context.Task, task_manager: rp.TaskManager, submitted: asyncio.Event = None,
+                 scheduler: str = None) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
     Registers a Future for the task result with *item*.
@@ -1000,7 +998,8 @@ class RPDispatchingExecutor:
     #     # # Otherwise, the only allowed value from the iterator is None.
 
 
-async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue, task_manager: rp.TaskManager):
+async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue,
+                       task_manager: rp.TaskManager):
     processing_state.set()
     # Note that if an exception is raised here, the queue will never be processed.
     while True:
@@ -1080,6 +1079,7 @@ async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asy
             # and fail to decrement the queue.
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             queue.task_done()
+
 
 class ExecutionContext:
     """WorkflowManager for the Executor side of workflow session dispatching through RADICAL Pilot."""

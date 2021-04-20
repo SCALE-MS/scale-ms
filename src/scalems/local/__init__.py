@@ -17,18 +17,16 @@ import importlib
 import logging
 import os
 import pathlib
-import queue
 import typing
-
 import warnings
 
+from . import operations
 from .. import context as _context
+from ..context import QueueItem
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
 from ..subprocess._subprocess import SubprocessTask
-from . import operations
-from ..context import QueueItem
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -231,8 +229,8 @@ async def run_executor(executor: 'LocalExecutor', *, processing_state: asyncio.E
                     assert not item.done()
                     assert not executor.source_context.item(key).done()
                     task = asyncio.create_task(_execute_item(task_type=task_type,
-                                        item=item,
-                                        execution_context=execution_context))
+                                                             item=item,
+                                                             execution_context=execution_context))
                     executor.submitted_tasks.append(task)
                 # TODO: output handling
                 # TODO: failure handling

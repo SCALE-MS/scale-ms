@@ -9,7 +9,7 @@ import asyncio
 import runpy
 import sys
 
-import scalems.local
+import scalems.exceptions
 
 # We can import scalems.context and set module state before using runpy to
 # execute the script in the current process. This allows us to preconfigure a

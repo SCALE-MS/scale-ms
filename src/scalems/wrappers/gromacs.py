@@ -116,6 +116,7 @@ try:
 
     _gmx_cli_entry_point = cli_executable()
 except ImportError:
+    cli_executable = None
     _gmx_cli_entry_point = None
 if _gmx_cli_entry_point is None:
     _gmx_cli_entry_point = 'gmx'

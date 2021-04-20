@@ -3,15 +3,12 @@
 import logging
 import sys
 import typing
-from typing import NamedTuple
-from typing import Sequence
 
 import radical.pilot as rp
 import radical.utils as ru
 from radical.pilot.raptor.request import Request
 
 logger = logging.getLogger('scalems_rp_master')
-
 
 _RaptorReturnType = typing.Tuple[typing.Text, typing.Text, typing.SupportsInt]
 """Raptor worker task return values are interpreted as a tuple (out, err, ret).
@@ -28,15 +25,14 @@ Constraints on the data type are not yet well-defined.
 Presumably, the object must be "Munch"-able.
 """
 
+_RequestInput = typing.NewType('_RequestInput', typing.Mapping)
+"""Input argument for a raptor.Request instantiation.
 
-class _RequestInput(typing.Mapping):
-    """Input argument for a raptor.Request instantiation.
+Not yet fully specified, but not to be confused with
+raptor.Request instances.
 
-    Not yet fully specified, but not to be confused with
-    raptor.Request instances.
-
-    A dict-like object with at least a *uid* key.
-    """
+A dict-like object with at least a *uid* key.
+"""
 
 
 class RaptorWorkCallable(typing.Protocol[_RaptorWorkData]):

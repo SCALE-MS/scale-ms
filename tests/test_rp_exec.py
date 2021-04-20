@@ -359,6 +359,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
                                    'target': 'pilot:///%s.%s.lnk' % (fname, uid),
                                    'action': rp.LINK}],
                 'pre_exec': pre_exec
+                # 'named_env': 'scalems_env'
             }
         )
 
@@ -370,9 +371,11 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
         # (see https://docs.google.com/drawings/d/1q5ehxIVdln5tXEn34mJyWAmxBk_DqZ5wwkl3En-t5jo/)
 
         # Confirm that Master script is running (and ready to receive raptor tasks)
+        # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
         master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
         assert master.state not in {rp.CANCELED, rp.FAILED}
 
+        # define raptor tasks and submit them to the master
         tds = list()
         # Illustrate data staging as part of raptor task submission.
         # Note that tasks submitted by the client
@@ -414,9 +417,25 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
         # with the Master-submitted (`request()`) tasks. (SCALE-MS #108)
 
         assert len(tasks) == len(tds)
+        # 'arguments' (element 0) gets wrapped in a Request at the Master by _receive_tasks,
+        # then the list of requests is passed to Master.request(), which is presumably
+        # an extension point for derived Master implementations. The base class method
+        # converts requests to dictionaries and adds them to a request queue, from which they are
+        # picked up by the Worker in _request_cb. Then picked up in forked interpreter
+        # by Worker._dispatch, which checks the *mode* of the Request and dispatches
+        # according to native or registered mode implementations. (e.g. 'call' (native) or 'scalems')
+
+        # task process is launched with Python multiprocessing (native) module and added to self._pool.
+        # When the task runs, it's result triggers _result_cb
+
+        # wait for *those* tasks to complete and report results
         tmgr.wait_tasks(uids=[t.uid for t in tasks])
 
+        # Cancel the master.
         tmgr.cancel_tasks(uids=master.uid)
+        # Cancel blocks until the task is done so the following wait it currently redundant,
+        # but there is a ticket open to change this behavior.
+        # See https://github.com/radical-cybertools/radical.pilot/issues/2336
         tmgr.wait_tasks()
 
         # Note that these map as follows:
@@ -434,101 +453,6 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 
     finally:
         session.close(download=False)
-
-
-# ------------------------------------------------------------------------------
-
-def test_rp_raptor_local(rp_task_manager, rp_venv):
-    """Test the core RADICAL Pilot functionality that we rely on using local.localhost.
-
-    Use sample 'master' and 'worker' scripts for to exercise the RP "raptor" features.
-    """
-    import radical.pilot as rp
-    tmgr = rp_task_manager
-
-    if rp_venv:
-        pre_exec = ['. {}/bin/activate'.format(rp_venv)]
-    else:
-        pre_exec = None
-
-    sms_check = tmgr.submit_tasks(
-        rp.TaskDescription(
-            {
-                # 'executable': py_venv,
-                'executable': '/usr/bin/which',
-                'arguments': ['scalems_rp_worker'],
-                'pre_exec': pre_exec
-                # 'named_env': 'scalems_env'
-            }
-        )
-    )
-    scalems_is_installed = tmgr.wait_tasks(uids=[sms_check.uid])[
-                               0] == rp.states.DONE and sms_check.exit_code == 0
-    assert scalems_is_installed
-
-    # define a raptor.scalems master and launch it within the pilot
-    td = rp.TaskDescription(
-        {
-            'uid': 'raptor.scalems',
-            'executable': 'scalems_rp_master'})
-    td.arguments = []
-    td.pre_exec = pre_exec
-    # td.named_env = 'scalems_env'
-    scheduler = tmgr.submit_tasks(td)
-
-    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
-    scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
-
-    assert scheduler.state not in {rp.states.FAILED, rp.states.CANCELED}
-
-    # define raptor tasks and submit them to the master
-    tds = list()
-    for i in range(2):
-        uid = 'scalems.%06d' % i
-        # ------------------------------------------------------------------
-        # work serialization goes here
-        # This dictionary is interpreted by rp.raptor.Master and used to construct
-        # a request for an instance of a rp.raptor.Worker (or subclass).
-        work = json.dumps({'mode': 'call',
-                           'cores': 1,
-                           'timeout': 10,
-                           'data': {'method': 'hello',
-                                    'kwargs': {'world': uid}}})
-        # ------------------------------------------------------------------
-        tds.append(rp.TaskDescription({
-            'uid': uid,
-            'executable': 'scalems',  # This field is ignored by the ScaleMSMaster that receives this submission.
-            'scheduler': 'raptor.scalems',  # 'scheduler' references the task implemented as a
-            'arguments': [work]  # Processed by raptor.Master._receive_tasks
-        }))
-
-    tasks = tmgr.submit_tasks(tds)
-    assert len(tasks) == len(tds)
-    # 'arguments' (element 0) gets wrapped in a Request at the Master by _receive_tasks,
-    # then the list of requests is passed to Master.request(), which is presumably
-    # an extension point for derived Master implementations. The base class method
-    # converts requests to dictionaries and adds them to a request queue, from which they are
-    # picked up by the Worker in _request_cb. Then picked up in forked interpreter
-    # by Worker._dispatch, which checks the *mode* of the Request and dispatches
-    # according to native or registered mode implementations. (e.g. 'call' (native) or 'scalems')
-
-    # task process is launched with Python multiprocessing (native) module and added to self._pool.
-    # When the task runs, it's result triggers _result_cb
-
-    # wait for *those* tasks to complete and report results
-    tmgr.wait_tasks(uids=[t.uid for t in tasks])
-
-    # Cancel the master.
-    tmgr.cancel_tasks(uids=scheduler.uid)
-    # Cancel blocks until the task is done so the following wait it currently redundant,
-    # but there is a ticket open to change this behavior.
-    # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-    tmgr.wait_tasks([scheduler.uid])
-
-    for t in tasks:
-        print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-        assert t.state == rp.states.DONE
-        assert t.exit_code == 0
 
 
 # def test_rp_raptor_remote_docker(sdist, rp_task_manager):

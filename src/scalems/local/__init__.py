@@ -17,178 +17,36 @@ import importlib
 import logging
 import os
 import pathlib
-import queue
 import typing
-import weakref
-from typing import Any
-
-import scalems.context
-from scalems.exceptions import InternalError
-from scalems.exceptions import MissingImplementationError
-from scalems.exceptions import ProtocolError
-from scalems.subprocess._subprocess import SubprocessTask
+import warnings
 
 from . import operations
+from .. import context as _context
+from ..context import QueueItem
+from ..exceptions import InternalError
+from ..exceptions import MissingImplementationError
+from ..exceptions import ProtocolError
+from ..subprocess._subprocess import SubprocessTask
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-
-class QueueItem(typing.Dict[str, Any]):
-    """Queue items are either workflow items or control messages."""
-
-    def _hexify(self):
-        for key, value in self.items():
-            if isinstance(value, bytes):
-                value = value.hex()
-            yield key, value
-
-    def __str__(self) -> str:
-        return str(dict(self._hexify()))
 
 
 # TO DO NEXT: Implement the queue, dispatcher, executor (and internal queue)
 # and, come on... add the fingerprinter... and the basic serializer...  `
 
 
-class AsyncWorkflowManager(scalems.context.WorkflowManager):
+class AsyncWorkflowManager(_context.WorkflowManager):
     """Standard basic workflow context for local execution.
 
     Uses the asyncio module to allow commands to be staged as asyncio coroutines.
 
     There is no implicit OS level multithreading or multiprocessing.
     """
+
     def __init__(self, loop):
+        self._executor_factory = executor_factory
         super(AsyncWorkflowManager, self).__init__(loop)
-
-        # Basic Context implementation details
-        self.task_map = {}  # Map UIDs to task Futures.
-        # Note: We actually need multiple queues and a queue monitor to move
-        # items between queues. The Executor will have a sense of "scope" for
-        # tasks that are grouped by data locality or resource requirements, as
-        # well as sub-graph scope. We also need queue(s) for responses from the
-        # executor with which to update the local work graph state.
-        # When the executor is launched, we can spool the current work graph into
-        # a queue and install a hook for client-side work graph modifications to
-        # also go into the queue. When the executor stops, we need to uninstall that
-        # hook and drain the response queue. I think we need a second async task
-        # to move items from a queue.SimpleQueue to a asyncio.Queue to support the hook.
-        # It might be elegant to do this by calling the `add_item` of the ExecutionContext.
-        # Instead of (at least part of) the return queue, we could proxy asyncio.Task.add_done_callback
-        # with the returned ItemView.
-        # TODO: Consider a more abstract event hook.
-        self._queue: typing.Union[queue.Queue, None] = None
-        # Consider just providing a queue manager and default dispatcher for use
-        # by the base class.
-        self._dispatcher: typing.Union[weakref.ref, None] = None
-        self._dispatcher_lock = asyncio.Lock()
-        # Rely on the GIL to provide a simple event hook.
-        # self._event_hooks = {'add_item': {}}
-
-    @contextlib.asynccontextmanager
-    async def dispatch(self):
-        """Start the executor task, then provide a scope for concurrent activity.
-
-        Provide the executor with any currently-managed work in a queue.
-        While the scope is active, new work added to the queue will be picked up
-        by the executor.
-
-        When leaving the `with` block, trigger the executor clean-up and wait for its task to complete.
-
-        .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
-
-        .. todo:: Allow an externally provided dispatcher factory, or even a running dispatcher?
-
-        """
-        # 1. Install a hook to catch new calls to add_item (the dispatcher_queue) and try not to yield until the current workflow state is obtained.
-        # 2. Get snapshot of current workflow state with which to initialize the dispatcher. (It is now okay to yield.)
-        # 3. Bind a new executor to its queue.
-        # 4. Bind a dispatcher to the executor and the dispatcher_queue.
-        # 5. Allow the executor and dispatcher to start using the event loop.
-
-        # Avoid race conditions while checking for a running dispatcher.
-        async with self._dispatcher_lock:
-            # Dispatching state may be reentrant, but it does not make sense to re-enter through this call structure.
-            if self._dispatcher is not None:
-                raise ProtocolError('Already dispatching through {}.'.format(repr(self._dispatcher())))
-            # For an externally-provided dispatcher:
-            #     else:
-            #         self._dispatcher = weakref.ref(dispatcher)
-
-            # 1. Install a hook to catch new calls to add_item
-            if self._queue is not None:
-                raise ProtocolError('Found unexpected dispatcher queue.')
-            dispatcher_queue = queue.SimpleQueue()
-            self._queue = dispatcher_queue
-
-            # 2. Get snapshot of current workflow state with which to initialize the dispatcher.
-            # TODO: Topologically sort DAG!
-            initial_task_list = list(self.task_map.keys())
-            #  It is now okay to yield.
-
-            # 3. Bind a new executor to its queue.
-            # Note: if there were a reason to decouple the executor lifetime from this scope,
-            # we could consider a more object-oriented interface with it.
-            executor_queue = asyncio.Queue()
-            for _task_id in initial_task_list:
-                await executor_queue.put(QueueItem({'add_item': _task_id}))
-            executor = run_executor(source_context=self, command_queue=executor_queue)
-
-            # 4. Bind a dispatcher to the executor_queue and the dispatcher_queue.
-            # TODO: We should bind the dispatcher directly to the executor, but that requires
-            #  that we make an Executor class with concurrency-safe methods.
-            # dispatcher = run_dispatcher(dispatcher_queue, executor_queue)
-            # self._dispatcher = weakref.ref(dispatcher)
-            # TODO: Toggle active dispatcher state.
-            # scalems.context._dispatcher.set(...)
-
-            # 5. Allow the executor and dispatcher to start using the event loop.
-            executor_task = asyncio.create_task(executor)
-            # asyncio.create_task(dispatcher)
-
-        try:
-            # We can surrender control here and leave the executor and dispatcher tasks running
-            # while evaluating a `with` block suite for the `dispatch` context manager.
-            yield
-
-        except Exception as e:
-            logger.exception('Uncaught exception while in dispatching context: {}'.format(str(e)))
-            raise e
-
-        finally:
-            async with self._dispatcher_lock:
-                self._dispatcher = None
-                self._queue = None
-            # dispatcher_queue.put({'control': 'stop'})
-            # await dispatcher
-            # TODO: Make sure the dispatcher hasn't died. Look for acknowledgement
-            #  of receipt of the Stop command.
-            # TODO: Check status...
-            if not dispatcher_queue.empty():
-                logger.error('Dispatcher finished while items remain in dispatcher queue. Approximate size: {}'.format(dispatcher_queue.qsize()))
-
-            # Stop the executor.
-            executor_queue.put_nowait({'control': 'stop'})
-            await executor_task
-            if executor_task.exception() is not None:
-                raise executor_task.exception()
-
-            # Check that the queue drained.
-            # WARNING: The queue will never finish draining if executor_task fails.
-            #  I.e. don't `await executor_queue.join()`
-            if not executor_queue.empty():
-                raise InternalError('Bug: Executor left tasks in the queue without raising an exception.')
-
-            logger.debug('Exiting {} dispatch context.'.format(type(self).__name__))
-
-            # if loop.is_running():
-            #     # Clean up unawaited tasks.
-            #     loop.run_until_complete(loop.shutdown_asyncgens())
-            #     # Do we need to check the work graph directly?
-            #     # We need to make sure the loop is not running before calling close()
-            #     loop.stop()
-            # Do we want to close the event loop here, as part of scalems.run(), or somewhere else?
-            # loop.close()
 
     async def run(self, task=None, **kwargs):
         """Run the configured workflow.
@@ -233,8 +91,9 @@ class AsyncWorkflowManager(scalems.context.WorkflowManager):
 
 class _ExecutionContext:
     """Represent the run time environment for a managed workflow item."""
-    def __init__(self, manager: scalems.context.WorkflowManager, identifier: bytes):
-        self.workflow_manager: scalems.context.WorkflowManager = manager
+
+    def __init__(self, manager: _context.WorkflowManager, identifier: bytes):
+        self.workflow_manager: _context.WorkflowManager = manager
         self.identifier: bytes = identifier
         try:
             self.workflow_manager.item(self.identifier)
@@ -258,7 +117,7 @@ class _ExecutionContext:
 
 
 # TODO: Consider explicitly decoupling client-facing workflow manager from executor-facing manager.
-async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyncio.Queue):
+async def run_executor(executor: 'LocalExecutor', *, processing_state: asyncio.Event, queue: asyncio.Queue):
     """Process workflow messages until a stop message is received.
 
     Initial implementation processes commands serially without regard for possible
@@ -303,9 +162,25 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
     # Could also accept a "stop" Event object for the loop conditional,
     # but we would still need a way to yield on an empty queue until either
     # the "stop" event or an item arrives, and then we might have to account
-    # for queues that potentially never yield any items.
+    # for queues that potentially never yield any items, such as by sleeping briefly.
+    # We should be able to do
+    #     signal_task = asyncio.create_task(stop_event.wait())
+    #     queue_getter = asyncio.create_task(command_queue.get())
+    #     waiter = asyncio.create_task(asyncio.wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
+    #     while await waiter:
+    #         done, pending = waiter.result()
+    #         assert len(done) == 1
+    #         if signal_task in done:
+    #             break
+    #         else:
+    #             command: QueueItem = queue_getter.result()
+    #         ...
+    #         queue_getter = asyncio.create_task(command_queue.get())
+    #         waiter = asyncio.create_task(asyncio(wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
+    #
+    processing_state.set()
     while True:
-        command: QueueItem = await command_queue.get()
+        command: QueueItem = await queue.get()
         # Developer note: The preceding line and the following try/finally block are coupled!
         # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
         # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block with a
@@ -328,20 +203,21 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
                 raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
 
             key = command['add_item']
-            with source_context.edit_item(key) as item:
-                if not isinstance(item, scalems.context.Task):
-                    raise InternalError('Expected {}.item() to return a scalems.context.Task'.format(repr(source_context)))
+            with executor.source_context.edit_item(key) as item:
+                if not isinstance(item, _context.Task):
+                    raise InternalError(
+                        'Expected {}.item() to return a scalems.context.Task'.format(repr(executor.source_context)))
 
                 # TODO: Ensemble handling
                 item_shape = item.description().shape()
                 if len(item_shape) != 1 or item_shape[0] != 1:
                     raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
 
-                task_type: scalems.context.ResourceType = item.description().type()
+                task_type: _context.ResourceType = item.description().type()
                 # Note that we could insert resource management here. We could create
                 # tasks until we run out of free resources, then switch modes to awaiting
                 # tasks until resources become available, then switch back to placing tasks.
-                execution_context = _ExecutionContext(source_context, key)
+                execution_context = _ExecutionContext(executor.source_context, key)
                 if execution_context.done():
                     if isinstance(key, bytes):
                         id = key.hex()
@@ -351,21 +227,26 @@ async def run_executor(source_context: AsyncWorkflowManager, command_queue: asyn
                     # TODO: Update local status and results.
                 else:
                     assert not item.done()
-                    assert not source_context.item(key).done()
-                    await _execute_item(task_type=task_type,
-                                        item=item,
-                                        execution_context=execution_context)
+                    assert not executor.source_context.item(key).done()
+                    task = asyncio.create_task(_execute_item(task_type=task_type,
+                                                             item=item,
+                                                             execution_context=execution_context))
+                    executor.submitted_tasks.append(task)
                 # TODO: output handling
                 # TODO: failure handling
-
+        except Exception as e:
+            logger.debug('Leaving queue runner due to exception.')
+            raise e
         finally:
+            # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
+            # and fail to decrement the queue.
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
-            command_queue.task_done()
+            queue.task_done()
 
 
 # TODO: return an execution status object?
-async def _execute_item(task_type: scalems.context.ResourceType,
-                        item: scalems.context.Task,
+async def _execute_item(task_type: _context.ResourceType,
+                        item: _context.Task,
                         execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
     if task_type.identifier() == 'scalems.subprocess.SubprocessTask':
@@ -414,6 +295,10 @@ async def _execute_item(task_type: scalems.context.ResourceType,
             if not task_dir.exists():
                 task_dir.mkdir()
             logger.debug(f'Entering {task_dir}')
+            # Note: This limits us to one task-per-process.
+            # TODO: Use one (or more) subprocesses per task, setting the working directory.
+            # The forking may be specialized to the task type, or we can default
+            # to just always forking the Python interpreter.
             with scoped_chdir(task_dir):
                 # TODO: Use implementation registry.
                 # We should have already checked for this...
@@ -469,3 +354,175 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         yield path
     finally:
         os.chdir(original_dir)
+
+
+def executor_factory(context: _context.WorkflowManager):
+    executor = LocalExecutor(
+        source_context=context,
+        loop=context.loop(),
+        dispatcher_lock=context._dispatcher_lock
+    )
+    return executor
+
+
+class LocalExecutor:
+    """Client side manager for work dispatched locally.
+    """
+    source_context: _context.WorkflowManager
+    submitted_tasks: typing.List[asyncio.Task]
+
+    _command_queue: asyncio.Queue
+    _dispatcher_lock: asyncio.Lock
+    _queue_runner_task: asyncio.Task
+
+    def __init__(self,
+                 source_context: _context.WorkflowManager,
+                 loop: asyncio.AbstractEventLoop,
+                 dispatcher_lock=None,
+                 ):
+        """Create a client side execution manager.
+
+        Initialization and deinitialization occurs through
+        the Python (async) context manager protocol.
+        """
+        self.source_context = source_context
+
+        # TODO: Only hold a queue in an active context manager.
+        self._command_queue = asyncio.Queue()
+
+        self._loop: asyncio.AbstractEventLoop = loop
+
+        self.session = None
+        self._finalizer = None
+
+        if not isinstance(dispatcher_lock, asyncio.Lock):
+            raise TypeError('An asyncio.Lock is required to control dispatcher state.')
+        self._dispatcher_lock = dispatcher_lock
+
+        self._exception = None
+        self.submitted_tasks = []
+
+    def queue(self):
+        # TODO: Only expose queue while in an active context manager.
+        return self._command_queue
+
+    async def __aenter__(self):
+        try:
+            # Get a lock while the state is changing.
+            # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
+            # contention, it probably represents an unintended race condition or systematic dead-lock.
+            # TODO: Clarify dispatcher state machine and remove/replace assertions.
+            assert not self._dispatcher_lock.locked()
+            async with self._dispatcher_lock:
+                # self._connect_rp()
+                # if self.session is None or self.session.closed:
+                #     raise ProtocolError('Cannot process queue without a RP Session.')
+
+                # Launch queue processor (proxy executor).
+                runner_started = asyncio.Event()
+                # task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
+                runner_task = asyncio.create_task(run_executor(
+                    executor=self,
+                    processing_state=runner_started,
+                    queue=self._command_queue
+                ))
+                await runner_started.wait()
+                self._queue_runner_task = runner_task
+
+            # Note: it would probably be most useful to return something with a WorkflowManager
+            # interface...
+            return self
+        except Exception as e:
+            self._exception = e
+            raise e
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Clean up at context exit.
+
+        In addition to handling exceptions, the main resource to clean up is the rp.Session.
+
+        We also need to make sure that we properly disengage from any queues or generators.
+
+        We can also leave flags for ourself to be checked at __await__, if there is a Task
+        associated with the Executor.
+        """
+        # Note that this coroutine could take a long time and could be cancelled at several points.
+        cancelled_error = None
+        # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
+        # contention, it probably represents an unintended race condition or systematic dead-lock.
+        # TODO: Clarify dispatcher state machine and remove/replace assertions.
+        assert not self._dispatcher_lock.locked()
+        async with self._dispatcher_lock:
+
+            # if session is None or session.closed:
+            #     logger.error('rp.Session is already closed?!')
+            # else:
+            try:
+                # Stop the executor.
+                logger.debug('Stopping the SCALEMS local executor.')
+                # TODO: Make sure that nothing else will be adding items to the queue from this point.
+                # We should establish some assurance that the next line represents the last thing
+                # that we will put in the queue.
+                self._command_queue.put_nowait({'control': 'stop'})
+                # TODO: Consider what to do differently when we want to cancel work rather than just finalize it.
+
+                # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
+                # Currently, the queue runner does not place subtasks, so there is only one thing to await.
+                # TODO: We should probably allow the user to provide some sort of timeout, or infer one from other time limits.
+                try:
+                    await self._queue_runner_task
+                except asyncio.CancelledError as e:
+                    raise e
+                except Exception as queue_runner_exception:
+                    logger.exception('Unhandled exception when stopping queue handler.', exc_info=True)
+                    self._exception = queue_runner_exception
+                else:
+                    logger.debug('Queue runner task completed.')
+                finally:
+                    if not self._command_queue.empty():
+                        logger.error('Command queue never emptied.')
+
+                    # Wait for the watchers.
+                    if len(self.submitted_tasks) > 0:
+                        results = await asyncio.gather(*self.submitted_tasks)
+
+            except asyncio.CancelledError as e:
+                logger.debug(f'{self.__class__.__qualname__} context manager received cancellation while exiting.')
+                cancelled_error = e
+            except Exception as e:
+                logger.exception('Exception while stopping dispatcher.', exc_info=True)
+                if self._exception:
+                    logger.error('Queuer is already holding an exception.')
+                else:
+                    self._exception = e
+        if cancelled_error:
+            raise cancelled_error
+
+        # Only return true if an exception should be suppressed (because it was handled).
+        # TODO: Catch internal exceptions for useful logging and user-friendliness.
+        if exc_type is not None:
+            return False
+
+    def active(self) -> bool:
+        session = self.session
+        if session is None:
+            return False
+        else:
+            assert session is not None
+            return not session.closed
+
+    def shutdown(self):
+        if self.active():
+            self.session.close()
+            assert self.session.closed
+            # Is there any reason to reuse a closed Session?
+            self.session = None
+        else:
+            warnings.warn('shutdown has been called more than once.')
+
+    def __del__(self):
+        if self.active():
+            warnings.warn('{} was not explicitly shutdown.'.format(repr(self)))
+
+    def exception(self) -> typing.Union[None, Exception]:
+        return self._exception

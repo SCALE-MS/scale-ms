@@ -5,9 +5,10 @@ Specialize implementations of ScaleMS operations.
 import weakref
 
 import scalems.subprocess
-from scalems.exceptions import DispatchError, InternalError
-
-from . import RPFuture, RPResult
+from scalems.exceptions import DispatchError
+from scalems.exceptions import InternalError
+from . import RPFuture
+from . import RPResult
 
 
 def executable(context, task: scalems.subprocess.Subprocess):
@@ -26,12 +27,12 @@ def executable(context, task: scalems.subprocess.Subprocess):
     task_input = task.input_collection()
     args = list([arg for arg in task_input.argv])
     # TODO: stream based input with PIPE.
-    kwargs = {
-        'stdin': None,
-        'stdout': None,
-        'stderr': None,
-        'env': None
-    }
+    # kwargs = {
+    #     'stdin': None,
+    #     'stdout': None,
+    #     'stderr': None,
+    #     'env': None
+    # }
 
     # Construct the RP executable task description.
     # Ref: https://radicalpilot.readthedocs.io/en/stable/apidoc.html#radical.pilot.ComputeUnit
@@ -62,4 +63,5 @@ def executable(context, task: scalems.subprocess.Subprocess):
         # TODO: Can we at least wait on a specific task ID?
         context.umgr.wait_units()
         return future
+
     return coroutine()

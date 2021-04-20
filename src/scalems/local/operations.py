@@ -12,10 +12,10 @@ import shutil
 import typing
 
 import scalems.subprocess
-from scalems.utility import next_monotonic_integer as _next_int
 from scalems.exceptions import InternalError
 from scalems.exceptions import ProtocolError
 from scalems.subprocess._subprocess import OutputFile
+from scalems.utility import next_monotonic_integer as _next_int
 
 
 @dataclasses.dataclass
@@ -139,8 +139,8 @@ async def input_resource_scope(context: _ExecutionContext,
             try:
                 if not os.path.exists(value):
                     raise ValueError('File not found: {}'.format(value))
-            except:
-                raise TypeError('Invalid input (expected file path): {}'.format(repr(value)))
+            except Exception as e:
+                raise TypeError('Invalid input (expected file path): {}'.format(repr(value))) from e
             args.extend([key, value])
 
     if task_input.outputs is not None and len(task_input.inputs) > 0:

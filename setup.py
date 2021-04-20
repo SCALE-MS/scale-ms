@@ -1,24 +1,12 @@
-from setuptools import find_packages, setup
+import os
+import sys
 
-setup(
-    name='scalems',
-    version='0',
-    # Python 3.8 incorporates some valuable typing helpers such as
-    # typing.Protocol (PEP 544), typing.TypedDict (PEP 589), and
-    # https://docs.python.org/3.8/library/functools.html#functools.singledispatchmethod.
-    # We require 3.8 for early development to reduce boiler-plate,
-    # back-ports, and workarounds for faster delivery.
-    # If necessary, we can back-port to Python 3.7.
-    python_requires='>=3.8',
-    packages=find_packages('src'),
-    package_dir={'': 'src'},
-    package_data={
-        # Enable PEP-561 style type hinting and .pyi type hinting files.
-        'scalems': ['py.typed']
-    },
-    url='https://github.com/SCALE-MS/scale-ms/',
-    license='',
-    author='SCALE-MS team',
-    author_email='',
-    description='SCALE-MS data flow scripting and graph execution for molecular science computational research protocols.'
-)
+from setuptools import setup
+
+# The versioneer.py is in the same directory as the setup.py
+sys.path.append(os.path.dirname(__file__))
+import versioneer
+
+# PEP-517 package details are in setup.cfg, but we keep this file for non-PEP-517 capable
+# installations, including "editable" installations with `pip install -e` or `setup.py develop`
+setup(cmdclass=versioneer.get_cmdclass())

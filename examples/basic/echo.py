@@ -26,7 +26,11 @@ import sys
 
 import scalems
 
+
 @scalems.app
 def main():
     cmd = scalems.executable(argv=['/bin/echo'] + sys.argv[1:], stdout='stdout')
     # TODO: Allow Future slicing.
+
+# if __name__ == '__main__':
+#     scalems.run(main)

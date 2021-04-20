@@ -9,7 +9,7 @@ import asyncio
 import runpy
 import sys
 
-import scalems.local
+import scalems.exceptions
 
 # We can import scalems.context and set module state before using runpy to
 # execute the script in the current process. This allows us to preconfigure a
@@ -21,7 +21,6 @@ import scalems.local
 #     Consider generalizing this boilerplate.
 
 # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
-from scalems.utility import _run
 
 logger = scalems.local.logger
 
@@ -56,7 +55,8 @@ try:
             for name, ref in globals_namespace.items():
                 if isinstance(ref, scalems.ScriptEntryPoint):
                     if main is not None:
-                        raise scalems.exceptions.DispatchError('Multiple apps in the same script is not (yet?) supported.')
+                        raise scalems.exceptions.DispatchError(
+                            'Multiple apps in the same script is not (yet?) supported.')
                     main = ref
                     ref.name = name
             if main is None:

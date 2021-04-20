@@ -1,3 +1,4 @@
+build
 coverage
 flake8
 pytest>=6.1.2
@@ -12,6 +13,8 @@ pylint
 pymongo
 python-hostlist
 setproctitle
+tox>=2.0
+
 radical.saga>=1.5.2
 radical.utils>=1.5.2
 # Use pip install -r requirements.txt --upgrade to get branch updates.

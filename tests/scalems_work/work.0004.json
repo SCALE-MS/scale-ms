@@ -1,12 +1,11 @@
-
 {
-    "uid"     : "work.0004",
-    "mode"    : "shell",
-    "cores"   : 1,
-    "gpus"    : 1,
-    "timeout" : 1,
-    "data"    : {
-        "cmd": "export FOO=foo; /bin/echo \"shell: $(date +%s.%N) $FOO\""
-    }
+  "uid": "work.0004",
+  "mode": "shell",
+  "cores": 1,
+  "gpus": 1,
+  "timeout": 1,
+  "data": {
+    "cmd": "export FOO=foo; /bin/echo \"shell: $(date +%s.%N) $FOO\""
+  }
 }
 

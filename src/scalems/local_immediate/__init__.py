@@ -12,8 +12,8 @@ Example:
 
 import scalems.context
 from scalems.context import ItemView
-from scalems.exceptions import DuplicateKeyError, MissingImplementationError
-
+from scalems.exceptions import DuplicateKeyError
+from scalems.exceptions import MissingImplementationError
 from . import operations
 
 

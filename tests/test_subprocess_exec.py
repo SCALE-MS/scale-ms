@@ -11,8 +11,8 @@ import pytest
 
 import scalems.context
 import scalems.local
-from scalems.exceptions import MissingImplementationError
 import scalems.local_immediate
+from scalems.exceptions import MissingImplementationError
 from scalems.subprocess import executable
 
 
@@ -60,7 +60,7 @@ async def test_exec_local(cleandir):
         try:
             cmd = executable(('/bin/cat', '-'), stdin=('hi there\n', 'hello world'), stdout='stdout.txt')
         except Exception as e:
-            raise
+            raise e
         assert isinstance(cmd, scalems.context.ItemView)
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
@@ -73,7 +73,17 @@ async def test_exec_local(cleandir):
         result = cmd.result()  # type: scalems.subprocess.SubprocessResult
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
-            output = list([line.rstrip() for line in fh])
-        assert output[0] == 'hi there'
-        assert output[1] == 'hello world'
-        assert len(output) == 2
+            assert fh.read().startswith('hi there')
+    with scalems.context.scope(scalems.local.AsyncWorkflowManager(asyncio.get_event_loop())) as context:
+        # TODO: Future interface allows client to force resolution of dependencies.
+        # cmd.result()
+        # TODO: #82
+        # scalems.run(cmd)
+        async with context.dispatch():
+            # TODO: Input type checking.
+            cmd = executable(('/bin/echo', 'hello', 'world'), stdout='stdout.txt')
+            assert isinstance(cmd, scalems.context.ItemView)
+        result = cmd.result()  # type: scalems.subprocess.SubprocessResult
+        assert result.stdout.name == 'stdout.txt'
+        with open(result.stdout) as fh:
+            assert fh.read().startswith('hello world')

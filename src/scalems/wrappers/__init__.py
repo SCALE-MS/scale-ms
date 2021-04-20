@@ -43,7 +43,8 @@ Utility functions:
         to defer the question of whether trajectory sources are assumed to have a
         `trajectory` instance attribute.
 
-    collect_coordinates(trajectories: scalems.Iterable[scalems.Iterable[Conformation]]) -> scalems.Iterable[Conformation]:
+    collect_coordinates(trajectories: scalems.Iterable[scalems.Iterable[Conformation]]) ->
+            scalems.Iterable[Conformation]:
         Some data hierarchies or topological transformations need to be performed
         by native tools. *collect_coordinates* creates a single iterable of
         system conformations from a collection of sources of conformation data.

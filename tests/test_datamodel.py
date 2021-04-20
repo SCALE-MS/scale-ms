@@ -76,7 +76,7 @@ record = """{
                     "type"= ["scalems", "Mapping"],
                     "shape"= [1]
                 }
-            }            
+            }
         },
         "scalems.SubprocessResult" = {
             "schema" = {
@@ -257,8 +257,8 @@ def test_encoding_int():
     Note: We may choose not to support certain forms of integer data for the full round trip.
     """
     series = [1, 1, 2, 3, 5]
-    length = len(series)
-    shape = (length,)
+    # length = len(series)
+    # shape = (length,)
 
     # Test bare native int list.
     serialized = json.dumps(series, default=encode)
@@ -270,7 +270,7 @@ def test_encoding_int():
     # assert round_trip.dtype() == ('scalems', 'Integer')
 
     array = [[1, 1], [2, 1], [8, 9]]
-    shape = (3, 2)
+    # shape = (3, 2)
     serialized = json.dumps(array, default=encode)
     round_trip = json.loads(serialized)
     for rowA, rowB in zip(array, round_trip):

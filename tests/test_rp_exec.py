@@ -299,8 +299,7 @@ def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
     assert False
 
 
-# ------------------------------------------------------------------------------
-#
+@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 def test_rp_raptor_staging(pilot_description, rp_venv):
     """Test file staging for raptor Master and Worker tasks.
 

@@ -26,6 +26,7 @@ Executor:
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
 # Note that we import RP early to allow it to monkey-patch some modules early.
+import contextvars
 import json
 
 from radical import pilot as rp
@@ -34,14 +35,11 @@ import asyncio
 import contextlib
 import dataclasses
 import functools
-import inspect
 import logging
 import os
-import queue as _queue
 import threading
 import typing
 import warnings
-from typing import Any
 
 import weakref
 import packaging.version
@@ -58,12 +56,38 @@ from ..exceptions import ScaleMSError
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
+# TODO: Consider scoping for these Workflow context variables.
+# Need to review PEP-567 and PEP-568 to consider where and how to scope the Context
+# with respect to the dispatching scope.
+execution_target = contextvars.ContextVar('execution_target', default='local.localhost')
+resource_params = contextvars.ContextVar('resource_params')
+# TODO: Consider alternatives for getting a default venv.
+target_venv = contextvars.ContextVar('target_venv', default='/home/rp/rp-venv')
+
 
 @dataclasses.dataclass
 class RPParams:
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None
+
+
+def executor_factory(context: _context.WorkflowManager):
+    try:
+        rp_resource_params = resource_params.get()
+    except LookupError:
+        rp_resource_params = {}
+
+    executor = RPDispatchingExecutor(source_context=context,
+                                     loop=context.loop(),
+                                     rp_params=RPParams(
+                                         execution_target=execution_target.get(),
+                                         rp_resource_params=rp_resource_params,
+                                         target_venv=target_venv.get()
+                                     ),
+                                     dispatcher_lock=context._dispatcher_lock,
+                                     )
+    return executor
 
 
 class RPWorkflowContext(_context.WorkflowManager):
@@ -86,128 +110,8 @@ class RPWorkflowContext(_context.WorkflowManager):
     """
 
     def __init__(self, loop):
+        self._executor_factory = executor_factory
         super(RPWorkflowContext, self).__init__(loop)
-
-    @contextlib.asynccontextmanager
-    async def dispatch(self, dispatcher: _context.Queuer = None):
-        """Enter the execution dispatching state.
-
-        Attach to a dispatching executor, then provide a scope for concurrent activity.
-        This is also the scope during which the RADICAL Pilot Session exists.
-
-        Provide the executor with any currently-managed work in a queue.
-        While the context manager is active, new work added to the queue will be picked up
-        by the executor. When the context manager is exited, new work will resume
-        queuing locally and the remote tasks will be resolved, then the dispatcher
-        will be disconnected.
-
-        Currently, we tie the lifetime of the dispatcher to this context manager.
-        When leaving the `with` block, we trigger the executor to clean-up and wait for its task to complete.
-        We may choose some other relationship in the future.
-
-        .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
-
-        """
-
-        # 1. Bind a new executor to its queue.
-        # 2. Bind a dispatcher to the executor.
-        # 3. Enter executor context.
-        # 4. Enter dispatcher context.
-        #         # 1. (While blocking event loop in UI thread) Install a hook for the queuer to catch new calls to add_item (the dispatcher_queue).
-        #         # 2. Get snapshot of current workflow state with which to initialize the executor. (Unblock.)
-        #         # 3. Spool workflow snapshot to executor.
-        #         # 4. Start dispatcher queue runner.
-        #         # 5. Yield.
-        # 5. Exit dispatcher context.
-        # 6. Exit executor context.
-        # TODO: Add lock context for WorkflowManager event hooks rather than assume the UI and event loop are always in the same thread.
-
-        execution_target = getattr(self, '_rp_execution_target', 'local.localhost')
-        rp_resource_params = getattr(self, '_rp_resource_params', {})
-
-        # At least for now, the executor is an internal detail of the WorkflowManager dispatch() context manager.
-        executor = RPDispatchingExecutor(source_context=self,
-                                         loop=self._asyncio_event_loop,
-                                         rp_params=RPParams(
-                                             execution_target=execution_target,
-                                             rp_resource_params=rp_resource_params,
-                                             target_venv='/home/rp/rp-venv'
-                                         ),
-                                         dispatcher_lock=self._dispatcher_lock,
-                                         )
-
-        # Avoid race conditions while checking for a running dispatcher.
-        # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-        # contention, it probably represents an unintended race condition or systematic dead-lock.
-        assert not self._dispatcher_lock.locked()
-        async with self._dispatcher_lock:
-            # Dispatching state may be reentrant, but it does not make sense to re-enter through this call structure.
-            if self._dispatcher is not None:
-                raise ProtocolError('Already dispatching through {}.'.format(repr(self._dispatcher())))
-            if dispatcher is None:
-                dispatcher = _context.Queuer(source_context=self,
-                                             # TODO: Only get queue from executor within executor context manager.
-                                             command_queue=executor.queue(),
-                                             dispatcher_lock=self._dispatcher_lock)
-                self._dispatcher = dispatcher
-            else:
-                self._dispatcher = weakref.proxy(dispatcher)
-
-        try:
-            # Manage scope of executor operation with a context manager.
-            # RP does not yet use an event loop, but we can use async context manager
-            # for future compatibility with asyncio management of network connections, etc.
-            #
-            # Note: the executor owns a rp.Session during operation.
-            async with executor as dispatching_session:
-                async with dispatcher as add_item_handler:
-                    # We can surrender control here and leave the executor and dispatcher tasks active
-                    # while evaluating a `with` block suite for the `dispatch` context manager.
-                    yield dispatching_session
-                # Executor receives a *stop* command in __aexit__.
-
-        except Exception as e:
-            logger.exception('Uncaught exception while in dispatching context: {}'.format(str(e)))
-            raise e
-
-        finally:
-            # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-            # contention, it probably represents an unintended race condition or systematic dead-lock.
-            # TODO: Clarify dispatcher state machine and remove/replace assertions.
-            #       Be on the look-out for nested context managers and usage in `finally` blocks.
-            assert not self._dispatcher_lock.locked()
-            async with self._dispatcher_lock:
-                self._dispatcher = None
-
-            dispatcher_exception = dispatcher.exception()
-            if dispatcher_exception:
-                if isinstance(dispatcher_exception, asyncio.CancelledError):
-                    logger.info('Dispatching queue processor cancelled.')
-                else:
-                    assert not isinstance(dispatcher_exception, asyncio.CancelledError)
-                    logger.exception('Queuer encountered exception.', exc_info=dispatcher_exception)
-            else:
-                if not dispatcher.queue().empty():
-                    logger.error('Queuer finished while items remain in dispatcher queue. Approximate size: {}'.format(
-                        dispatcher.queue().qsize()))
-
-            executor_exception = executor.exception()
-            if executor_exception:
-                if isinstance(executor_exception, asyncio.CancelledError):
-                    logger.info('Executor cancelled.')
-                else:
-                    assert not isinstance(executor_exception, asyncio.CancelledError)
-                    logger.exception('Executor task finished with exception', exc_info=executor_exception)
-            else:
-                if not executor.queue().empty():
-                    # TODO: Handle non-empty queue.
-                    # There are various reasons that the queue might not be empty and we should
-                    # clean up properly instead of bailing out or compounding exceptions.
-                    # TODO: Check for extraneous extra *stop* commands.
-                    logger.error('Bug: Executor left tasks in the queue without raising an exception.')
-
-            logger.debug('Exiting {} dispatch context.'.format(type(self).__name__))
 
 
 class RPResult:
@@ -446,7 +350,7 @@ def _describe_task(item: _context.Task, scheduler: str) -> rp.TaskDescription:
     return task_description
 
 
-async def submit_rp_task(item: _context.Task, task_manager: rp.TaskManager, submitted: asyncio.Event = None, scheduler: str = None) -> asyncio.Task:
+async def submit(item: _context.Task, task_manager: rp.TaskManager, submitted: asyncio.Event = None, scheduler: str = None) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
     Registers a Future for the task result with *item*.
@@ -566,7 +470,7 @@ class RPDispatchingExecutor:
     scheduler: typing.Union[rp.Task, None]
     session: typing.Union[rp.Session, None]
     source_context: _context.WorkflowManager
-    rp_tasks: typing.List[asyncio.Task]
+    submitted_tasks: typing.List[asyncio.Task]
 
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
@@ -620,7 +524,7 @@ class RPDispatchingExecutor:
         self.pilot = None
         self.scheduler = None
         self._exception = None
-        self.rp_tasks = []
+        self.submitted_tasks = []
 
     def queue(self):
         # TODO: Only expose queue while in an active context manager.
@@ -641,7 +545,10 @@ class RPDispatchingExecutor:
                 # Launch queue processor (proxy executor).
                 runner_started = asyncio.Event()
                 task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                runner_task = asyncio.create_task(self._queue_runner(task_manager, runner_started))
+                runner_task = asyncio.create_task(run_executor(self,
+                                                               task_manager=task_manager,
+                                                               processing_state=runner_started,
+                                                               queue=self._command_queue))
                 await runner_started.wait()
                 self._queue_runner_task = runner_task
 
@@ -903,87 +810,6 @@ class RPDispatchingExecutor:
         except Exception as e:
             raise DispatchError('Failed to launch SCALE-MS master task.') from e
 
-    async def _queue_runner(self, task_manager: rp.TaskManager, processing_state: asyncio.Event):
-        processing_state.set()
-        # Note that if an exception is raised here, the queue will never be processed.
-        while True:
-            # Note: If the function exits at this line, the queue may be missing a call
-            #  to task_done() and should not be `join()`ed. It does not seem completely
-            #  clear whether the `get()` will have completed if the task for this function
-            #  is canceled or a Task.send() or Task.throw() is used. Alternatively, we could
-            #  include the `get()` in the `try` block and catch a possible ValueError at the
-            #  task_done() call, in case we arrive there without Queue.get() having completed.
-            #  However, that could allow a Queue.join() to complete early by accident.
-            command: QueueItem = await self._command_queue.get()
-            try:
-                logger.debug(f'Processing command {repr(command)}')
-                # TODO: Use formal RPC protocol.
-                if 'control' in command:
-                    if command['control'] == 'stop':
-                        logger.debug('Dispatching executor received stop command.')
-                        # This effectively breaks the `while True` loop, but may not be obvious.
-                        # Consider explicit `break` to clarify that we want to run off the end
-                        # of the function.
-                        return
-                    else:
-                        raise ProtocolError('Unknown command: {}'.format(command['control']))
-                else:
-                    if 'add_item' not in command:
-                        # TODO: We might want a call-back or Event to force errors before the queue-runner task is awaited.
-                        raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
-
-                key = command['add_item']
-                with self.source_context.edit_item(key) as item:
-                    if not isinstance(item, _context.Task):
-                        raise InternalError(
-                            'Bug: Expected {}.edit_item() to return a _context.Task'.format(repr(self.source_context)))
-
-                    # TODO: Ensemble handling
-                    item_shape = item.description().shape()
-                    if len(item_shape) != 1 or item_shape[0] != 1:
-                        raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
-
-                    # Bind the WorkflowManager item to an RP Task.
-
-                    # TODO: Optimization: skip tasks that are already done.
-                    # TODO: Check task dependencies.
-                    submitted = asyncio.Event()  # Not yet used.
-                    task: asyncio.Task[rp.Task] = await submit_rp_task(
-                        item,
-                        task_manager=task_manager,
-                        submitted=submitted,
-                        scheduler=self.scheduler.uid)
-
-                    self.rp_tasks.append(task)
-
-                    # This is the role of the Executor, not the Dispatcher.
-                    # task_type: _context.ResourceType = item.description().type()
-                    # # Note that we could insert resource management here. We could create
-                    # # tasks until we run out of free resources, then switch modes to awaiting
-                    # # tasks until resources become available, then switch back to placing tasks.
-                    # execution_context = _ExecutionContext(source_context, key)
-                    # if execution_context.done():
-                    #     if isinstance(key, bytes):
-                    #         id = key.hex()
-                    #     else:
-                    #         id = str(key)
-                    #     logger.info(f'Skipping task that is already done. ({id})')
-                    #     # TODO: Update local status and results.
-                    # else:
-                    #     assert not item.done()
-                    #     assert not source_context.item(key).done()
-                    #     await _execute_item(task_type=task_type,
-                    #                         item=item,
-                    #                         execution_context=execution_context)
-            except Exception as e:
-                logger.debug('Leaving queue runner due to exception.')
-                raise e
-            finally:
-                # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
-                # and fail to decrement the queue.
-                logger.debug('Releasing "{}" from command queue.'.format(str(command)))
-                self._command_queue.task_done()
-
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Clean up at context exit.
 
@@ -1049,8 +875,8 @@ class RPDispatchingExecutor:
                         # end annotation
 
                         # Wait for the watchers.
-                        if len(self.rp_tasks) > 0:
-                            results = await asyncio.gather(*self.rp_tasks)
+                        if len(self.submitted_tasks) > 0:
+                            results = await asyncio.gather(*self.submitted_tasks)
 
                         # Cancel the master.
                         logger.debug('Canceling the master scheduling task.')
@@ -1172,6 +998,87 @@ class RPDispatchingExecutor:
     #     # return self.result()  # May raise too.
     #     # # Otherwise, the only allowed value from the iterator is None.
 
+
+async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue, task_manager: rp.TaskManager):
+    processing_state.set()
+    # Note that if an exception is raised here, the queue will never be processed.
+    while True:
+        # Note: If the function exits at this line, the queue may be missing a call
+        #  to task_done() and should not be `join()`ed. It does not seem completely
+        #  clear whether the `get()` will have completed if the task for this function
+        #  is canceled or a Task.send() or Task.throw() is used. Alternatively, we could
+        #  include the `get()` in the `try` block and catch a possible ValueError at the
+        #  task_done() call, in case we arrive there without Queue.get() having completed.
+        #  However, that could allow a Queue.join() to complete early by accident.
+        command: QueueItem = await queue.get()
+        try:
+            logger.debug(f'Processing command {repr(command)}')
+            # TODO: Use formal RPC protocol.
+            if 'control' in command:
+                if command['control'] == 'stop':
+                    logger.debug('Dispatching executor received stop command.')
+                    # This effectively breaks the `while True` loop, but may not be obvious.
+                    # Consider explicit `break` to clarify that we want to run off the end
+                    # of the function.
+                    return
+                else:
+                    raise ProtocolError('Unknown command: {}'.format(command['control']))
+            else:
+                if 'add_item' not in command:
+                    # TODO: We might want a call-back or Event to force errors before the queue-runner task is awaited.
+                    raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
+
+            key = command['add_item']
+            with executor.source_context.edit_item(key) as item:
+                if not isinstance(item, _context.Task):
+                    raise InternalError(
+                        'Bug: Expected {}.edit_item() to return a _context.Task'.format(repr(executor.source_context)))
+
+                # TODO: Ensemble handling
+                item_shape = item.description().shape()
+                if len(item_shape) != 1 or item_shape[0] != 1:
+                    raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
+
+                # Bind the WorkflowManager item to an RP Task.
+
+                # TODO: Optimization: skip tasks that are already done.
+                # TODO: Check task dependencies.
+                submitted = asyncio.Event()  # Not yet used.
+                task: asyncio.Task[rp.Task] = await submit(
+                    item,
+                    task_manager=task_manager,
+                    submitted=submitted,
+                    scheduler=executor.scheduler.uid)
+
+                executor.submitted_tasks.append(task)
+
+                # This is the role of the Executor, not the Dispatcher.
+                # task_type: _context.ResourceType = item.description().type()
+                # # Note that we could insert resource management here. We could create
+                # # tasks until we run out of free resources, then switch modes to awaiting
+                # # tasks until resources become available, then switch back to placing tasks.
+                # execution_context = _ExecutionContext(source_context, key)
+                # if execution_context.done():
+                #     if isinstance(key, bytes):
+                #         id = key.hex()
+                #     else:
+                #         id = str(key)
+                #     logger.info(f'Skipping task that is already done. ({id})')
+                #     # TODO: Update local status and results.
+                # else:
+                #     assert not item.done()
+                #     assert not source_context.item(key).done()
+                #     await _execute_item(task_type=task_type,
+                #                         item=item,
+                #                         execution_context=execution_context)
+        except Exception as e:
+            logger.debug('Leaving queue runner due to exception.')
+            raise e
+        finally:
+            # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
+            # and fail to decrement the queue.
+            logger.debug('Releasing "{}" from command queue.'.format(str(command)))
+            queue.task_done()
 
 class ExecutionContext:
     """WorkflowManager for the Executor side of workflow session dispatching through RADICAL Pilot."""

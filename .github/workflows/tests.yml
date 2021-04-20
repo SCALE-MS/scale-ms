@@ -58,7 +58,7 @@ jobs:
         python -m pip install --upgrade pip setuptools
         python -m pip install -r requirements-testing.txt
         python -m pip install --upgrade .
-        python -m pip install pytest-cov codecov
+        python -m pip install pytest-cov
     - name: Test with pytest
       env:
         # use localhost for the host here because we are running the job on the VM.
@@ -68,13 +68,17 @@ jobs:
         RADILCAL_PILOT_DBURL:  mongodb://localhost:${{ job.services.mongodb.ports[27017] }}/test
       run: |
         . testenv/bin/activate
-        # python -X dev -m pytest --cov=scalems -rA tests --rp-venv $PWD/testenv
-        python -X dev -m pytest --cov=scalems -rA tests
+        python -X dev -m pytest --cov=scalems --cov-report=xml -rA tests --rp-venv $PWD/testenv
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
-        token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
+        name: codecov-umbrella
+        path_to_write_report: ./coverage/codecov_report.txt
+    - name: "Report"
+      run: |
+        cat ./coverage/codecov_report.txt
+        cat ./coverage.xml
 
   lint:
     runs-on: ubuntu-latest

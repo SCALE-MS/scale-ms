@@ -62,9 +62,7 @@ def test_rp_usability(pilot_description):
 
 
 def test_rp_basic_task_local(rp_task_manager, pilot_description):
-    if pilot_description.resource != 'local.localhost' \
-            and pilot_description.access_schema \
-            and pilot_description.access_schema != 'local':
+    if pilot_description.access_schema and pilot_description.access_schema != 'local':
         pytest.skip('This test is only for local execution.')
 
     from radical.pilot import TaskDescription
@@ -81,7 +79,7 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description):
 def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
-    if pilot_description.resource == 'local.localhost':
+    if pilot_description.access_schema and pilot_description.access_schema == 'local':
         pytest.skip('This test is only for remote execution.')
 
     tmgr = rp_task_manager
@@ -104,6 +102,14 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
 
 @pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 def test_prepare_venv(rp_task_manager, sdist):
+    """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
+
+    This test function specifically tests the local.localhost resource.
+
+    Note that we cannot wait on the environment preparation directly, but we can define
+    a task with ``named_env`` matching the *prepare_env* key to implicitly depend on
+    successful creation.
+    """
     # NOTE: *sdist* is a path of an sdist archive that we could stage for the venv installation.
     # QUESTION: Can't we use the radical.pilot package archive that was already placed for bootstrapping the pilot?
 
@@ -264,39 +270,26 @@ async def test_rp_future(rp_task_manager):
     # TODO: Use a separate test for results and error handling.
 
 
-@pytest.mark.skip(reason='Unimplemented.')
-def test_rp_scalems_environment_preparation_local(rp_task_manager):
-    """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
-
-    This test function specifically tests the local.localhost resource.
-
-    Note that we cannot wait on the environment preparation directly, but we can define
-    a task with ``named_env`` matching the *prepare_env* key to implicitly depend on
-    successful creation.
-    """
-    assert False
-
-
-@pytest.mark.skip(reason='Unimplemented.')
-def test_staging(sdist, rp_task_manager):
-    """Confirm that we are able to bundle and install the package currently being tested."""
-    # Use the `sdist` fixture to bundle the current package.
-    # Copy the sdist archive to the RP target resource.
-    # Create through an RP task that includes the sdist as input staging data.
-    # Unpack and install the sdist.
-    # Confirm matching versions.
-    # TODO: Test both with and without a provided config file.
-    assert False
+# @pytest.mark.skip(reason='Unimplemented.')
+# def test_staging(sdist, rp_task_manager):
+#     """Confirm that we are able to bundle and install the package currently being tested."""
+#     # Use the `sdist` fixture to bundle the current package.
+#     # Copy the sdist archive to the RP target resource.
+#     # Create through an RP task that includes the sdist as input staging data.
+#     # Unpack and install the sdist.
+#     # Confirm matching versions.
+#     # TODO: Test both with and without a provided config file.
+#     assert False
 
 
-@pytest.mark.skip(reason='Unimplemented.')
-def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
-    """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
-
-    This test function specifically tests ssh-based dispatching to a resource
-    other than local.localhost. We will use a mongodb and sshd running in Docker.
-    """
-    assert False
+# @pytest.mark.skip(reason='Unimplemented.')
+# def test_rp_scalems_environment_preparation_remote_docker(rp_task_manager):
+#     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
+#
+#     This test function specifically tests ssh-based dispatching to a resource
+#     other than local.localhost. We will use a mongodb and sshd running in Docker.
+#     """
+#     assert False
 
 
 @pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
@@ -528,7 +521,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 #         assert t.exit_code == 0
 
 
-# TODO: Provide PilotDescription to dispatcher.
+@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping problematic test in CI environment.')
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @pytest.mark.asyncio
 async def test_exec_rp(pilot_description, rp_venv):

@@ -58,7 +58,7 @@ logger.debug('Importing {}'.format(__name__))
 execution_target = contextvars.ContextVar('execution_target', default='local.localhost')
 resource_params = contextvars.ContextVar('resource_params')
 # TODO: Consider alternatives for getting a default venv.
-target_venv = contextvars.ContextVar('target_venv', default='/home/rp/rp-venv')
+target_venv = contextvars.ContextVar('target_venv')
 
 
 @dataclasses.dataclass
@@ -79,7 +79,7 @@ def executor_factory(context: _context.WorkflowManager):
                                      rp_params=RPParams(
                                          execution_target=execution_target.get(),
                                          rp_resource_params=rp_resource_params,
-                                         target_venv=target_venv.get()
+                                         target_venv=target_venv.get(default=None)
                                      ),
                                      dispatcher_lock=context._dispatcher_lock,
                                      )

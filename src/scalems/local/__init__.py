@@ -356,7 +356,8 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         os.chdir(original_dir)
 
 
-def executor_factory(context: _context.WorkflowManager):
+# TODO: Normalize executor factory signature and handling.
+def executor_factory(context: _context.WorkflowManager, *args, **kwargs):
     executor = LocalExecutor(
         source_context=context,
         loop=context.loop(),

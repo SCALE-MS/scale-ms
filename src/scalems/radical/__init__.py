@@ -79,7 +79,7 @@ def executor_factory(context: _context.WorkflowManager):
                                      rp_params=RPParams(
                                          execution_target=execution_target.get(),
                                          rp_resource_params=rp_resource_params,
-                                         target_venv=target_venv.get(default=None)
+                                         target_venv=target_venv.get(None)
                                      ),
                                      dispatcher_lock=context._dispatcher_lock,
                                      )

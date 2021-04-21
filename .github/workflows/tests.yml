@@ -71,7 +71,7 @@ jobs:
       run: |
         . $PWD/testenv/bin/activate
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
-        python -X dev -m pytest --cov=scalems --cov-report=xml -rA tests --rp-venv $PWD/testenv
+        python -X dev -m pytest --cov=scalems --cov-report=xml -rA tests/test_rp_exec.py::test_rp_usability --rp-venv $PWD/testenv
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:

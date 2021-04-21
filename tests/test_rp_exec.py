@@ -607,7 +607,7 @@ def test_rp_raptor_local(rp_task_manager, rp_venv):
 # TODO: Provide PilotDescription to dispatcher.
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @pytest.mark.asyncio
-async def test_exec_rp(pilot_description):
+async def test_exec_rp(pilot_description, rp_venv):
     """Test that we are able to launch and shut down a RP dispatched execution session.
 
     TODO: Where should we specify the target resource? An argument to *dispatch()*?
@@ -618,11 +618,15 @@ async def test_exec_rp(pilot_description):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Test RPDispatcher context
     context = scalems.radical.RPWorkflowContext(loop)
+    params = scalems.radical.RPParams(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv
+    )
     with scalems.context.scope(context):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         cmd1 = scalems.executable(('/bin/echo',))
-        async with context.dispatch():
+        async with context.dispatch(params=params):
             cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.

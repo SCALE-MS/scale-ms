@@ -63,24 +63,23 @@ target_venv = contextvars.ContextVar('target_venv')
 
 @dataclasses.dataclass
 class RPParams:
+    # Note that the use cases for this dataclass interact with module ContextVars, pending refinement.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None
 
 
-def executor_factory(context: _context.WorkflowManager):
-    try:
-        rp_resource_params = resource_params.get()
-    except LookupError:
-        rp_resource_params = {}
+def executor_factory(context: _context.WorkflowManager, params: RPParams = None):
+    if params is None:
+        params = RPParams(
+            execution_target=execution_target.get(),
+            rp_resource_params=resource_params.get({}),
+            target_venv=target_venv.get(None)
+        )
 
     executor = RPDispatchingExecutor(source_context=context,
                                      loop=context.loop(),
-                                     rp_params=RPParams(
-                                         execution_target=execution_target.get(),
-                                         rp_resource_params=rp_resource_params,
-                                         target_venv=target_venv.get(None)
-                                     ),
+                                     rp_params=params,
                                      dispatcher_lock=context._dispatcher_lock,
                                      )
     return executor
@@ -467,7 +466,7 @@ class RPDispatchingExecutor:
     """
     execution_target: str
     scheduler: typing.Union[rp.Task, None]
-    session: typing.Union[rp.Session, None]
+    session: typing.Union[rp.Session, None] = None
     source_context: _context.WorkflowManager
     submitted_tasks: typing.List[asyncio.Task]
 
@@ -492,6 +491,13 @@ class RPDispatchingExecutor:
         if 'RADICAL_PILOT_DBURL' not in os.environ:
             raise DispatchError('RADICAL Pilot environment is not available.')
 
+        self._loop: asyncio.AbstractEventLoop = loop
+        self.session = None
+        self._finalizer = None
+        self.pilot = None
+        self.scheduler = None
+        self._exception = None
+
         if not isinstance(rp_params.target_venv, str) or len(rp_params.target_venv) == 0:
             raise ValueError('Caller must specify a venv to be activated by the execution agent for dispatched tasks.')
         else:
@@ -511,18 +517,10 @@ class RPDispatchingExecutor:
             raise TypeError(
                 f'RP Resource Parameters are expected to be dict-like. Got {repr(rp_params.rp_resource_params)}') from e
 
-        self._loop: asyncio.AbstractEventLoop = loop
-
-        self.session = None
-        self._finalizer = None
-
         if not isinstance(dispatcher_lock, asyncio.Lock):
             raise TypeError('An asyncio.Lock is required to control dispatcher state.')
         self._dispatcher_lock = dispatcher_lock
 
-        self.pilot = None
-        self.scheduler = None
-        self._exception = None
         self.submitted_tasks = []
 
     def queue(self):

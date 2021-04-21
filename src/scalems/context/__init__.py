@@ -579,7 +579,7 @@ class WorkflowManager(abc.ABC):
         return None
 
     @contextlib.asynccontextmanager
-    async def dispatch(self, dispatcher: 'Queuer' = None):
+    async def dispatch(self, dispatcher: 'Queuer' = None, params=None):
         """Enter the execution dispatching state.
 
         Attach to a dispatching executor, then provide a scope for concurrent activity.
@@ -594,6 +594,10 @@ class WorkflowManager(abc.ABC):
         Currently, we tie the lifetime of the dispatcher to this context manager.
         When leaving the `with` block, we trigger the executor to clean-up and wait for its task to complete.
         We may choose some other relationship in the future.
+
+        Args:
+            dispatcher: A queue processor that will subscribe to the add_item hook to feed the executor.
+            params: a parameters object relevant to the execution back-end
 
         .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
 
@@ -612,7 +616,7 @@ class WorkflowManager(abc.ABC):
         # 6. Exit executor context.
         # TODO: Add lock context for WorkflowManager event hooks rather than assume the UI and event loop are always in the same thread.
 
-        executor = self._executor_factory(context=self)
+        executor = self._executor_factory(context=self, params=params)
 
         # Avoid race conditions while checking for a running dispatcher.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.

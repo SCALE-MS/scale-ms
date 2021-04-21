@@ -69,7 +69,7 @@ jobs:
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
-        . testenv/bin/activate
+        . $PWD/testenv/bin/activate
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         python -X dev -m pytest --cov=scalems --cov-report=xml -rA tests --rp-venv $PWD/testenv
     - name: "Upload coverage to Codecov"

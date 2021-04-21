@@ -69,29 +69,23 @@ RUN rp-venv/bin/pip install --no-cache-dir --upgrade \
         python-hostlist \
         setproctitle
 
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --no-cache-dir --upgrade \
-        'radical.saga>=1.5.2' \
-        'radical.utils>=1.5.2'
-
 RUN  mkdir -p ~/.radical/pilot/configs
 
 COPY --chown=rp:radical resource_local.json /home/rp/.radical/pilot/configs
 
-ARG RPREF="project/scalems"
-
-# Note: radical.pilot does not work properly with an "editable install"
-#RUN (cd ~rp && \
-#    . ~rp/rp-venv/bin/activate && \
-#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
-#    cd radical.pilot && \
-#    pip install -e . \
-#    )
-
 WORKDIR /home/rp
+
+# If using the PyCharm debug server, install the pydevd-pycharm package corresponding to the IDE version,
+# and set up the IDE to sync the project with an agreed-upon container directory: `/tmp/pycharm_scalems`
+ARG PYCHARM=211.6693.115
+RUN . ~rp/rp-venv/bin/activate && \
+    pip install --no-cache-dir pydevd-pycharm~=$PYCHARM && \
+    mkdir /tmp/pycharm_scalems
+
+ARG RPREF="project/scalems"
 RUN . ~rp/rp-venv/bin/activate && \
     pip uninstall -y radical.pilot && \
-    pip install --no-cache-dir --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
+    pip install --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
 
 # WARNING!!! Security risk!
 # Allow rp user to trivially ssh into containers created from this image.
@@ -101,13 +95,6 @@ RUN mkdir ~rp/.ssh && \
     cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "localhost " $1 " " $2}' > ~/.ssh/known_hosts && \
     cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "compute " $1 " " $2}' >> ~/.ssh/known_hosts && \
     cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "login " $1 " " $2}' >> ~/.ssh/known_hosts
-
-# If using the PyCharm debug server, install the pydevd-pycharm package corresponding to the IDE version,
-# and set up the IDE to sync the project with an agreed-upon container directory: `/tmp/pycharm_scalems`
-ARG PYCHARM=211.6693.115
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --no-cache-dir pydevd-pycharm~=$PYCHARM && \
-    mkdir /tmp/pycharm_scalems
 
 # Ending the Dockerfile with a default CMD run as root triggers a warning
 # with Dockerfile linters, but is necessary to start the sshd.

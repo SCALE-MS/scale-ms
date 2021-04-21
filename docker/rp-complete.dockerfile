@@ -82,32 +82,16 @@ RUN rp-venv/bin/pip install --upgrade \
         python-hostlist \
         setproctitle
 
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --no-cache-dir --upgrade \
-        'radical.saga>=1.5.2' \
-        'radical.utils>=1.5.2'
-
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-#ARG RPREF="v1.5.7"
+#ARG RPREF="v1.6.5"
 ARG RPREF="project/scalems"
 # Note: radical.pilot does not work properly with an "editable install"
-#RUN (cd ~rp && \
-#    . ~rp/rp-venv/bin/activate && \
-#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
-#    cd radical.pilot && \
-#    pip install -e . \
-#    )
-# We want the sources for the examples and unit tests.
-#RUN (cd ~rp && \
-#    . ~rp/rp-venv/bin/activate && \
-#    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
-# OR first get sources, then
 RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     . ~rp/rp-venv/bin/activate && \
     cd ~rp/radical.pilot && \
-    pip install .
+    pip install --no-cache-dir --no-build-isolation .
 
 
 # Allow RADICAL Pilot to provide more useful behavior during testing,

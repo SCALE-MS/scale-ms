@@ -15,7 +15,5 @@ python-hostlist
 setproctitle
 tox>=2.0
 
-radical.saga>=1.5.2
-radical.utils>=1.5.2
-# Use pip install -r requirements.txt --upgrade to get branch updates.
+# Use `pip install -r requirements-testing.txt --upgrade` to get branch updates.
 git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems#egg=radical.pilot

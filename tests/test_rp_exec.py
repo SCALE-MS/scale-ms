@@ -14,6 +14,7 @@ import asyncio
 import json
 import logging
 import subprocess
+import sys
 import typing
 import urllib.parse
 import warnings
@@ -311,18 +312,24 @@ async def test_rp_future(rp_task_manager):
 #     assert False
 
 
-def test_rp_raptor_staging():
+def test_rp_raptor_staging(rp_venv):
+    """Test file staging for raptor Master and Worker tasks.
 
-    # - upon pilot startup, transfer a file (`/etc/passwd`) to the pilot sandbox
-    # - upon master startup, create a link to that file for each master
-    # - for each task, copy the file into the task sandbox
-    # - upon task completion, transfer the files to the client (and rename them)
-
-
+    - upon pilot startup, transfer a file to the pilot sandbox
+    - upon master startup, create a link to that file for each master
+    - for each task, copy the file into the task sandbox
+    - upon task completion, transfer the files to the client (and rename them)
+    """
+    import time
     import radical.pilot as rp
     session = rp.Session()
     fname = '%d.dat' % os.getpid()
     os.system('/bin/sh -c "/bin/date > /tmp/%s"' % fname)
+
+    if rp_venv:
+        pre_exec = ['. {}/bin/activate'.format(rp_venv)]
+    else:
+        pre_exec = []
 
     try:
         pmgr    = rp.PilotManager(session=session)
@@ -339,18 +346,32 @@ def test_rp_raptor_staging():
         tmgr.add_pilots(pilot)
 
         uid = 'scalems.master.001'
-        td  = rp.TaskDescription({
-                'uid'           : uid,
-                'executable'    : 'scalems_rp_master',
-                'input_staging' : [{'source': 'pilot:///%s' % fname,
-                                    'target': 'pilot:///%s.%s.lnk' % (fname, uid),
-                                    'action': rp.LINK}]})
+        # Illustrate another mode of data staging with the Master task submission.
+        td = rp.TaskDescription(
+            {
+                'uid': uid,
+                'executable': 'scalems_rp_master',
+                'input_staging': [{'source': 'pilot:///%s' % fname,
+                                   'target': 'pilot:///%s.%s.lnk' % (fname, uid),
+                                   'action': rp.LINK}],
+                'pre_exec': pre_exec
+                # 'named_env': 'scalems_env'
+            }
+        )
 
         master = tmgr.submit_tasks(td)
 
-        # FIXME: needs a fix in RP
-        # master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+        # Illustrate availability of scheduler and of data staged with Master task.
+        # When the task enters AGENT_SCHEDULING_PENDING it has passed all input staging,
+        # and the files will be available.
+        # (see https://docs.google.com/drawings/d/1q5ehxIVdln5tXEn34mJyWAmxBk_DqZ5wwkl3En-t5jo/)
 
+        # Confirm that Master script is running (and ready to receive raptor tasks)
+        # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
+        master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+        assert master.state not in {rp.CANCELED, rp.FAILED}
+
+        # define raptor tasks and submit them to the master
         tds = list()
         for i in range(3):
             uid  = 'scalems.%06d' % i
@@ -369,7 +390,8 @@ def test_rp_raptor_staging():
                                      'target': 'client:///%s.%s.out' % (fname, uid),
                                      'action': rp.TRANSFER}],
                 'scheduler'      : master.uid,
-                'arguments'      : [json.dumps(work)]
+                'arguments'      : [json.dumps(work)],
+                'pre_exec': pre_exec
             }))
 
         tasks = tmgr.submit_tasks(tds)
@@ -525,9 +547,9 @@ async def test_file_staging():
 
 
 if __name__ == '__main__':
-    # # TODO: Name the intended venv
-    # venv = None
-    #
+    venv = sys.argv[1]
+    assert os.path.exists(venv)
+
     # import radical.pilot as rp
     # pd_init = {'resource': 'local.localhost',
     #            'runtime': 30,
@@ -535,4 +557,4 @@ if __name__ == '__main__':
     #            }
     # pdesc = rp.PilotDescription(pd_init)
     # test_rp_raptor_staging(pdesc, venv)
-    test_rp_raptor_staging()
+    test_rp_raptor_staging(venv)

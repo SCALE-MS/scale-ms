@@ -312,7 +312,7 @@ async def test_rp_future(rp_task_manager):
 #     assert False
 
 
-def test_rp_raptor_staging(rp_venv):
+def test_rp_raptor_staging(pilot_description, rp_venv):
     """Test file staging for raptor Master and Worker tasks.
 
     - upon pilot startup, transfer a file to the pilot sandbox
@@ -335,13 +335,10 @@ def test_rp_raptor_staging(rp_venv):
         pmgr    = rp.PilotManager(session=session)
         tmgr    = rp.TaskManager(session=session)
 
-        pd_init = {'resource'      : 'local.localhost',
-                   'runtime'       : 30,
-                   'exit_on_error' : True,
-                   'cores'         : 1,
-                   'input_staging' : ['/tmp/%s' % fname]
-                  }
+        pd_init = pilot_description.as_dict().copy()
+        pd_init['input_staging'] = ['/tmp/%s' % fname]
         pdesc = rp.PilotDescription(pd_init)
+
         pilot = pmgr.submit_pilots(pdesc)
         tmgr.add_pilots(pilot)
 
@@ -550,11 +547,10 @@ if __name__ == '__main__':
     venv = sys.argv[1]
     assert os.path.exists(venv)
 
-    # import radical.pilot as rp
-    # pd_init = {'resource': 'local.localhost',
-    #            'runtime': 30,
-    #            'cores': 1,
-    #            }
-    # pdesc = rp.PilotDescription(pd_init)
-    # test_rp_raptor_staging(pdesc, venv)
-    test_rp_raptor_staging(venv)
+    import radical.pilot as rp
+    pd_init = {'resource': 'local.localhost',
+               'runtime': 30,
+               'cores': 1,
+               }
+    pdesc = rp.PilotDescription(pd_init)
+    test_rp_raptor_staging(pdesc, venv)

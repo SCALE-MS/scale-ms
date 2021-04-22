@@ -32,11 +32,16 @@
     "description": "compute service from the docker/stack.yml.",
     "notes": "To use the ssh schema from outside of the Docker stack, make sure that ssh-agent has added the id_rsa.pub for the rp user in the scalems/radicalpilot image.",
     "schemas": [
+      "local",
       "ssh"
     ],
     "ssh": {
       "job_manager_endpoint": "ssh://rp@compute/",
       "filesystem_endpoint": "sftp://rp@compute/"
+    },
+    "local": {
+      "job_manager_endpoint": "fork://localhost/",
+      "filesystem_endpoint": "file://localhost/"
     },
     "pre_bootstrap_1": [
     ],
@@ -48,7 +53,7 @@
     "agent_launch_method": "FORK",
     "task_launch_method": "FORK",
     "mpi_launch_method": "MPIEXEC",
-    "rp_version": "local",
+    "rp_version": "installed",
     "virtenv_mode": "use",
     "virtenv": "/home/rp/rp-venv",
     "python_dist": "default",

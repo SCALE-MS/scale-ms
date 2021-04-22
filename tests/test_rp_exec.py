@@ -20,10 +20,6 @@ import warnings
 
 import pytest
 
-import scalems
-import scalems.context
-import scalems.radical
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -192,6 +188,7 @@ async def test_rp_future(rp_task_manager):
     should appropriately yield when the rp.Task is not finished.
     """
     import radical.pilot as rp
+    import scalems.radical
 
     tmgr = rp_task_manager
 
@@ -476,6 +473,9 @@ async def test_exec_rp(pilot_description, rp_venv):
 
     TODO: Where should we specify the target resource? An argument to *dispatch()*?
     """
+    import scalems.context
+    import scalems.radical
+
     original_context = scalems.context.get_context()
     loop = asyncio.get_event_loop()
     loop.set_debug(True)

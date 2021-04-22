@@ -149,8 +149,6 @@ def test_prepare_venv(rp_task_manager, sdist):
         assert os.path.exists(path)
 
     sandbox_path = urllib.parse.urlparse(pilot.pilot_sandbox).path
-    # Note: temporary check only works on localhost
-    assert os.path.exists(sandbox_path)
 
     sdist_session_paths = {name: os.path.join(sandbox_path, sdist_names[name]) for name in sdist_names.keys()}
 
@@ -163,10 +161,10 @@ def test_prepare_venv(rp_task_manager, sdist):
             'target': sdist_session_paths[name],
             'action': rp.TRANSFER
         })
-    for directive in input_staging:
-        pilot.stage_in(directive)
-        pilot.stage_in(input_staging)
-    # pilot.stage_in(input_staging)
+    # for directive in input_staging:
+    #     pilot.stage_in(directive)
+    #     pilot.stage_in(input_staging)
+    pilot.stage_in(input_staging)
 
     # Note: temporary check only works on localhost
     for path in sdist_session_paths.values():

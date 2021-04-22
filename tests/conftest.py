@@ -45,10 +45,14 @@ else:
 
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""
+    # Automatic venv handling still needs some work. We require the user to
+    # explicitly name a resource (defined in $HOME/.radical/pilot/configs/resource_<name>.json)
+    # with virtenv details that are known to be valid.
     parser.addoption(
         '--rp-resource',
         action='store',
-        default='local.localhost',
+        # default='local.localhost',
+        required=True,
         help='Specify a *resource* for the radical.pilot.PilotDescription.'
     )
     parser.addoption(
@@ -57,9 +61,13 @@ def pytest_addoption(parser):
         type=str,
         help='Explicitly specify the access_schema to use from the RADICAL resource.'
     )
+    # Automatic venv handling still needs some work. We require the user to explicitly
+    # assert that a venv is available.
+    # Warning: This venv should also exist on the target resource!
     parser.addoption(
         '--rp-venv',
         action='store',
+        required=True,
         type=str,
         help='Full path to a pre-configured venv to use for RP tasks.'
     )

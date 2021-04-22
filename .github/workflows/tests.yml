@@ -29,10 +29,12 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         python -m pip install -r requirements-testing.txt
         python -m pip install .
+        mkdir -p $HOME/.radical/pilot/configs/
+        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
     - name: Test with pytest
       run: |
         . $HOME/testenv/bin/activate
-        python -X dev -m pytest tests -s --rp-venv $HOME/testenv
+        python -X dev -m pytest tests -s --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
 
   containerized_rp:
 

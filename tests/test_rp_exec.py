@@ -100,7 +100,6 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert remotename != localname
 
 
-@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 def test_prepare_venv(rp_task_manager, sdist):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
@@ -116,6 +115,8 @@ def test_prepare_venv(rp_task_manager, sdist):
     # TODO: Merge with test_rp_raptor_local but use the installed scalems_rp_master and scalems_rp_worker files
 
     import radical.pilot as rp
+    import radical.saga as rs
+    import radical.utils as ru
     # We only expect one pilot
     pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
     # We get a dictionary...
@@ -131,13 +132,36 @@ def test_prepare_venv(rp_task_manager, sdist):
     # It looks like either the pytest fixture should deliver something other than the TaskManager,
     # or the prepare_venv part should be moved to a separate function, such as in conftest...
 
-    sdist_filename = os.path.basename(sdist)
-    pilot.stage_in([{'source': sdist,
-                     'target': 'pilot:///' + sdist_filename,
-                     'action': rp.TRANSFER}])
+    sdist_names = {
+        'scalems': os.path.basename(sdist),
+        'rp': rp.sdist_name,
+        'ru': ru.sdist_name,
+        'rs': rs.sdist_name
+    }
+    sdist_local_paths = {
+        'scalems': sdist,
+        'rp': rp.sdist_path,
+        'rs': rs.sdist_path,
+        'ru': ru.sdist_path
+    }
+    logger.debug('Checking paths: ' + ', '.join(sdist_local_paths.values()))
+    for path in sdist_local_paths.values():
+        assert os.path.exists(path)
+
     sandbox_path = urllib.parse.urlparse(pilot.pilot_sandbox).path
-    sdist_path = os.path.join(sandbox_path, sdist_filename)
-    logger.debug(f'sdist path: {sdist_path}')
+
+    sdist_session_paths = {name: os.path.join(sandbox_path, sdist_names[name]) for name in sdist_names.keys()}
+
+    logger.debug('Staging ' + ', '.join(sdist_session_paths.values()))
+
+    input_staging = []
+    for name in sdist_names.keys():
+        input_staging.append({
+            'source': sdist_local_paths[name],
+            'target': sdist_session_paths[name],
+            'action': rp.TRANSFER
+        })
+    pilot.stage_in(input_staging)
 
     tmgr = rp_task_manager
 
@@ -145,9 +169,7 @@ def test_prepare_venv(rp_task_manager, sdist):
         'scalems_env': {
             'type': 'virtualenv',
             'version': '3.8',
-            'setup': [
-                sdist_path
-            ]}})
+            'setup': list(sdist_session_paths.values())}})
 
     td = rp.TaskDescription({'executable': 'python3',
                              'arguments': ['-c',

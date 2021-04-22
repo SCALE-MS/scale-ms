@@ -16,20 +16,20 @@ from scalems.exceptions import MissingImplementationError
 from scalems.subprocess import executable
 
 
-@pytest.mark.xfail(reason='There is currently no default executor. See also #53, #55, #82')
-def test_exec_default():
-    # Check for expected behavior of the default context
-    with pytest.raises(MissingImplementationError):
-        # Test default context
-        cmd = executable(('/bin/echo',))
-        context = scalems.context.get_context()
-        # Note: we can choose to let Context.run(...) return a contextmanager that
-        # can be used to create a session (if not already entered) that cleans up
-        # after itself as best it can through a weakref from the context when the
-        # reference count goes to zero, making the `with` block optional, but it
-        # may be better to avoid too much automation or alternative ways to do things.
-        with context as session:
-            session.run(cmd)
+# @pytest.mark.xfail(reason='There is currently no default executor. See also #53, #55, #82')
+# def test_exec_default():
+#     # Check for expected behavior of the default context
+#     with pytest.raises(MissingImplementationError):
+#         # Test default context
+#         cmd = executable(('/bin/echo',))
+#         context = scalems.context.get_context()
+#         # Note: we can choose to let Context.run(...) return a contextmanager that
+#         # can be used to create a session (if not already entered) that cleans up
+#         # after itself as best it can through a weakref from the context when the
+#         # reference count goes to zero, making the `with` block optional, but it
+#         # may be better to avoid too much automation or alternative ways to do things.
+#         with context as session:
+#             session.run(cmd)
 
 
 # This does not currently seem to be on the road map.

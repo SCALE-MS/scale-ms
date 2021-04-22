@@ -333,7 +333,11 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
     #             and pilot_description.access_schema != 'local':
     #         pytest.skip('This test is only for local execution.')
 
-    session = rp.Session()
+    # Note: radical.pilot.Session creation causes several deprecation warnings.
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=DeprecationWarning)
+        session = rp.Session()
     fname = '%d.dat' % os.getpid()
     fpath = os.path.join('/tmp', fname)
     data: str = time.asctime()

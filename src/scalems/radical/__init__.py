@@ -741,8 +741,12 @@ class RPDispatchingExecutor:
                 raise ProtocolError('Dispatching context is not reentrant.')
             logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
 
-            # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
-            self.session = rp.Session(uid=session_id, cfg=session_config)
+            # Note: radical.pilot.Session creation causes several deprecation warnings.
+            # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', category=DeprecationWarning)
+                # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
+                self.session = rp.Session(uid=session_id, cfg=session_config)
             session_id = self.session.uid
             # Do we want to log this somewhere?
             # session_config = copy.deepcopy(self.session.cfg.as_dict())

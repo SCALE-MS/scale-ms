@@ -100,7 +100,6 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert remotename != localname
 
 
-@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 def test_prepare_venv(rp_task_manager, sdist):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 

@@ -340,7 +340,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
     if rp_venv:
         pre_exec = ['. {}/bin/activate'.format(rp_venv)]
     else:
-        pre_exec = None
+        pre_exec = []
 
     try:
         pmgr    = rp.PilotManager(session=session)

@@ -140,10 +140,11 @@ def test_prepare_venv(rp_task_manager, sdist):
     }
     sdist_local_paths = {
         'scalems': sdist,
-        'rp': os.path.join(os.path.dirname(rp.__file__), sdist_names['rp']),
-        'rs': os.path.join(os.path.dirname(ru.__file__), sdist_names['rs']),
-        'ru': os.path.join(os.path.dirname(ru.__file__), sdist_names['ru'])
+        'rp': rp.sdist_path,
+        'rs': rs.sdist_path,
+        'ru': ru.sdist_path
     }
+    logger.debug('Checking paths: ' + ', '.join(sdist_local_paths.values()))
     for path in sdist_local_paths.values():
         assert os.path.exists(path)
 

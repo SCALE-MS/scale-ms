@@ -24,15 +24,15 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        python -m venv testenv
-        . testenv/bin/activate
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
         python -m pip install -r requirements-testing.txt
         python -m pip install .
     - name: Test with pytest
       run: |
-        . testenv/bin/activate
-        python -X dev -m pytest tests -s --rp-venv $PWD/testenv
+        . $HOME/testenv/bin/activate
+        python -X dev -m pytest tests -s --rp-venv $HOME/testenv
 
   containerized_rp:
 
@@ -40,6 +40,9 @@ jobs:
     services:
       mongodb:
         image: mongo
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: password
         ports:
         # will assign a random free host port
         - 27017/tcp
@@ -56,32 +59,26 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        python -m venv testenv
-        . testenv/bin/activate
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
-        python -m pip install -r requirements-testing.txt
+        python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
-        python -m pip install pytest-cov
+        python -m pip install pytest-cov pymongo
+        mkdir -p $HOME/.radical/pilot/configs/
+        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
     - name: Test with pytest
       env:
-        # use localhost for the host here because we are running the job on the VM.
-        # If we were running the job on in a container this would be mongodb
-        MONGODB_HOST: localhost
-        MONGODB_PORT: ${{ job.services.mongodb.ports[27017] }} # get randomly assigned published port
-        RADILCAL_PILOT_DBURL:  mongodb://localhost:${{ job.services.mongodb.ports[27017] }}/test
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
-        . testenv/bin/activate
-        python -X dev -m pytest --cov=scalems --cov-report=xml -rA tests --rp-venv $PWD/testenv
+        . $HOME/testenv/bin/activate
+        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
+        python -X dev -m pytest --cov=scalems --cov-report=xml -rA --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
         fail_ci_if_error: true
         name: codecov-umbrella
-        path_to_write_report: ./coverage/codecov_report.txt
-    - name: "Report"
-      run: |
-        cat ./coverage/codecov_report.txt
-        cat ./coverage.xml
 
   lint:
     runs-on: ubuntu-latest

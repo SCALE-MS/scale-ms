@@ -291,7 +291,7 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     return wrapped_task
 
 
-def _describe_task(item: _context.Task, scheduler: str) -> rp.TaskDescription:
+def _describe_task(item: _context.Task, scheduler: str, pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
 
     The TaskDescription will be submitted to the named *scheduler*,
@@ -304,7 +304,8 @@ def _describe_task(item: _context.Task, scheduler: str) -> rp.TaskDescription:
     # Ref: scalems_rp_master._RaptorTaskDescription
     task_description = rp.TaskDescription(
         from_dict=dict(
-            executable='scalems'  # This value is currently ignored, but must be set.
+            executable='scalems',  # This value is currently ignored, but must be set.
+            pre_exec=pre_exec
         )
     )
     task_description.uid = item.uid()
@@ -347,7 +348,7 @@ def _describe_task(item: _context.Task, scheduler: str) -> rp.TaskDescription:
     return task_description
 
 
-async def submit(item: _context.Task, task_manager: rp.TaskManager, submitted: asyncio.Event = None,
+async def submit(*, item: _context.Task, task_manager: rp.TaskManager, pre_exec: list, submitted: asyncio.Event = None,
                  scheduler: str = None) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
@@ -414,7 +415,7 @@ async def submit(item: _context.Task, task_manager: rp.TaskManager, submitted: a
     """
     if isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
         # We might want a contextvars.Context to hold the current rp.Master instance name.
-        rp_task_description = _describe_task(item, scheduler)
+        rp_task_description = _describe_task(item, scheduler, pre_exec=pre_exec)
     else:
         raise APIError('Caller must provide the UID of a submitted *scheduler* task.')
 
@@ -528,6 +529,10 @@ class RPDispatchingExecutor:
         return self._command_queue
 
     async def __aenter__(self):
+        if self._target_venv is not None and len(self._target_venv) > 0:
+            token = target_venv.set(self._target_venv)
+        else:
+            token = None
         try:
             # Get a lock while the state is changing.
             # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
@@ -555,6 +560,9 @@ class RPDispatchingExecutor:
         except Exception as e:
             self._exception = e
             raise e
+        finally:
+            if token is not None:
+                target_venv.reset(token)
 
     def _connect_rp(self):
         """Establish the RP Session.
@@ -999,6 +1007,10 @@ class RPDispatchingExecutor:
 async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue,
                        task_manager: rp.TaskManager):
     processing_state.set()
+    _target_venv = target_venv.get(None)
+    if _target_venv is None or len(_target_venv) == 0:
+        raise DispatchError('Currently, tasks cannot be dispatched without a target venv.')
+    _pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
     # Note that if an exception is raised here, the queue will never be processed.
     while True:
         # Note: If the function exits at this line, the queue may be missing a call
@@ -1043,10 +1055,12 @@ async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asy
                 # TODO: Check task dependencies.
                 submitted = asyncio.Event()  # Not yet used.
                 task: asyncio.Task[rp.Task] = await submit(
-                    item,
+                    item=item,
                     task_manager=task_manager,
                     submitted=submitted,
-                    scheduler=executor.scheduler.uid)
+                    scheduler=executor.scheduler.uid,
+                    pre_exec=_pre_exec
+                )
 
                 executor.submitted_tasks.append(task)
 

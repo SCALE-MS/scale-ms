@@ -1,10 +1,14 @@
-# Import radical.pilot early because of interaction with the built-in logging module.
-# TODO: Did this work?
-import asyncio
+"""Configuration for pytest tests.
+
+Note: https://docs.python.org/3/library/devmode.html#devmode may be enabled
+"using the -X dev command line option or by setting the PYTHONDEVMODE environment variable to 1."
+"""
+
 import pathlib
 import subprocess
 
 try:
+    # Import radical.pilot early because of interaction with the built-in logging module.
     import radical.pilot as rp
 except ImportError:
     # It is not an error to run tests without RP, but when RP is available, we
@@ -25,9 +29,11 @@ import pytest
 logger = logging.getLogger('pytest_config')
 logger.setLevel(logging.DEBUG)
 
+# Work around bug in radical.utils.
+import radical.utils
+import socket
+radical.utils.misc._hostname = socket.gethostname()
 
-# Note: https://docs.python.org/3/library/devmode.html#devmode is enabled
-# "using the -X dev command line option or by setting the PYTHONDEVMODE environment variable to 1."
 
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""

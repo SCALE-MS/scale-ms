@@ -163,7 +163,7 @@ def test_prepare_venv(rp_task_manager, sdist):
         'scalems_env': {
             'type': 'virtualenv',
             'version': '3.8',
-            'setup': list([sdist_session_paths.values()])}})
+            'setup': list(sdist_session_paths.values())}})
 
     td = rp.TaskDescription({'executable': 'python3',
                              'arguments': ['-c',

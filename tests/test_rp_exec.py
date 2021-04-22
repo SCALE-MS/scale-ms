@@ -314,7 +314,6 @@ async def test_rp_future(rp_task_manager):
 #     assert False
 
 
-@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 def test_rp_raptor_staging(pilot_description, rp_venv):
     """Test file staging for raptor Master and Worker tasks.
 

@@ -23,4 +23,6 @@ exclude_lines =
 ignore_errors = True
 
 omit =
-    tests/*
+    */_version.py
+    # We don't currently have a way to get coverage results for these installed scripts.
+    */scalems_rp*py

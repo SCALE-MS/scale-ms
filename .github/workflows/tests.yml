@@ -29,10 +29,21 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         python -m pip install -r requirements-testing.txt
         python -m pip install .
+        python -m pip install pytest-cov coverage
     - name: Test with pytest
       run: |
         . $HOME/testenv/bin/activate
-        python -X dev -m pytest tests -s --rp-venv $HOME/testenv
+        python -X dev -m pytest --cov=scalems --cov-report=xml tests -s --rp-venv $HOME/testenv
+    - name: Command line tests
+      run: |
+        . $HOME/testenv/bin/activate
+        coverage run -m scalems.local examples/basic/echo.py hi there
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
+    - name: "Upload coverage to Codecov"
+      uses: codecov/codecov-action@v1
+      with:
+        fail_ci_if_error: true
+        name: codecov-umbrella
 
   containerized_rp:
 

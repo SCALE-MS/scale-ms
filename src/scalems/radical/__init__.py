@@ -180,8 +180,12 @@ def configuration(*args, **kwargs) -> Configuration:
     It is an error to try to initialize the module more than once.
     """
     # Not thread-safe
-    if len(args) > 0 or len(kwargs) > 0:
-        return _set_configuration(*args, **kwargs)
+    if len(args) > 0:
+        _set_configuration(*args, **kwargs)
+    elif len(kwargs) > 0:
+        _set_configuration(
+            Configuration(**kwargs)
+        )
     elif _configuration.get(None) is None:
         # No config is set yet. Generate with module parser.
         c = Configuration()

@@ -561,12 +561,16 @@ async def test_exec_rp(pilot_description, rp_venv):
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
-    # Test RPDispatcher context
-    context = scalems.radical.RPWorkflowContext(loop)
+
+    # Configure module.
     params = scalems.radical.Configuration(
         execution_target=pilot_description.resource,
-        target_venv=rp_venv
+        target_venv=rp_venv,
+        rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}
     )
+
+    # Test RPDispatcher context
+    context = scalems.radical.RPWorkflowContext(loop)
     with scalems.context.scope(context):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher

@@ -134,7 +134,7 @@ def _set_configuration(*args, **kwargs) -> Configuration:
     # Caller has provided arguments.
     # Not thread-safe
     if _configuration.get(None):
-        raise APIError(f'configuration() cannot accept arguments when {__qualname__} is already configured.')
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is already configured.')
     c = Configuration(*args, **kwargs)
     _configuration.set(c)
     return _configuration.get()
@@ -144,7 +144,7 @@ def _set_configuration(*args, **kwargs) -> Configuration:
 def _(config: Configuration) -> Configuration:
     # Not thread-safe
     if _configuration.get(None):
-        raise APIError(f'configuration() cannot accept arguments when {__qualname__} is already configured.')
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is already configured.')
     _configuration.set(config)
     return _configuration.get()
 

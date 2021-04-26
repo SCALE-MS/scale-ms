@@ -557,7 +557,7 @@ async def test_exec_rp(pilot_description, rp_venv):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Test RPDispatcher context
     context = scalems.radical.RPWorkflowContext(loop)
-    params = scalems.radical.RPParams(
+    params = scalems.radical.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv
     )

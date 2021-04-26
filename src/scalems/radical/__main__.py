@@ -5,10 +5,14 @@ Usage:
 
 """
 
+import argparse
 import asyncio
 import runpy
 import sys
 
+import os
+
+import scalems.exceptions
 import scalems.radical
 
 # Can we attach to the rp Logger here?
@@ -22,15 +26,31 @@ import scalems.radical
 # TODO: Consider whether we want to parse execution module arguments, including handling chained `-m`.
 #     Consider generalizing this boilerplate.
 
-# TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
 
 logger = scalems.radical.logger
 
-if len(sys.argv) < 2:
-    raise RuntimeError('Usage: python -m scalems.local myscript.py')
+parser = argparse.ArgumentParser(
+    usage='python -m scalems.radical <scalems args> myscript.py <script args>',
+    parents=[scalems.radical.parser()]
+)
 
-# Strip the current __main__ file from argv
-sys.argv[:] = sys.argv[1:]
+
+parser.add_argument(
+    'script',
+    metavar='script-to-run.py',
+    type=str,
+)
+
+# Strip the current __main__ file from argv. Collect arguments for this script
+# and for the called script.
+args, script_args = parser.parse_known_args(sys.argv[1:])
+if not os.path.exists(args.script):
+    # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
+    raise RuntimeError('Need a script to execute.')
+
+sys.argv = [args.script] + script_args
+
+scalems.radical.configuration(args)
 
 # Start the asyncio event loop on behalf of the client.
 # We want to do this exactly once per invocation, and we do not want the scalems
@@ -53,7 +73,7 @@ def run_dispatch(work, context: scalems.radical.RPWorkflowContext):
         # for task in context.tasks: ...
         ...
 
-    loop = context._asyncio_even_loop
+    loop = context.loop()
     coro = _dispatch(work)
     task = loop.create_task(coro)
     result = loop.run_until_complete(task)
@@ -69,8 +89,7 @@ exitcode = 0
 try:
     with scalems.context.scope(scalems.radical.RPWorkflowContext(loop)) as context:
         try:
-            # Check accessibility!
-            globals_namespace = runpy.run_path(sys.argv[0])
+            globals_namespace = runpy.run_path(args.script)
             # TODO: Use a decorator to annotate which function(s) to run?
             main = None
             for name, ref in globals_namespace.items():
@@ -112,7 +131,7 @@ try:
         except SystemExit as e:
             exitcode = e.code
 except Exception as e:
-    print('scalems.local encountered Exception: {}'.format(repr(e)))
+    print('scalems runner encountered Exception: {}'.format(repr(e)))
     if exitcode == 0:
         exitcode = 1
 if exitcode != 0:

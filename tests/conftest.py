@@ -42,6 +42,7 @@ else:
     assert ru_version >= version.parse('1.6.6')
     warnings.warn('Unnecessary monkey-patch of radical.utils.misc.', DeprecationWarning)
 
+
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""
     parser.addoption(

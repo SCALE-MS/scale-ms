@@ -25,6 +25,7 @@ Executor:
 """
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
+import argparse
 import asyncio
 # Note that we import RP early to allow it to monkey-patch some modules early.
 import contextvars
@@ -41,6 +42,7 @@ import packaging.version
 from radical import pilot as rp
 
 from .. import context as _context
+from .. import utility as _utility
 from ..context import QueueItem
 from ..exceptions import APIError
 from ..exceptions import DispatchError
@@ -55,27 +57,142 @@ logger.debug('Importing {}'.format(__name__))
 # TODO: Consider scoping for these Workflow context variables.
 # Need to review PEP-567 and PEP-568 to consider where and how to scope the Context
 # with respect to the dispatching scope.
-execution_target = contextvars.ContextVar('execution_target', default='local.localhost')
-resource_params = contextvars.ContextVar('resource_params')
-# TODO: Consider alternatives for getting a default venv.
-target_venv = contextvars.ContextVar('target_venv')
+_configuration = contextvars.ContextVar('_configuration')
+
+try:
+    cache = functools.cache
+except AttributeError:
+    cache = functools.lru_cache(maxsize=None)
+
+
+@cache
+def parser(add_help=False):
+    """Get the module-specific argument parser.
+
+    Provides a base argument parser for scripts using the scalems.radical backend.
+
+    By default, the returned ArgumentParser is created with ``add_help=False``
+    to avoid conflicts when used as a *parent* for a parser more local to the caller.
+    If *add_help* is provided, it is passed along to the ArgumentParser created
+    in this function.
+
+    See Also:
+         https://docs.python.org/3/library/argparse.html#parents
+    """
+    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
+
+    # We could consider inferring a default venv from the VIRTUAL_ENV environment variable,
+    # but we currently have very poor error handling regarding venvs. For now, this needs
+    # to be explicit.
+    # Ref https://github.com/SCALE-MS/scale-ms/issues/89
+    # See also https://github.com/SCALE-MS/scale-ms/issues/90
+    # TODO: Set module variables rather than carry around an args namespace?
+    _parser.add_argument(
+        '--venv',
+        metavar='PATH',
+        type=str,
+        required=True,
+        help='Full path to a (pre-configured) venv to use for RP tasks.'
+    )
+
+    _parser.add_argument(
+        '--resource',
+        type=str,
+        required=True,
+        help='Specify a *resource* for the radical.pilot.PilotDescription.'
+    )
+
+    _parser.add_argument(
+        '--access',
+        type=str,
+        help='Explicitly specify the access_schema to use from the RADICAL resource.'
+    )
+    return _parser
 
 
 @dataclasses.dataclass
-class RPParams:
+class Configuration:
     # Note that the use cases for this dataclass interact with module ContextVars, pending refinement.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None
 
 
-def executor_factory(context: _context.WorkflowManager, params: RPParams = None):
-    if params is None:
-        params = RPParams(
-            execution_target=execution_target.get(),
-            rp_resource_params=resource_params.get({}),
-            target_venv=target_venv.get(None)
-        )
+@functools.singledispatch
+def _set_configuration(*args, **kwargs) -> Configuration:
+    """Initialize or retrieve the module configuration.
+
+    This module and the RADICAL infrastructure have various stateful aspects
+    that require clearly-scoped module-level configuration. Module configuration
+    should be initialized exactly once per Python process.
+
+    Recommended usage is to derive an ArgumentParser from the *parser()* module
+    function and use the resulting namespace to initialize the module configuration
+    using this function.
+    """
+    assert len(args) != 0 or len(kwargs) != 0
+    # Caller has provided arguments.
+    # Not thread-safe
+    if _configuration.get(None):
+        raise APIError(f'configuration() cannot accept arguments when {__qualname__} is already configured.')
+    c = Configuration(*args, **kwargs)
+    _configuration.set(c)
+    return _configuration.get()
+
+
+@_set_configuration.register
+def _(config: Configuration) -> Configuration:
+    # Not thread-safe
+    if _configuration.get(None):
+        raise APIError(f'configuration() cannot accept arguments when {__qualname__} is already configured.')
+    _configuration.set(config)
+    return _configuration.get()
+
+
+@_set_configuration.register
+def _(namespace: argparse.Namespace) -> Configuration:
+    config = Configuration(
+        execution_target=namespace.resource,
+        target_venv=namespace.venv,
+        rp_resource_params={
+            'PilotDescription':
+                {
+                    'access_schema': namespace.access,
+                    'cores': 4,
+                    'gpus': 0
+                }
+        }
+    )
+    return _set_configuration(config)
+
+
+def configuration(*args, **kwargs) -> Configuration:
+    """Get (and optionally set) the RADICAL Pilot configuration.
+
+    With no arguments, returns the current configuration. If a configuration has
+    not yet been set, the command line parser is invoked to try to build a new
+    configuration.
+
+    If arguments are provided, try to construct a scalems.radical.Configuration
+    and use it to initialize the module.
+
+    It is an error to try to initialize the module more than once.
+    """
+    # Not thread-safe
+    if len(args) > 0 or len(kwargs) > 0:
+        return _set_configuration(*args, **kwargs)
+    elif _configuration.get(None) is None:
+        # No config is set yet. Generate with module parser.
+        c = Configuration()
+        parser().parse_known_args(namespace=typing.cast(argparse.Namespace, c))
+        _configuration.set(c)
+    return _configuration.get()
+
+
+def executor_factory(context: _context.WorkflowManager, params: Configuration = None):
+    if params is not None:
+        _set_configuration(params)
+    params = configuration()
 
     executor = RPDispatchingExecutor(source_context=context,
                                      loop=context.loop(),
@@ -481,7 +598,7 @@ class RPDispatchingExecutor:
     def __init__(self,
                  source_context: _context.WorkflowManager,
                  loop: asyncio.AbstractEventLoop,
-                 rp_params: RPParams,
+                 rp_params: Configuration,
                  dispatcher_lock=None,
                  ):
         """Create a client side execution manager.
@@ -529,10 +646,17 @@ class RPDispatchingExecutor:
         return self._command_queue
 
     async def __aenter__(self):
+        # Get default configuration.
+        c = configuration()
+        # Update with any internal configuration.
         if self._target_venv is not None and len(self._target_venv) > 0:
-            token = target_venv.set(self._target_venv)
-        else:
-            token = None
+            c.target_venv = self._target_venv
+        if len(self._rp_resource_params) > 0:
+            c.rp_resource_params.update(self._rp_resource_params)
+        if self.execution_target is not None and len(self.execution_target) > 0:
+            c.execution_target = self.execution_target
+        token = _configuration.set(c)
+
         try:
             # Get a lock while the state is changing.
             # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
@@ -561,8 +685,7 @@ class RPDispatchingExecutor:
             self._exception = e
             raise e
         finally:
-            if token is not None:
-                target_venv.reset(token)
+            _configuration.reset(token)
 
     def _connect_rp(self):
         """Establish the RP Session.
@@ -665,10 +788,15 @@ class RPDispatchingExecutor:
             # Where should this actually be coming from?
             # We need to inspect both the HPC allocation and the work load, I think,
             # and combine with user-provided preferences.
-            self._pilot_description = rp.PilotDescription(
-                {'resource': self.execution_target,
-                 'cores': 4,
-                 'gpus': 0})
+            pilot_description = configuration().rp_resource_params.get('PilotDescription', {}).copy()
+            pilot_description.update({'resource': configuration().execution_target})
+            pilot_description.update({
+                'resource': self.execution_target,
+                'cores': 4,
+                'gpus': 0})
+            # TODO: Pilot venv (#90, #94).
+            # Currently, Pilot venv must be specified in the JSON file for resource definitions.
+            self._pilot_description = rp.PilotDescription(pilot_description)
 
             # How and when should we update pilot description?
             logger.debug('Submitting PilotDescription {}'.format(repr(self._pilot_description)))
@@ -1007,7 +1135,7 @@ class RPDispatchingExecutor:
 async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue,
                        task_manager: rp.TaskManager):
     processing_state.set()
-    _target_venv = target_venv.get(None)
+    _target_venv = configuration().target_venv
     if _target_venv is None or len(_target_venv) == 0:
         raise DispatchError('Currently, tasks cannot be dispatched without a target venv.')
     _pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]

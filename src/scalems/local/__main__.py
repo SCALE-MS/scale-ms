@@ -59,17 +59,33 @@ asyncio.set_event_loop(loop)
 #     should we effectively reimplement asyncio.run through scalems.run, or
 #     should we think about [ast.PyCF_ALLOW_TOP_LEVEL_AWAIT](https://docs.python.org/3/whatsnew/3.8.html#builtins)
 
+
+def run_dispatch(work, context: scalems.context.WorkflowManager):
+    async def _dispatch(_work):
+        async with context.dispatch():
+            # Add work to the queue
+            _work()
+        # Return an iterable of results.
+        # for task in context.tasks: ...
+        ...
+
+    _loop = context.loop()
+    _coro = _dispatch(work)
+    _task = loop.create_task(_coro)
+    _result = loop.run_until_complete(_task)
+    return _result
+
+
 # Execute the script in the current process.
 # TODO: Use Async context by default.
 # TODO: More robust dispatching.
 # TODO: Can we support mixing invocation with pytest?
 exitcode = 0
 try:
-    with scalems.context.scope(scalems.local.AsyncWorkflowManager(loop)) as context:
+    with scalems.context.scope(scalems.local.AsyncWorkflowManager(loop)) as manager:
         try:
             globals_namespace = runpy.run_path(args.script)
 
-            # TODO: Use a decorator to annotate which function(s) to run?
             main = None
             for name, ref in globals_namespace.items():
                 if isinstance(ref, scalems.ScriptEntryPoint):
@@ -90,31 +106,18 @@ try:
             # ways to separate the user from the `with Manager.dispatch():` block.
             # For the moment, we can disable the `scalems.run()` mechanism, I think.
             # cmd = scalems.run(main, context=context)
+
+            logger.debug('Starting asyncio.run()')
             try:
-                coro = context.run()
-                # Note that this initially exhibits different behavior than what is described
-                # for scalems.app and scalems.wait. In fact, it only guarantees that work is submitted,
-                # and the user-provided app-decorated function completes before the workflow manager
-                # coroutine actually executes.
-                main()
+                result = run_dispatch(main, manager)
             except Exception as e:
                 logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
                 raise e
-
-            logger.debug('Starting asyncio.run()')
-            # Manage event loop directly, since asyncio.run() doesn't seem to always clean it up right.
-            # TODO: Check for existing event loop.
-            loop = asyncio.get_event_loop()
-            try:
-                task = loop.create_task(coro)
-                result = loop.run_until_complete(task)
             finally:
                 loop.close()
             assert loop.is_closed()
 
             logger.debug('Finished asyncio.run()')
-
-            # result = _run(work=main, context=context)
         except SystemExit as e:
             exitcode = e.code
 except Exception as e:

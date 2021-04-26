@@ -64,20 +64,21 @@ asyncio.set_event_loop(loop)
 #     should we effectively reimplement asyncio.run through scalems.run, or
 #     should we think about [ast.PyCF_ALLOW_TOP_LEVEL_AWAIT](https://docs.python.org/3/whatsnew/3.8.html#builtins)
 
-def run_dispatch(work, context: scalems.radical.RPWorkflowContext):
-    async def _dispatch(work):
+
+def run_dispatch(work, context: scalems.context.WorkflowManager):
+    async def _dispatch(_work):
         async with context.dispatch():
             # Add work to the queue
-            work()
+            _work()
         # Return an iterable of results.
         # for task in context.tasks: ...
         ...
 
-    loop = context.loop()
-    coro = _dispatch(work)
-    task = loop.create_task(coro)
-    result = loop.run_until_complete(task)
-    return result
+    _loop = context.loop()
+    _coro = _dispatch(work)
+    _task = loop.create_task(_coro)
+    _result = loop.run_until_complete(_task)
+    return _result
 
 
 # Execute the script in the current process.
@@ -87,10 +88,10 @@ def run_dispatch(work, context: scalems.radical.RPWorkflowContext):
 exitcode = 0
 
 try:
-    with scalems.context.scope(scalems.radical.RPWorkflowContext(loop)) as context:
+    with scalems.context.scope(scalems.radical.RPWorkflowContext(loop)) as manager:
         try:
             globals_namespace = runpy.run_path(args.script)
-            # TODO: Use a decorator to annotate which function(s) to run?
+
             main = None
             for name, ref in globals_namespace.items():
                 if isinstance(ref, scalems.ScriptEntryPoint):
@@ -114,16 +115,11 @@ try:
 
             logger.debug('Starting asyncio run()')
             try:
-                result = run_dispatch(main, context)
+                result = run_dispatch(main, manager)
             except Exception as e:
                 logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
                 raise e
             finally:
-                # Note: When we are not using this entry point,
-                # we should not assume it is our job to close the event loop,
-                # so we do not close the loop at the end of dispatching.
-                loop.run_until_complete(loop.shutdown_asyncgens())
-                loop.stop()
                 loop.close()
             assert loop.is_closed()
 

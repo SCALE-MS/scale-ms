@@ -113,6 +113,7 @@ def parser(add_help=False):
 @dataclasses.dataclass
 class Configuration:
     # Note that the use cases for this dataclass interact with module ContextVars, pending refinement.
+    # TODO: Check that the resource is defined.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None

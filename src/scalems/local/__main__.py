@@ -5,11 +5,15 @@ Usage:
 
 """
 
+import argparse
 import asyncio
 import runpy
 import sys
 
+import os
+
 import scalems.exceptions
+from scalems.utility import parser as base_parser
 
 # We can import scalems.context and set module state before using runpy to
 # execute the script in the current process. This allows us to preconfigure a
@@ -24,11 +28,26 @@ import scalems.exceptions
 
 logger = scalems.local.logger
 
-if len(sys.argv) < 2:
-    raise RuntimeError('Usage: python -m scalems.local myscript.py')
+parser = argparse.ArgumentParser(
+    usage='python -m scalems.local <scalems args> myscript.py <script args>',
+    parents=[base_parser()]
+)
 
-# Strip the current __main__ file from argv
-sys.argv[:] = sys.argv[1:]
+
+parser.add_argument(
+    'script',
+    metavar='script-to-run.py',
+    type=str,
+)
+
+# Strip the current __main__ file from argv. Collect arguments for this script
+# and for the called script.
+args, script_args = parser.parse_known_args(sys.argv[1:])
+if not os.path.exists(args.script):
+    # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
+    raise RuntimeError('Need a script to execute.')
+
+sys.argv = [args.script] + script_args
 
 # Start the asyncio event loop on behalf of the client.
 # We want to do this exactly once per invocation, and we do not want the scalems
@@ -48,8 +67,8 @@ exitcode = 0
 try:
     with scalems.context.scope(scalems.local.AsyncWorkflowManager(loop)) as context:
         try:
-            # Check accessibility!
-            globals_namespace = runpy.run_path(sys.argv[0])
+            globals_namespace = runpy.run_path(args.script)
+
             # TODO: Use a decorator to annotate which function(s) to run?
             main = None
             for name, ref in globals_namespace.items():

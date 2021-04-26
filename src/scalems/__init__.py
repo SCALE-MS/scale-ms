@@ -39,11 +39,11 @@ __all__ = [
     'get_context',
     # 'run',
     # 'wait',
+    '__version__'
 ]
 
 import logging
 
-# Import the singleton early to avoid ambiguity under multi-threaded conditions.
 from ._version import get_versions
 from .context import get_context
 from .subprocess import executable

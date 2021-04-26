@@ -4,6 +4,7 @@ __all__ = [
     'app',
     'command',
     'function_wrapper',
+    'parser',
     'poll',
     'run',
     'wait',
@@ -11,6 +12,7 @@ __all__ = [
 ]
 
 import abc
+import argparse
 import contextvars
 import functools
 import logging
@@ -18,13 +20,51 @@ import typing
 import warnings
 from typing import Protocol
 
-from scalems import exceptions
+from scalems import exceptions as _exceptions
 from scalems.context import get_context
 from scalems.context import scope
 from scalems.context import WorkflowManager
+from ._version import get_versions
+
+_scalems_version = get_versions()['version']
+del get_versions
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
+
+
+try:
+    cache = functools.cache
+except AttributeError:
+    # TODO: (Python 3.9) Use functools.cache instead of lru_cache when Py 3.9 is required.
+    cache = functools.lru_cache(maxsize=None)
+
+
+@cache
+def parser(add_help=False):
+    """Get the base scalems argument parser.
+
+    Provides a base argument parser for scripts or other module parsers.
+
+    By default, the returned ArgumentParser is created with ``add_help=False``
+    to avoid conflicts when used as a *parent* for a parser more local to the caller.
+    If *add_help* is provided, it is passed along to the ArgumentParser created
+    in this function.
+
+    See Also:
+         https://docs.python.org/3/library/argparse.html#parents
+    """
+    _parser = argparse.ArgumentParser(add_help=add_help)
+
+    _parser.add_argument(
+        '--version',
+        action='version',
+        version=f'scalems version {_scalems_version}'
+    )
+
+    # TODO: Add logger configuration options.
+
+    return _parser
 
 
 class ScriptEntryPoint(abc.ABC):
@@ -121,7 +161,7 @@ def function_wrapper(output: dict = None):
     publish multiple named results. Otherwise, the ``output`` of the generated operation
     will just capture the return value of the wrapped function.
     """
-    raise exceptions.MissingImplementationError()
+    raise _exceptions.MissingImplementationError()
 
 
 def poll():
@@ -133,7 +173,7 @@ def poll():
     Used in a work graph, this adds a non-deterministic aspect, but adds truly
     asynchronous adaptability.
     """
-    raise exceptions.MissingImplementationError()
+    raise _exceptions.MissingImplementationError()
 
 
 ResultType = typing.TypeVar('ResultType')
@@ -154,7 +194,7 @@ def _unpack_work(ref: dict):
     implementation_identifier = ref.get('implementation', None)
     message: dict = ref.get('message', None)
     if not isinstance(implementation_identifier, list) or not isinstance(message, dict):
-        raise exceptions.DispatchError('Bug: bad schema checking?')
+        raise _exceptions.DispatchError('Bug: bad schema checking?')
 
     command = implementation_identifier[-1]
     logger.debug(f'Unpacking a {command}')
@@ -203,7 +243,7 @@ def _unpack_work(ref: dict):
 @functools.singledispatch
 def _wait(ref, *, manager):
     """Use the indicated workflow manager to resolve a reference to a workflow item."""
-    raise exceptions.DispatchError('No dispatcher for this type of reference.')
+    raise _exceptions.DispatchError('No dispatcher for this type of reference.')
     # TODO: Return an object supporting the result type interface.
 
 
@@ -212,7 +252,7 @@ def _(ref: dict, *, manager):
     # First draft: monolithic implementation directs the workflow manager to add tasks and execute them.
     # TODO: Use a WorkflowManager interface from the core data model.
     if not isinstance(manager, WorkflowManager):
-        raise exceptions.ProtocolError('Provided manager does not implement the required interface.')
+        raise _exceptions.ProtocolError('Provided manager does not implement the required interface.')
     for item in _unpack_work(ref):
         view = manager.add_item(item)
         logger.debug('Added {}: {}'.format(
@@ -257,9 +297,9 @@ def wait(ref):
     context = get_context()
     if context is None:
         # Bail out.
-        raise exceptions.DispatchError(str(ref))
+        raise _exceptions.DispatchError(str(ref))
     if not isinstance(context, WorkflowManager):
-        raise exceptions.ProtocolError('Expected WorkflowManager. Got {}'.format(repr(context)))
+        raise _exceptions.ProtocolError('Expected WorkflowManager. Got {}'.format(repr(context)))
 
     # Dispatch on reference type.
     return _wait(ref, manager=context)
@@ -288,7 +328,7 @@ def _run(*, work, context, **kwargs):
                 logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
                 raise e
         else:
-            raise exceptions.DispatchError('Asynchronous workflow context expects callable work.')
+            raise _exceptions.DispatchError('Asynchronous workflow context expects callable work.')
 
         logger.debug('Creating coroutine object for workflow dispatcher.')
         # TODO: Handle in context.run() via full dispatcher implementation.

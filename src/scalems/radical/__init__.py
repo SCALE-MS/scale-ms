@@ -750,7 +750,8 @@ class RPDispatchingExecutor:
             # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
             with warnings.catch_warnings():
                 warnings.simplefilter('ignore', category=DeprecationWarning)
-                # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
+                # This would be a good time to `await`, if an event-loop friendly
+                # Session creation function becomes available.
                 self.session = rp.Session(uid=session_id, cfg=session_config)
             session_id = self.session.uid
             # Do we want to log this somewhere?
@@ -776,7 +777,7 @@ class RPDispatchingExecutor:
             # Get a Pilot
             #
 
-            # # TODO: Describe (link to) configuration points.
+            # # TODO: #94 Describe (link to) configuration points.
             # resource_config['local.localhost'].update({
             #     'project': None,
             #     'queue': None,
@@ -793,7 +794,7 @@ class RPDispatchingExecutor:
             #                          cores=resource_config[_resource]['cores'],
             #                          gpus=resource_config[_resource]['gpus'])
 
-            # TODO: How to specify PilotDescription?
+            # TODO: How to specify PilotDescription? (see also #121)
             # Where should this actually be coming from?
             # We need to inspect both the HPC allocation and the work load, I think,
             # and combine with user-provided preferences.
@@ -847,43 +848,6 @@ class RPDispatchingExecutor:
             task_manager.add_pilots(pilot)
             logger.debug('Added Pilot {} to task manager {}.'.format(self.pilot_uid, self._task_manager_uid))
 
-            # pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
-            #
-            # # I can't figure out another way to avoid the Pilot venv...
-            # py_base = '/usr/bin/python3'
-            #
-            # venv = os.path.join(pilot_sandbox, 'scalems_venv')
-            # task = self._task_manager.submit_tasks(
-            #     rp.TaskDescription(
-            #         {
-            #             'executable': py_base,
-            #             'arguments': ['-m', 'venv', venv],
-            #             'environment': {}
-            #         }
-            #     )
-            # )
-            # if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
-            #     raise DispatchError('Could not create venv.')
-            #
-            # py_venv = os.path.join(venv, 'bin', 'python3')
-            # task = self._task_manager.submit_tasks(
-            #     rp.TaskDescription(
-            #         {
-            #             'executable': py_venv,
-            #             'arguments': ['-m', 'pip', 'install', '--upgrade',
-            #                           'pip',
-            #                           'setuptools',
-            #                           # It seems like the install_requires may not get followed correctly,
-            #                           # or may be unsatisfied without causing this task to fail...
-            #                           shlex.quote('radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
-            #                           shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
-            #                           ]
-            #         }
-            #     )
-            # )
-            # if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
-            #     raise DispatchError('Could not install execution environment.')
-
             # Verify usable SCALEMS RP connector.
             # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
             # TODO: Check for compatible installed scalems API version.
@@ -899,13 +863,15 @@ class RPDispatchingExecutor:
                 )
             )
             logger.debug('Checking RP execution environment.')
-            if task_manager.wait_tasks(uids=[rp_check.uid])[0] != rp.states.DONE or rp_check.exit_code != 0:
+            states = task_manager.wait_tasks(uids=[rp_check.uid])
+            if states[0] != rp.states.DONE or rp_check.exit_code != 0:
                 raise DispatchError('Could not verify RP in execution environment.')
 
             try:
                 remote_rp_version = packaging.version.parse(rp_check.stdout.rstrip())
             except:
                 remote_rp_version = None
+            # TODO: #100 Improve compatibility checking.
             if not remote_rp_version or remote_rp_version < packaging.version.parse('1.6.0'):
                 raise DispatchError('Could not get a valid execution environment.')
 
@@ -913,35 +879,40 @@ class RPDispatchingExecutor:
             # Get a scheduler task.
             #
 
-            # This is the name that should be resolvable in an active venv for the script we install
-            # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
-            master_script = 'scalems_rp_master'
+            # TODO: We can move this function definition to module level for tidiness.
+            def _get_scheduler(name: str, pre_exec: typing.Iterable[str]):
 
-            scheduler_name = 'raptor.scalems'
-            # We can probably make the config file a permanent part of the local metadata,
-            # but we don't really have a scheme for managing local metadata right now.
-            # with tempfile.TemporaryDirectory() as dir:
-            #     config_file_name = 'raptor_scheduler_config.json'
-            #     config_file_path = os.path.join(dir, config_file_name)
-            #     with open(config_file_path, 'w') as fh:
-            #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
-            #         json.dump(encoded, fh, indent=2)
+                # This is the name that should be resolvable in an active venv for the script we install
+                # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+                master_script = 'scalems_rp_master'
 
-            # define a raptor.scalems master and launch it within the pilot
-            td = rp.TaskDescription(
-                {
-                    'uid': scheduler_name,
-                    'executable': master_script})
-            td.arguments = []
-            td.pre_exec = self._pre_exec
-            # td.named_env = 'scalems_env'
-            logger.debug('Launching RP scheduler.')
-            scheduler = task_manager.submit_tasks(td)
-            # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
-            scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+                # We can probably make the config file a permanent part of the local metadata,
+                # but we don't really have a scheme for managing local metadata right now.
+                # with tempfile.TemporaryDirectory() as dir:
+                #     config_file_name = 'raptor_scheduler_config.json'
+                #     config_file_path = os.path.join(dir, config_file_name)
+                #     with open(config_file_path, 'w') as fh:
+                #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
+                #         json.dump(encoded, fh, indent=2)
+
+                # define a raptor.scalems master and launch it within the pilot
+                td = rp.TaskDescription(
+                    {
+                        'uid': name,
+                        'executable': master_script})
+                td.arguments = []
+                td.pre_exec = pre_exec
+                # td.named_env = 'scalems_env'
+                logger.debug('Launching RP scheduler.')
+                scheduler = task_manager.submit_tasks(td)
+                # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
+                scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+                if scheduler.state not in {rp.states.CANCELED, rp.states.FAILED}:
+                    raise DispatchError('Could not get Master task for dispatching.')
+                return scheduler
 
             assert self.scheduler is None
-            self.scheduler = scheduler
+            self.scheduler = _get_scheduler('raptor.scalems', pre_exec=self._pre_exec)
             # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
             # Note: The worker script name only appears in the config file.
             logger.info('RP scheduler ready.')

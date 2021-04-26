@@ -37,6 +37,8 @@ jobs:
     - name: Command line tests
       run: |
         . $HOME/testenv/bin/activate
+        coverage run -m scalems.local --version
+        coverage run -m scalems.local --help
         coverage run -m scalems.local examples/basic/echo.py hi there
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
     - name: "Upload coverage to Codecov"

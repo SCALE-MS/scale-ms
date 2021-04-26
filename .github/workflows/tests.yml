@@ -34,6 +34,7 @@ jobs:
     - name: Test with pytest
       run: |
         . $HOME/testenv/bin/activate
+        export RADICAL_LOG_LVL=DEBUG
         python -X dev -m pytest tests -s --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
 
   containerized_rp:
@@ -74,6 +75,7 @@ jobs:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
         . $HOME/testenv/bin/activate
+        export RADICAL_LOG_LVL=DEBUG
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         python -X dev -m pytest --cov=scalems --cov-report=xml -rA --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
     - name: "Upload coverage to Codecov"

@@ -8,6 +8,8 @@ dispatching layer to run meaningful tests through an RP Context specialization.
 In turn, the initial RP dispatching will probably use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
+
+Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 """
 import os
 import asyncio

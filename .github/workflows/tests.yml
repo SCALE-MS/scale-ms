@@ -94,8 +94,8 @@ jobs:
         . $HOME/testenv/bin/activate
         coverage run -m scalems.radical --version
         coverage run -m scalems.radical --help
-        coverage run -m scalems.radical --venv=$HOME/testenv --resource=local.github examples/basic/echo.py hi there
-        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
+        coverage run -m scalems.radical --venv=$HOME/testenv --resource=local.github examples/basic/echo.py hello world
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:

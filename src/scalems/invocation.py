@@ -56,7 +56,6 @@ def run(manager_type: typing.Type[scalems.context.WorkflowManager], _loop: async
         raise RuntimeError('scalems launcher is not reentrant.')
     try:
         module = sys.modules[manager_type.__module__]
-        logger = getattr(module, 'logger')
 
         get_parser = getattr(module, 'parser', base_parser)
 
@@ -74,9 +73,31 @@ def run(manager_type: typing.Type[scalems.context.WorkflowManager], _loop: async
         # Strip the current __main__ file from argv. Collect arguments for this script
         # and for the called script.
         args, script_args = parser.parse_known_args(sys.argv[1:])
+
+        if args.pycharm:
+            try:
+                import pydevd_pycharm
+                pydevd_pycharm.settrace('host.docker.internal', port=12345, stdoutToServer=True, stderrToServer=True)
+            except ImportError:
+                ...
+
         if not os.path.exists(args.script):
             # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
             raise RuntimeError('Need a script to execute.')
+
+        level = args.log_level
+        if level is not None:
+            import logging
+            character_stream = logging.StreamHandler()
+            # Optional: Set log level.
+            logging.getLogger('scalems').setLevel(level)
+            character_stream.setLevel(level)
+            # Optional: create formatter and add to character stream handler
+            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+            character_stream.setFormatter(formatter)
+            # add handler to logger
+            logging.getLogger('scalems').addHandler(character_stream)
+        logger = getattr(module, 'logger')
 
         configure_module = getattr(module, '_set_configuration', None)
         if configure_module is not None:

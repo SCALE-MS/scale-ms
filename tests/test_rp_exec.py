@@ -344,6 +344,10 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
     fpath = os.path.join('/tmp', fname)
     data: str = time.asctime()
 
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
+
     if rp_venv:
         pre_exec = ['. {}/bin/activate'.format(rp_venv)]
     else:
@@ -554,9 +558,11 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 @pytest.mark.asyncio
 async def test_exec_rp(pilot_description, rp_venv):
     """Test that we are able to launch and shut down a RP dispatched execution session.
-
-    TODO: Where should we specify the target resource? An argument to *dispatch()*?
     """
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
+
     original_context = scalems.context.get_context()
     loop = asyncio.get_event_loop()
     loop.set_debug(True)

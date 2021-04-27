@@ -585,8 +585,8 @@ async def test_exec_rp(pilot_description, rp_venv):
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
         assert cmd1.done() and cmd2.done()
-        logger.info(cmd1.result())
-        logger.info(cmd2.result())
+        logger.debug(cmd1.result())
+        logger.debug(cmd2.result())
 
     # TODO: Output typing.
     out1: dict = cmd1.result()

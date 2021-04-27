@@ -10,15 +10,16 @@ Supports invocation of the following form with minimal `backend/__main__.py`
 
 import argparse
 import asyncio
+import os
 import runpy
 import sys
-
-import os
-
+import threading
 import typing
 
 import scalems.exceptions
 from scalems.utility import parser as base_parser
+
+_reentrance_guard = threading.Lock()
 
 
 # We can import scalems.context and set module state before using runpy to
@@ -50,93 +51,106 @@ def run_dispatch(work, context: scalems.context.WorkflowManager):
 
 
 def run(manager_type: typing.Type[scalems.context.WorkflowManager], _loop: asyncio.AbstractEventLoop = None):
-    module = manager_type.__module__
-    logger = getattr(sys.modules[module], 'logger')
-
-    get_parser = getattr(sys.modules[module], 'parser', base_parser)
-
-    parser = argparse.ArgumentParser(
-        usage=f'python -m {module} <{module} args> myscript.py <script args>',
-        parents=[get_parser()]
-    )
-
-    parser.add_argument(
-        'script',
-        metavar='script-to-run.py',
-        type=str,
-    )
-
-    # Strip the current __main__ file from argv. Collect arguments for this script
-    # and for the called script.
-    args, script_args = parser.parse_known_args(sys.argv[1:])
-    if not os.path.exists(args.script):
-        # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
-        raise RuntimeError('Need a script to execute.')
-
-    sys.argv = [args.script] + script_args
-
-    if _loop is not None:
-        # Allow event loop to be provided (for debugging and testing purposes).
-        loop = _loop
-    else:
-        # Start the asyncio event loop on behalf of the client.
-        # We want to do this exactly once per invocation, and we do not want the scalems
-        # package module or any particular scalems object to own the event loop.
-        loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-
-    # TODO: Clarify event loop management scheme.
-    #     Do we want scripts to be like "apps" that get called with asyncio.run(),
-    #     should we effectively reimplement asyncio.run through scalems.run, or
-    #     should we think about
-    #     [ast.PyCF_ALLOW_TOP_LEVEL_AWAIT](https://docs.python.org/3/whatsnew/3.8.html#builtins)
-
-    # Execute the script in the current process.
-    # TODO: Can we support mixing invocation with pytest?
-    exitcode = 0
-
+    safe = _reentrance_guard.acquire(blocking=False)
+    if not safe:
+        raise RuntimeError('scalems launcher is not reentrant.')
     try:
-        with scalems.context.scope(manager_type(loop)) as manager:
-            try:
-                globals_namespace = runpy.run_path(args.script)
+        module = sys.modules[manager_type.__module__]
+        logger = getattr(module, 'logger')
 
-                main = None
-                for name, ref in globals_namespace.items():
-                    if isinstance(ref, scalems.ScriptEntryPoint):
-                        if main is not None:
-                            raise scalems.exceptions.DispatchError(
-                                'Multiple apps in the same script is not (yet?) supported.')
-                        main = ref
-                        ref.name = name
-                if main is None:
-                    raise scalems.exceptions.DispatchError('No scalems.app callables found in script.')
-                # The scalems.run call hierarchy goes through utility.run to utility._run to AsyncWorkflowManager.run,
-                # which then goes through WorkflowManager.dispatch(). We should
-                # (a) clean this up,
-                # (b) return something sensible,
-                # (c) clarify error behavior.
-                # We probably don't want to be calling scalems.run() from the entry point script.
-                # `scalems.run()` and `python -m scalems.backend script.py` are alternative
-                # ways to separate the user from the `with Manager.dispatch():` block.
-                # For the moment, we can disable the `scalems.run()` mechanism, I think.
-                # cmd = scalems.run(main, context=context)
+        get_parser = getattr(module, 'parser', base_parser)
 
-                logger.debug('Starting asyncio run()')
+        parser = argparse.ArgumentParser(
+            usage=f'python -m {module.__name__} <{module.__name__} args> myscript.py <script args>',
+            parents=[get_parser()]
+        )
+
+        parser.add_argument(
+            'script',
+            metavar='script-to-run.py',
+            type=str,
+        )
+
+        # Strip the current __main__ file from argv. Collect arguments for this script
+        # and for the called script.
+        args, script_args = parser.parse_known_args(sys.argv[1:])
+        if not os.path.exists(args.script):
+            # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
+            raise RuntimeError('Need a script to execute.')
+
+        configure_module = getattr(module, '_set_configuration', None)
+        if configure_module is not None:
+            configure_module(args)
+        if hasattr(module, 'configuration'):
+            config = module.configuration()
+            logger.debug(f'Configuration: {config}')
+
+        sys.argv = [args.script] + script_args
+
+        if _loop is not None:
+            # Allow event loop to be provided (for debugging and testing purposes).
+            loop = _loop
+        else:
+            # Start the asyncio event loop on behalf of the client.
+            # We want to do this exactly once per invocation, and we do not want the scalems
+            # package module or any particular scalems object to own the event loop.
+            loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        # TODO: Clarify event loop management scheme.
+        #     Do we want scripts to be like "apps" that get called with asyncio.run(),
+        #     should we effectively reimplement asyncio.run through scalems.run, or
+        #     should we think about
+        #     [ast.PyCF_ALLOW_TOP_LEVEL_AWAIT](https://docs.python.org/3/whatsnew/3.8.html#builtins)
+
+        # Execute the script in the current process.
+        # TODO: Can we support mixing invocation with pytest?
+        exitcode = 0
+
+        try:
+            with scalems.context.scope(manager_type(loop)) as manager:
                 try:
-                    result = run_dispatch(main, manager)
-                except Exception as e:
-                    logger.exception('Uncaught exception in scalems runner calling dispatch(): ' + str(e))
-                    raise e
-                finally:
-                    loop.close()
-                assert loop.is_closed()
+                    globals_namespace = runpy.run_path(args.script)
 
-                logger.debug('Finished asyncio run()')
-            except SystemExit as e:
-                exitcode = e.code
-    except Exception as e:
-        print(f'{module} encountered Exception: {repr(e)}')
-        if exitcode == 0:
-            exitcode = 1
-    if exitcode != 0:
-        raise SystemExit(exitcode)
+                    main = None
+                    for name, ref in globals_namespace.items():
+                        if isinstance(ref, scalems.ScriptEntryPoint):
+                            if main is not None:
+                                raise scalems.exceptions.DispatchError(
+                                    'Multiple apps in the same script is not (yet?) supported.')
+                            main = ref
+                            ref.name = name
+                    if main is None:
+                        raise scalems.exceptions.DispatchError('No scalems.app callables found in script.')
+                    # The scalems.run call hierarchy goes through utility.run to utility._run to AsyncWorkflowManager.run,
+                    # which then goes through WorkflowManager.dispatch(). We should
+                    # (a) clean this up,
+                    # (b) return something sensible,
+                    # (c) clarify error behavior.
+                    # We probably don't want to be calling scalems.run() from the entry point script.
+                    # `scalems.run()` and `python -m scalems.backend script.py` are alternative
+                    # ways to separate the user from the `with Manager.dispatch():` block.
+                    # For the moment, we can disable the `scalems.run()` mechanism, I think.
+                    # cmd = scalems.run(main, context=context)
+
+                    logger.debug('Starting asyncio run()')
+                    try:
+                        result = run_dispatch(main, manager)
+                    except Exception as e:
+                        logger.exception('Uncaught exception in scalems runner calling dispatch(): ' + str(e))
+                        raise e
+                    finally:
+                        loop.close()
+                    assert loop.is_closed()
+
+                    logger.debug('Finished asyncio run()')
+                except SystemExit as e:
+                    exitcode = e.code
+        except Exception as e:
+            print(f'{module} encountered Exception: {repr(e)}')
+            if exitcode == 0:
+                exitcode = 1
+        if exitcode != 0:
+            raise SystemExit(exitcode)
+    finally:
+        _reentrance_guard.release()

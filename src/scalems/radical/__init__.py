@@ -25,22 +25,25 @@ Executor:
 """
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
+import argparse
 import asyncio
-# Note that we import RP early to allow it to monkey-patch some modules early.
 import contextvars
 import dataclasses
 import functools
 import json
 import logging
 import os
+import packaging.version
+import pathlib
 import threading
 import typing
 import warnings
 
-import packaging.version
 from radical import pilot as rp
 
+import scalems.subprocess
 from .. import context as _context
+from .. import utility as _utility
 from ..context import QueueItem
 from ..exceptions import APIError
 from ..exceptions import DispatchError
@@ -55,27 +58,147 @@ logger.debug('Importing {}'.format(__name__))
 # TODO: Consider scoping for these Workflow context variables.
 # Need to review PEP-567 and PEP-568 to consider where and how to scope the Context
 # with respect to the dispatching scope.
-execution_target = contextvars.ContextVar('execution_target', default='local.localhost')
-resource_params = contextvars.ContextVar('resource_params')
-# TODO: Consider alternatives for getting a default venv.
-target_venv = contextvars.ContextVar('target_venv')
+_configuration = contextvars.ContextVar('_configuration')
+
+try:
+    cache = functools.cache
+except AttributeError:
+    cache = functools.lru_cache(maxsize=None)
+
+
+@cache
+def parser(add_help=False):
+    """Get the module-specific argument parser.
+
+    Provides a base argument parser for scripts using the scalems.radical backend.
+
+    By default, the returned ArgumentParser is created with ``add_help=False``
+    to avoid conflicts when used as a *parent* for a parser more local to the caller.
+    If *add_help* is provided, it is passed along to the ArgumentParser created
+    in this function.
+
+    See Also:
+         https://docs.python.org/3/library/argparse.html#parents
+    """
+    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
+
+    # We could consider inferring a default venv from the VIRTUAL_ENV environment variable,
+    # but we currently have very poor error handling regarding venvs. For now, this needs
+    # to be explicit.
+    # Ref https://github.com/SCALE-MS/scale-ms/issues/89
+    # See also https://github.com/SCALE-MS/scale-ms/issues/90
+    # TODO: Set module variables rather than carry around an args namespace?
+    _parser.add_argument(
+        '--venv',
+        metavar='PATH',
+        type=str,
+        required=True,
+        help='Full path to a (pre-configured) venv to use for RP tasks.'
+    )
+
+    _parser.add_argument(
+        '--resource',
+        type=str,
+        required=True,
+        help='Specify a *resource* for the radical.pilot.PilotDescription.'
+    )
+
+    _parser.add_argument(
+        '--access',
+        type=str,
+        help='Explicitly specify the access_schema to use from the RADICAL resource.'
+    )
+    return _parser
 
 
 @dataclasses.dataclass
-class RPParams:
+class Configuration:
     # Note that the use cases for this dataclass interact with module ContextVars, pending refinement.
+    # TODO: Check that the resource is defined.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None
 
 
-def executor_factory(context: _context.WorkflowManager, params: RPParams = None):
-    if params is None:
-        params = RPParams(
-            execution_target=execution_target.get(),
-            rp_resource_params=resource_params.get({}),
-            target_venv=target_venv.get(None)
+@functools.singledispatch
+def _set_configuration(*args, **kwargs) -> Configuration:
+    """Initialize or retrieve the module configuration.
+
+    This module and the RADICAL infrastructure have various stateful aspects
+    that require clearly-scoped module-level configuration. Module configuration
+    should be initialized exactly once per Python process.
+
+    Recommended usage is to derive an ArgumentParser from the *parser()* module
+    function and use the resulting namespace to initialize the module configuration
+    using this function.
+    """
+    assert len(args) != 0 or len(kwargs) != 0
+    # Caller has provided arguments.
+    # Not thread-safe
+    if _configuration.get(None):
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is already configured.')
+    c = Configuration(*args, **kwargs)
+    _configuration.set(c)
+    return _configuration.get()
+
+
+@_set_configuration.register
+def _(config: Configuration) -> Configuration:
+    # Not thread-safe
+    if _configuration.get(None):
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is already configured.')
+    _configuration.set(config)
+    return _configuration.get()
+
+
+@_set_configuration.register
+def _(namespace: argparse.Namespace) -> Configuration:
+    config = Configuration(
+        execution_target=namespace.resource,
+        target_venv=namespace.venv,
+        rp_resource_params={
+            'PilotDescription':
+                {
+                    'access_schema': namespace.access,
+                    'cores': 4,
+                    'gpus': 0
+                }
+        }
+    )
+    return _set_configuration(config)
+
+
+def configuration(*args, **kwargs) -> Configuration:
+    """Get (and optionally set) the RADICAL Pilot configuration.
+
+    With no arguments, returns the current configuration. If a configuration has
+    not yet been set, the command line parser is invoked to try to build a new
+    configuration.
+
+    If arguments are provided, try to construct a scalems.radical.Configuration
+    and use it to initialize the module.
+
+    It is an error to try to initialize the module more than once.
+    """
+    # Not thread-safe
+    if len(args) > 0:
+        _set_configuration(*args, **kwargs)
+    elif len(kwargs) > 0:
+        _set_configuration(
+            Configuration(**kwargs)
         )
+    elif _configuration.get(None) is None:
+        # No config is set yet. Generate with module parser.
+        c = Configuration()
+        parser().parse_known_args(namespace=typing.cast(argparse.Namespace, c))
+        _configuration.set(c)
+    return _configuration.get()
+
+
+def executor_factory(context: _context.WorkflowManager, params: Configuration = None):
+    if params is not None:
+        _set_configuration(params)
+    params = configuration()
 
     executor = RPDispatchingExecutor(source_context=context,
                                      loop=context.loop(),
@@ -291,7 +414,53 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     return wrapped_task
 
 
-def _describe_task(item: _context.Task, scheduler: str, pre_exec: list) -> rp.TaskDescription:
+def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescription:
+    """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
+
+    For a "raptor" style task, see _describe_raptor_task()
+    """
+    assert item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask')
+    input_data = item.input
+    task_input = scalems.subprocess.SubprocessInput(
+        **input_data
+    )
+    args = list([arg for arg in task_input.argv])
+    # Warning: TaskDescription class does not have a strongly defined interface.
+    # Check docs for schema.
+    task_description = rp.TaskDescription(
+        from_dict=dict(
+            executable=args[0],
+            arguments=args[1:],
+            stdout=str(task_input.stdout),
+            stderr=str(task_input.stderr),
+            pre_exec=pre_exec
+        )
+    )
+    uid: str = item.uid().hex()
+    task_description.uid = uid
+
+    # TODO: Check for and activate an appropriate venv
+    # using
+    #     task_description.pre_exec = ...
+    # or
+    #     task_description.named_env = ...
+
+    # TODO: Interpret item details and derive appropriate staging directives.
+    task_description.input_staging = list(task_input.inputs.values())
+    task_description.output_staging = [
+        {'source': str(task_input.stdout),
+         'target': os.path.join(uid, pathlib.Path(task_input.stdout).name),
+         'action': rp.TRANSFER},
+        {'source': str(task_input.stderr),
+         'target': os.path.join(uid, pathlib.Path(task_input.stderr).name),
+         'action': rp.TRANSFER}
+    ]
+    task_description.output_staging += task_input.outputs.values()
+
+    return task_description
+
+
+def _describe_raptor_task(item: _context.Task, scheduler: str, pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
 
     The TaskDescription will be submitted to the named *scheduler*,
@@ -413,9 +582,13 @@ async def submit(*, item: _context.Task, task_manager: rp.TaskManager, pre_exec:
         when the actual Executor has some degree of data flow management capabilities.
 
     """
-    if isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
+    if item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask'):
+        if scheduler is not None:
+            raise DispatchError('Raptor not yet supported for scalems.executable.')
+        rp_task_description = _describe_legacy_task(item, pre_exec=pre_exec)
+    elif isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
         # We might want a contextvars.Context to hold the current rp.Master instance name.
-        rp_task_description = _describe_task(item, scheduler, pre_exec=pre_exec)
+        rp_task_description = _describe_raptor_task(item, scheduler, pre_exec=pre_exec)
     else:
         raise APIError('Caller must provide the UID of a submitted *scheduler* task.')
 
@@ -457,6 +630,239 @@ def scalems_callback(fut: asyncio.Future, *, item: _context.Task):
             item.set_result(fut.result())
 
 
+def _get_scheduler(name: str, pre_exec: typing.Iterable[str], task_manager: rp.TaskManager):
+
+    # This is the name that should be resolvable in an active venv for the script we install
+    # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+    master_script = 'scalems_rp_master'
+
+    # We can probably make the config file a permanent part of the local metadata,
+    # but we don't really have a scheme for managing local metadata right now.
+    # with tempfile.TemporaryDirectory() as dir:
+    #     config_file_name = 'raptor_scheduler_config.json'
+    #     config_file_path = os.path.join(dir, config_file_name)
+    #     with open(config_file_path, 'w') as fh:
+    #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
+    #         json.dump(encoded, fh, indent=2)
+
+    # define a raptor.scalems master and launch it within the pilot
+    td = rp.TaskDescription(
+        {
+            'uid': name,
+            'executable': master_script})
+    td.arguments = []
+    td.pre_exec = pre_exec
+    # td.named_env = 'scalems_env'
+    logger.debug('Launching RP scheduler.')
+    scheduler = task_manager.submit_tasks(td)
+    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
+    scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+    if scheduler.state not in {rp.states.CANCELED, rp.states.FAILED}:
+        raise DispatchError('Could not get Master task for dispatching.')
+    return scheduler
+
+
+def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
+    """Establish the RP Session.
+
+    Acquire as many re-usable resources as possible. The scope established by
+    this function is as broad as it can be within the life of this instance.
+
+    Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to clean
+    up resources. Use the async context manager behavior of the instance to automatically
+    follow this protocol. I.e. instead of calling ``instance._connect_rp(); ...; instance._disconnect_rp()``,
+    use::
+        async with instance:
+            ...
+
+    Raises:
+        DispatchError if task dispatching could not be set up.
+
+        CanceledError if parent asyncio.Task is cancelled while executing.
+
+    """
+    # TODO: Consider inlining this into __aenter__().
+    # A non-async method is potentially useful for debugging, but causes the event loop to block
+    # while waiting for the RP tasks included here. If this continues to be a slow function,
+    # we can wrap the remaining RP calls and let this function be inlined, or stick the whole
+    # function in a separate thread with loop.run_in_executor().
+
+    # TODO: RP triggers SIGINT in various failure modes. We should use loop.add_signal_handler() to convert to an exception
+    #       that we can raise in an appropriate task.
+    # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
+    # but we have not explored the consequences of doing so.
+
+    try:
+        #
+        # Start the Session.
+        #
+
+        # Note that we cannot resolve the full _resource config until we have a Session object.
+        # We cannot get the default session config until after creating the Session,
+        # so we don't have a template for allowed, required, or default values.
+        # Question: does the provided *cfg* need to be complete? Or will it be merged
+        # with default values from some internal definition, such as by dict.update()?
+        # I don't remember what the use cases are for overriding the default session config.
+        session_config = None
+        # At some point soon, we need to track Session ID for the workflow metadata.
+        # We may also want Session ID to be deterministic (or to be re-used?).
+        session_id = None
+
+        # Note: the current implementation implies that only one Task for the dispatcher
+        # will exist at a time. We are further assuming that there will probably only
+        # be one Task per the lifetime of the dispatcher object.
+        # We could choose another approach and change our assumptions, if appropriate.
+        if execution_manager.session is not None:
+            raise ProtocolError('Dispatching context is not reentrant.')
+        logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
+
+        # Note: radical.pilot.Session creation causes several deprecation warnings.
+        # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore', category=DeprecationWarning)
+            # This would be a good time to `await`, if an event-loop friendly
+            # Session creation function becomes available.
+            execution_manager.session = rp.Session(uid=session_id, cfg=session_config)
+        session_id = execution_manager.session.uid
+        # Do we want to log this somewhere?
+        # session_config = copy.deepcopy(self.session.cfg.as_dict())
+        logger.debug('RP dispatcher acquired session {}'.format(session_id))
+
+        # We can launch an initial Pilot, but we may have to run further Pilots
+        # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
+        # to handle dynamic work load requirements.
+        # Optionally, we could refrain from launching the pilot here, at all,
+        # but it seems like a good chance to start bootstrapping the agent environment.
+        logger.debug('Launching PilotManager.')
+        pilot_manager = rp.PilotManager(session=execution_manager.session)
+        execution_manager._pilot_manager_uid = pilot_manager.uid
+        logger.debug('Got PilotManager {}.'.format(execution_manager._pilot_manager_uid))
+
+        logger.debug('Launching TaskManager.')
+        task_manager = rp.TaskManager(session=execution_manager.session)
+        execution_manager._task_manager_uid = task_manager.uid
+        logger.debug(('Got TaskManager {}'.format(execution_manager._task_manager_uid)))
+
+        #
+        # Get a Pilot
+        #
+
+        # # TODO: #94 Describe (link to) configuration points.
+        # resource_config['local.localhost'].update({
+        #     'project': None,
+        #     'queue': None,
+        #     'schema': None,
+        #     'cores': 1,
+        #     'gpus': 0
+        # })
+
+        # _pilot_description = dict(_resource=_resource,
+        #                          runtime=30,
+        #                          exit_on_error=True,
+        #                          project=resource_config[_resource]['project'],
+        #                          queue=resource_config[_resource]['queue'],
+        #                          cores=resource_config[_resource]['cores'],
+        #                          gpus=resource_config[_resource]['gpus'])
+
+        # TODO: How to specify PilotDescription? (see also #121)
+        # Where should this actually be coming from?
+        # We need to inspect both the HPC allocation and the work load, I think,
+        # and combine with user-provided preferences.
+        pilot_description = configuration().rp_resource_params.get('PilotDescription', {}).copy()
+        pilot_description.update({'resource': configuration().execution_target})
+        pilot_description.update({
+            'resource': execution_manager.execution_target,
+            'cores': 4,
+            'gpus': 0})
+        # TODO: Pilot venv (#90, #94).
+        # Currently, Pilot venv must be specified in the JSON file for resource definitions.
+        execution_manager._pilot_description = rp.PilotDescription(pilot_description)
+
+        # How and when should we update pilot description?
+        logger.debug('Submitting PilotDescription {}'.format(repr(execution_manager._pilot_description)))
+        pilot = pilot_manager.submit_pilots(execution_manager._pilot_description)
+        execution_manager.pilot_uid = pilot.uid
+        logger.debug('Got Pilot {}'.format(pilot.uid))
+
+        # Note that the task description for the master (and worker) can specify a *named_env* attribute to use
+        # a venv prepared via Pilot.prepare_env
+        # E.g.         pilot.prepare_env({'numpy_env' : {'type'   : 'virtualenv',
+        #                                           'version': '3.6',
+        #                                           'setup'  : ['numpy']}})
+        #   td.named_env = 'numpy_env'
+        # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg: dict) or
+        # the task will wait indefinitely to be scheduled.
+        # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
+        # in the TaskDescription.pre_exec list.
+
+        # TODO: Use archives generated from (acquired through) the local installations.
+        # # Could we stage in archive distributions directly?
+        # # self.pilot.stage_in()
+        # rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
+        # rp_spec = shlex.quote(rp_spec)
+        # scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
+        # pilot.prepare_env(
+        #     {
+        #         'scalems_env': {
+        #             'type': 'virtualenv',
+        #             'version': '3.8',
+        #             'setup': [
+        #                 # TODO: Generalize scalems dependency resolution.
+        #                 # Ideally, we would check the current API version requirement, map that to a package version,
+        #                 # and specify >=min_version, allowing cached archives to satisfy the dependency.
+        #                 rp_spec,
+        #                 scalems_spec
+        #             ]}})
+
+        # Question: when should we remove the pilot from the task manager?
+        task_manager.add_pilots(pilot)
+        logger.debug('Added Pilot {} to task manager {}.'.format(execution_manager.pilot_uid, execution_manager._task_manager_uid))
+
+        # Verify usable SCALEMS RP connector.
+        # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
+        # TODO: Check for compatible installed scalems API version.
+        rp_check = task_manager.submit_tasks(
+            rp.TaskDescription(
+                {
+                    # 'executable': py_venv,
+                    'executable': 'python3',
+                    'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
+                    'pre_exec': execution_manager._pre_exec
+                    # 'named_env': 'scalems_env'
+                }
+            )
+        )
+        logger.debug('Checking RP execution environment.')
+        states = task_manager.wait_tasks(uids=[rp_check.uid])
+        if states[0] != rp.states.DONE or rp_check.exit_code != 0:
+            raise DispatchError('Could not verify RP in execution environment.')
+
+        try:
+            remote_rp_version = packaging.version.parse(rp_check.stdout.rstrip())
+        except:
+            remote_rp_version = None
+        # TODO: #100 Improve compatibility checking.
+        if not remote_rp_version or remote_rp_version < packaging.version.parse('1.6.0'):
+            raise DispatchError('Could not get a valid execution environment.')
+
+        #
+        # Get a scheduler task.
+        #
+
+        assert execution_manager.scheduler is None
+        # TODO: #119 Re-enable raptor.
+        # execution_manager.scheduler = _get_scheduler('raptor.scalems', pre_exec=execution_manager._pre_exec, task_manager=task_manager)
+        # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
+        # Note: The worker script name only appears in the config file.
+        # logger.info('RP scheduler ready.')
+        # logger.debug(repr(execution_manager.scheduler))
+
+    except asyncio.CancelledError as e:
+        raise e
+    except Exception as e:
+        raise DispatchError('Failed to launch SCALE-MS master task.') from e
+
+
 class RPDispatchingExecutor:
     """Client side manager for work dispatched through RADICAL Pilot.
 
@@ -466,6 +872,7 @@ class RPDispatchingExecutor:
     * session config?
     """
     execution_target: str
+    pilot_uid: str = None
     scheduler: typing.Union[rp.Task, None]
     session: typing.Union[rp.Session, None] = None
     source_context: _context.WorkflowManager
@@ -474,14 +881,16 @@ class RPDispatchingExecutor:
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
     _pilot_description: rp.PilotDescription
+    _pilot_manager_uid: str = None
     _rp_resource_params: typing.Optional[dict]
     _task_description: rp.TaskDescription
+    _task_manager_uid: str = None
     _queue_runner_task: asyncio.Task
 
     def __init__(self,
                  source_context: _context.WorkflowManager,
                  loop: asyncio.AbstractEventLoop,
-                 rp_params: RPParams,
+                 rp_params: Configuration,
                  dispatcher_lock=None,
                  ):
         """Create a client side execution manager.
@@ -529,10 +938,17 @@ class RPDispatchingExecutor:
         return self._command_queue
 
     async def __aenter__(self):
+        # Get default configuration.
+        c = configuration()
+        # Update with any internal configuration.
         if self._target_venv is not None and len(self._target_venv) > 0:
-            token = target_venv.set(self._target_venv)
-        else:
-            token = None
+            c.target_venv = self._target_venv
+        if len(self._rp_resource_params) > 0:
+            c.rp_resource_params.update(self._rp_resource_params)
+        if self.execution_target is not None and len(self.execution_target) > 0:
+            c.execution_target = self.execution_target
+        token = _configuration.set(c)
+
         try:
             # Get a lock while the state is changing.
             # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
@@ -540,7 +956,12 @@ class RPDispatchingExecutor:
             # TODO: Clarify dispatcher state machine and remove/replace assertions.
             assert not self._dispatcher_lock.locked()
             async with self._dispatcher_lock:
-                self._connect_rp()
+                _connect_rp(self)
+                # Post-conditions of _connect_rp:
+                assert self._task_manager_uid is not None
+                assert self._pilot_manager_uid is not None
+                assert self.pilot_uid is not None
+
                 if self.session is None or self.session.closed:
                     raise ProtocolError('Cannot process queue without a RP Session.')
 
@@ -561,259 +982,7 @@ class RPDispatchingExecutor:
             self._exception = e
             raise e
         finally:
-            if token is not None:
-                target_venv.reset(token)
-
-    def _connect_rp(self):
-        """Establish the RP Session.
-
-        Acquire as many re-usable resources as possible. The scope established by
-        this function is as broad as it can be within the life of this instance.
-
-        Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to clean
-        up resources. Use the async context manager behavior of the instance to automatically
-        follow this protocol. I.e. instead of calling ``instance._connect_rp(); ...; instance._disconnect_rp()``,
-        use::
-            async with instance:
-                ...
-
-        Raises:
-            DispatchError if task dispatching could not be set up.
-
-            CanceledError if parent asyncio.Task is cancelled while executing.
-
-        """
-        # TODO: Consider inlining this into __aenter__().
-        # A non-async method is potentially useful for debugging, but causes the event loop to block
-        # while waiting for the RP tasks included here. If this continues to be a slow function,
-        # we can wrap the remaining RP calls and let this function be inlined, or stick the whole
-        # function in a separate thread with loop.run_in_executor().
-
-        # TODO: RP triggers SIGINT in various failure modes. We should use loop.add_signal_handler() to convert to an exception
-        #       that we can raise in an appropriate task.
-        # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
-        # but we have not explored the consequences of doing so.
-
-        try:
-            #
-            # Start the Session.
-            #
-
-            # Note that we cannot resolve the full _resource config until we have a Session object.
-            # We cannot get the default session config until after creating the Session,
-            # so we don't have a template for allowed, required, or default values.
-            # Question: does the provided *cfg* need to be complete? Or will it be merged
-            # with default values from some internal definition, such as by dict.update()?
-            # I don't remember what the use cases are for overriding the default session config.
-            session_config = None
-            # At some point soon, we need to track Session ID for the workflow metadata.
-            # We may also want Session ID to be deterministic (or to be re-used?).
-            session_id = None
-
-            # Note: the current implementation implies that only one Task for the dispatcher
-            # will exist at a time. We are further assuming that there will probably only
-            # be one Task per the lifetime of the dispatcher object.
-            # We could choose another approach and change our assumptions, if appropriate.
-            if self.session is not None:
-                raise ProtocolError('Dispatching context is not reentrant.')
-            logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
-
-            # This would be a good time to `await`, if an event-loop friendly Session creation function becomes available.
-            self.session = rp.Session(uid=session_id, cfg=session_config)
-            session_id = self.session.uid
-            # Do we want to log this somewhere?
-            # session_config = copy.deepcopy(self.session.cfg.as_dict())
-            logger.debug('RP dispatcher acquired session {}'.format(session_id))
-
-            # We can launch an initial Pilot, but we may have to run further Pilots
-            # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
-            # to handle dynamic work load requirements.
-            # Optionally, we could refrain from launching the pilot here, at all,
-            # but it seems like a good chance to start bootstrapping the agent environment.
-            logger.debug('Launching PilotManager.')
-            pilot_manager = rp.PilotManager(session=self.session)
-            self._pilot_manager_uid = pilot_manager.uid
-            logger.debug('Got PilotManager {}.'.format(self._pilot_manager_uid))
-
-            logger.debug('Launching TaskManager.')
-            task_manager = rp.TaskManager(session=self.session)
-            self._task_manager_uid = task_manager.uid
-            logger.debug(('Got TaskManager {}'.format(self._task_manager_uid)))
-
-            #
-            # Get a Pilot
-            #
-
-            # # TODO: Describe (link to) configuration points.
-            # resource_config['local.localhost'].update({
-            #     'project': None,
-            #     'queue': None,
-            #     'schema': None,
-            #     'cores': 1,
-            #     'gpus': 0
-            # })
-
-            # _pilot_description = dict(_resource=_resource,
-            #                          runtime=30,
-            #                          exit_on_error=True,
-            #                          project=resource_config[_resource]['project'],
-            #                          queue=resource_config[_resource]['queue'],
-            #                          cores=resource_config[_resource]['cores'],
-            #                          gpus=resource_config[_resource]['gpus'])
-
-            # TODO: How to specify PilotDescription?
-            # Where should this actually be coming from?
-            # We need to inspect both the HPC allocation and the work load, I think,
-            # and combine with user-provided preferences.
-            self._pilot_description = rp.PilotDescription(
-                {'resource': self.execution_target,
-                 'cores': 4,
-                 'gpus': 0})
-
-            # How and when should we update pilot description?
-            logger.debug('Submitting PilotDescription {}'.format(repr(self._pilot_description)))
-            pilot = pilot_manager.submit_pilots(self._pilot_description)
-            self.pilot_uid = pilot.uid
-            logger.debug('Got Pilot {}'.format(pilot.uid))
-
-            # Note that the task description for the master (and worker) can specify a *named_env* attribute to use
-            # a venv prepared via Pilot.prepare_env
-            # E.g.         pilot.prepare_env({'numpy_env' : {'type'   : 'virtualenv',
-            #                                           'version': '3.6',
-            #                                           'setup'  : ['numpy']}})
-            #   td.named_env = 'numpy_env'
-            # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg: dict) or
-            # the task will wait indefinitely to be scheduled.
-            # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
-            # in the TaskDescription.pre_exec list.
-
-            # TODO: Use archives generated from (acquired through) the local installations.
-            # # Could we stage in archive distributions directly?
-            # # self.pilot.stage_in()
-            # rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
-            # rp_spec = shlex.quote(rp_spec)
-            # scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
-            # pilot.prepare_env(
-            #     {
-            #         'scalems_env': {
-            #             'type': 'virtualenv',
-            #             'version': '3.8',
-            #             'setup': [
-            #                 # TODO: Generalize scalems dependency resolution.
-            #                 # Ideally, we would check the current API version requirement, map that to a package version,
-            #                 # and specify >=min_version, allowing cached archives to satisfy the dependency.
-            #                 rp_spec,
-            #                 scalems_spec
-            #             ]}})
-
-            # Question: when should we remove the pilot from the task manager?
-            task_manager.add_pilots(pilot)
-            logger.debug('Added Pilot {} to task manager {}.'.format(self.pilot_uid, self._task_manager_uid))
-
-            # pilot_sandbox = urlparse(self.pilot.pilot_sandbox).path
-            #
-            # # I can't figure out another way to avoid the Pilot venv...
-            # py_base = '/usr/bin/python3'
-            #
-            # venv = os.path.join(pilot_sandbox, 'scalems_venv')
-            # task = self._task_manager.submit_tasks(
-            #     rp.TaskDescription(
-            #         {
-            #             'executable': py_base,
-            #             'arguments': ['-m', 'venv', venv],
-            #             'environment': {}
-            #         }
-            #     )
-            # )
-            # if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
-            #     raise DispatchError('Could not create venv.')
-            #
-            # py_venv = os.path.join(venv, 'bin', 'python3')
-            # task = self._task_manager.submit_tasks(
-            #     rp.TaskDescription(
-            #         {
-            #             'executable': py_venv,
-            #             'arguments': ['-m', 'pip', 'install', '--upgrade',
-            #                           'pip',
-            #                           'setuptools',
-            #                           # It seems like the install_requires may not get followed correctly,
-            #                           # or may be unsatisfied without causing this task to fail...
-            #                           shlex.quote('radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'),
-            #                           shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
-            #                           ]
-            #         }
-            #     )
-            # )
-            # if self._task_manager.wait_tasks(uids=[task.uid])[0] != rp.states.DONE or task.exit_code != 0:
-            #     raise DispatchError('Could not install execution environment.')
-
-            # Verify usable SCALEMS RP connector.
-            # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
-            # TODO: Check for compatible installed scalems API version.
-            rp_check = task_manager.submit_tasks(
-                rp.TaskDescription(
-                    {
-                        # 'executable': py_venv,
-                        'executable': 'python3',
-                        'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
-                        'pre_exec': self._pre_exec
-                        # 'named_env': 'scalems_env'
-                    }
-                )
-            )
-            logger.debug('Checking RP execution environment.')
-            if task_manager.wait_tasks(uids=[rp_check.uid])[0] != rp.states.DONE or rp_check.exit_code != 0:
-                raise DispatchError('Could not verify RP in execution environment.')
-
-            try:
-                remote_rp_version = packaging.version.parse(rp_check.stdout.rstrip())
-            except:
-                remote_rp_version = None
-            if not remote_rp_version or remote_rp_version < packaging.version.parse('1.6.0'):
-                raise DispatchError('Could not get a valid execution environment.')
-
-            #
-            # Get a scheduler task.
-            #
-
-            # This is the name that should be resolvable in an active venv for the script we install
-            # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
-            master_script = 'scalems_rp_master'
-
-            scheduler_name = 'raptor.scalems'
-            # We can probably make the config file a permanent part of the local metadata,
-            # but we don't really have a scheme for managing local metadata right now.
-            # with tempfile.TemporaryDirectory() as dir:
-            #     config_file_name = 'raptor_scheduler_config.json'
-            #     config_file_path = os.path.join(dir, config_file_name)
-            #     with open(config_file_path, 'w') as fh:
-            #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
-            #         json.dump(encoded, fh, indent=2)
-
-            # define a raptor.scalems master and launch it within the pilot
-            td = rp.TaskDescription(
-                {
-                    'uid': scheduler_name,
-                    'executable': master_script})
-            td.arguments = []
-            td.pre_exec = self._pre_exec
-            # td.named_env = 'scalems_env'
-            logger.debug('Launching RP scheduler.')
-            scheduler = task_manager.submit_tasks(td)
-            # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
-            scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
-
-            assert self.scheduler is None
-            self.scheduler = scheduler
-            # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
-            # Note: The worker script name only appears in the config file.
-            logger.info('RP scheduler ready.')
-            logger.debug(repr(self.scheduler))
-
-        except asyncio.CancelledError as e:
-            raise e
-        except Exception as e:
-            raise DispatchError('Failed to launch SCALE-MS master task.') from e
+            _configuration.reset(token)
 
     async def __aexit__(self, exc_type, exc_val, exc_tb):
         """Clean up at context exit.
@@ -886,7 +1055,8 @@ class RPDispatchingExecutor:
                         # Cancel the master.
                         logger.debug('Canceling the master scheduling task.')
                         task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                        task_manager.cancel_tasks(uids=self.scheduler.uid)
+                        if self.scheduler is not None:
+                            task_manager.cancel_tasks(uids=self.scheduler.uid)
                         # Cancel blocks until the task is done so the following wait would (currently) be redundant,
                         # but there is a ticket open to change this behavior.
                         # See https://github.com/radical-cybertools/radical.pilot/issues/2336
@@ -1007,7 +1177,7 @@ class RPDispatchingExecutor:
 async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue,
                        task_manager: rp.TaskManager):
     processing_state.set()
-    _target_venv = target_venv.get(None)
+    _target_venv = configuration().target_venv
     if _target_venv is None or len(_target_venv) == 0:
         raise DispatchError('Currently, tasks cannot be dispatched without a target venv.')
     _pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
@@ -1058,7 +1228,7 @@ async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asy
                     item=item,
                     task_manager=task_manager,
                     submitted=submitted,
-                    scheduler=executor.scheduler.uid,
+                    # scheduler=executor.scheduler.uid,
                     pre_exec=_pre_exec
                 )
 

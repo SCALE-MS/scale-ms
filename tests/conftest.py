@@ -1,5 +1,8 @@
 """Configuration for pytest tests.
 
+Several custom command line options are added to the pytest configuration,
+but they must be provided *after* all standard pytest options.
+
 Note: https://docs.python.org/3/library/devmode.html#devmode may be enabled
 "using the -X dev command line option or by setting the PYTHONDEVMODE environment variable to 1."
 """
@@ -42,23 +45,27 @@ else:
     assert ru_version >= version.parse('1.6.6')
     warnings.warn('Unnecessary monkey-patch of radical.utils.misc.', DeprecationWarning)
 
+
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""
+    # Automatic venv handling still needs some work. We require the user to
+    # explicitly name a resource (defined in $HOME/.radical/pilot/configs/resource_<name>.json)
+    # with virtenv details that are known to be valid.
     parser.addoption(
         '--rp-resource',
-        action='store',
-        default='local.localhost',
+        type=str,
         help='Specify a *resource* for the radical.pilot.PilotDescription.'
     )
     parser.addoption(
         '--rp-access',
-        action='store',
         type=str,
         help='Explicitly specify the access_schema to use from the RADICAL resource.'
     )
+    # Automatic venv handling still needs some work. We require the user to explicitly
+    # assert that a venv is available.
+    # Warning: This venv should also exist on the target resource!
     parser.addoption(
         '--rp-venv',
-        action='store',
         type=str,
         help='Full path to a pre-configured venv to use for RP tasks.'
     )
@@ -190,12 +197,9 @@ def pilot_description(request) -> rp.PilotDescription:
         rp = None
         ru = None
 
-    if rp is None or ru is None or not os.environ.get('RADICAL_PILOT_DBURL'):
-        pytest.skip("Test requires RADICAL environment.")
-
     resource = request.config.getoption('--rp-resource')
-    assert resource is not None
-    access_schema = request.config.getoption('--rp-access')
+    if rp is None or ru is None or resource is None or not os.environ.get('RADICAL_PILOT_DBURL'):
+        pytest.skip("Test requires RADICAL environment. Provide target resource and RADICAL_PILOT_DBURL")
 
     pilot_description = {
         'resource': resource,
@@ -204,6 +208,8 @@ def pilot_description(request) -> rp.PilotDescription:
         'runtime': 10,
         'exit_on_error': False
     }
+
+    access_schema = request.config.getoption('--rp-access')
     if access_schema:
         pilot_description['access_schema'] = access_schema
     pilot_description = rp.PilotDescription(pilot_description)
@@ -214,9 +220,10 @@ def pilot_description(request) -> rp.PilotDescription:
 def rp_venv(request):
     """pytest fixture to allow a user-specified venv for the RP tasks."""
     path = request.config.getoption('--rp-venv')
-    # if path is None:
-    #     pytest.skip('This test only runs for static RP venvs.')
-    #     return
+    if path is None:
+        # pytest.skip('This test only runs for static RP venvs.')
+        # return
+        warnings.warn('RP tests should be explicitly provided with a venv using --rp-venv.')
     return path
 
 
@@ -234,6 +241,12 @@ def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskM
         session = rp.Session()
 
     resource = session.get_resource_config(pilot_description.resource)
+
+    # Note: we can't manipulate the resource definition after creating the Session,
+    # but we could check whether the resource is using the same venv that the user
+    # is requesting.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
 
     if pilot_description.access_schema == 'ssh':
         ssh_target = resource['ssh']['job_manager_endpoint']

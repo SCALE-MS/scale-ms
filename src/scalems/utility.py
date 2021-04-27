@@ -62,7 +62,23 @@ def parser(add_help=False):
         version=f'scalems version {_scalems_version}'
     )
 
-    # TODO: Add logger configuration options.
+    _parser.add_argument(
+        '--log-level',
+        type=str.upper,
+        choices=['CRITICAL',
+                 'ERROR',
+                 'WARNING',
+                 'INFO',
+                 'DEBUG'],
+        help='Optionally configure console logging to the indicated level.'
+    )
+
+    _parser.add_argument(
+        '--pycharm',
+        action='store_true',
+        default=False,
+        help='Attempt to connect to PyCharm remote debugging system, where appropriate.'
+    )
 
     return _parser
 

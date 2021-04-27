@@ -8,6 +8,8 @@ dispatching layer to run meaningful tests through an RP Context specialization.
 In turn, the initial RP dispatching will probably use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
+
+Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 """
 import os
 import asyncio
@@ -333,10 +335,18 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
     #             and pilot_description.access_schema != 'local':
     #         pytest.skip('This test is only for local execution.')
 
-    session = rp.Session()
+    # Note: radical.pilot.Session creation causes several deprecation warnings.
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=DeprecationWarning)
+        session = rp.Session()
     fname = '%d.dat' % os.getpid()
     fpath = os.path.join('/tmp', fname)
     data: str = time.asctime()
+
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
 
     if rp_venv:
         pre_exec = ['. {}/bin/activate'.format(rp_venv)]
@@ -543,24 +553,29 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 #         assert t.exit_code == 0
 
 
-@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping problematic test in CI environment.')
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @pytest.mark.asyncio
 async def test_exec_rp(pilot_description, rp_venv):
     """Test that we are able to launch and shut down a RP dispatched execution session.
-
-    TODO: Where should we specify the target resource? An argument to *dispatch()*?
     """
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
+
     original_context = scalems.context.get_context()
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+    # Configure module.
+    params = scalems.radical.Configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}
+    )
+
     # Test RPDispatcher context
     context = scalems.radical.RPWorkflowContext(loop)
-    params = scalems.radical.RPParams(
-        execution_target=pilot_description.resource,
-        target_venv=rp_venv
-    )
     with scalems.context.scope(context):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
@@ -570,8 +585,20 @@ async def test_exec_rp(pilot_description, rp_venv):
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
         assert cmd1.done() and cmd2.done()
-        logger.info(cmd1.result())
-        logger.info(cmd2.result())
+        logger.debug(cmd1.result())
+        logger.debug(cmd2.result())
+
+    # TODO: Output typing.
+    out1: dict = cmd1.result()
+    for output in out1['description']['output_staging']:
+        assert os.path.exists(output['target'])
+    out2: dict = cmd2.result()
+    for output in out2['description']['output_staging']:
+        assert os.path.exists(output['target'])
+        if output['target'].endswith('stdout'):
+            with open(output['target'], 'r') as fh:
+                line = fh.readline()
+                assert line.rstrip() == 'hello world'
 
     # Test active context scoping.
     assert scalems.context.get_context() is original_context

@@ -583,6 +583,18 @@ async def test_exec_rp(pilot_description, rp_venv):
         logger.info(cmd1.result())
         logger.info(cmd2.result())
 
+    # TODO: Output typing.
+    out1: dict = cmd1.result()
+    for output in out1['description']['output_staging']:
+        assert os.path.exists(output['target'])
+    out2: dict = cmd2.result()
+    for output in out2['description']['output_staging']:
+        assert os.path.exists(output['target'])
+        if output['target'].endswith('stdout'):
+            with open(output['target'], 'r') as fh:
+                line = fh.readline()
+                assert line.rstrip() == 'hello world'
+
     # Test active context scoping.
     assert scalems.context.get_context() is original_context
     assert not loop.is_closed()

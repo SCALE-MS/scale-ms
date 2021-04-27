@@ -27,20 +27,21 @@ Executor:
 
 import argparse
 import asyncio
-# Note that we import RP early to allow it to monkey-patch some modules early.
 import contextvars
 import dataclasses
 import functools
 import json
 import logging
 import os
+import packaging.version
+import pathlib
 import threading
 import typing
 import warnings
 
-import packaging.version
 from radical import pilot as rp
 
+import scalems.subprocess
 from .. import context as _context
 from .. import utility as _utility
 from ..context import QueueItem
@@ -413,7 +414,53 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     return wrapped_task
 
 
-def _describe_task(item: _context.Task, scheduler: str, pre_exec: list) -> rp.TaskDescription:
+def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescription:
+    """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
+
+    For a "raptor" style task, see _describe_raptor_task()
+    """
+    assert item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask')
+    input_data = item.input
+    task_input = scalems.subprocess.SubprocessInput(
+        **input_data
+    )
+    args = list([arg for arg in task_input.argv])
+    # Warning: TaskDescription class does not have a strongly defined interface.
+    # Check docs for schema.
+    task_description = rp.TaskDescription(
+        from_dict=dict(
+            executable=args[0],
+            arguments=args[1:],
+            stdout=str(task_input.stdout),
+            stderr=str(task_input.stderr),
+            pre_exec=pre_exec
+        )
+    )
+    uid: str = item.uid().hex()
+    task_description.uid = uid
+
+    # TODO: Check for and activate an appropriate venv
+    # using
+    #     task_description.pre_exec = ...
+    # or
+    #     task_description.named_env = ...
+
+    # TODO: Interpret item details and derive appropriate staging directives.
+    task_description.input_staging = list(task_input.inputs.values())
+    task_description.output_staging = [
+        {'source': str(task_input.stdout),
+         'target': os.path.join(uid, pathlib.Path(task_input.stdout).name),
+         'action': rp.TRANSFER},
+        {'source': str(task_input.stderr),
+         'target': os.path.join(uid, pathlib.Path(task_input.stderr).name),
+         'action': rp.TRANSFER}
+    ]
+    task_description.output_staging += task_input.outputs.values()
+
+    return task_description
+
+
+def _describe_raptor_task(item: _context.Task, scheduler: str, pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
 
     The TaskDescription will be submitted to the named *scheduler*,
@@ -535,9 +582,13 @@ async def submit(*, item: _context.Task, task_manager: rp.TaskManager, pre_exec:
         when the actual Executor has some degree of data flow management capabilities.
 
     """
-    if isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
+    if item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask'):
+        if scheduler is not None:
+            raise DispatchError('Raptor not yet supported for scalems.executable.')
+        rp_task_description = _describe_legacy_task(item, pre_exec=pre_exec)
+    elif isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
         # We might want a contextvars.Context to hold the current rp.Master instance name.
-        rp_task_description = _describe_task(item, scheduler, pre_exec=pre_exec)
+        rp_task_description = _describe_raptor_task(item, scheduler, pre_exec=pre_exec)
     else:
         raise APIError('Caller must provide the UID of a submitted *scheduler* task.')
 
@@ -799,11 +850,12 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         #
 
         assert execution_manager.scheduler is None
-        execution_manager.scheduler = _get_scheduler('raptor.scalems', pre_exec=execution_manager._pre_exec, task_manager=task_manager)
+        # TODO: #119 Re-enable raptor.
+        # execution_manager.scheduler = _get_scheduler('raptor.scalems', pre_exec=execution_manager._pre_exec, task_manager=task_manager)
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         # Note: The worker script name only appears in the config file.
-        logger.info('RP scheduler ready.')
-        logger.debug(repr(execution_manager.scheduler))
+        # logger.info('RP scheduler ready.')
+        # logger.debug(repr(execution_manager.scheduler))
 
     except asyncio.CancelledError as e:
         raise e
@@ -1003,7 +1055,8 @@ class RPDispatchingExecutor:
                         # Cancel the master.
                         logger.debug('Canceling the master scheduling task.')
                         task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                        task_manager.cancel_tasks(uids=self.scheduler.uid)
+                        if self.scheduler is not None:
+                            task_manager.cancel_tasks(uids=self.scheduler.uid)
                         # Cancel blocks until the task is done so the following wait would (currently) be redundant,
                         # but there is a ticket open to change this behavior.
                         # See https://github.com/radical-cybertools/radical.pilot/issues/2336
@@ -1175,7 +1228,7 @@ async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asy
                     item=item,
                     task_manager=task_manager,
                     submitted=submitted,
-                    scheduler=executor.scheduler.uid,
+                    # scheduler=executor.scheduler.uid,
                     pre_exec=_pre_exec
                 )
 

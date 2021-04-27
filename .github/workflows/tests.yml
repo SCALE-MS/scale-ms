@@ -90,11 +90,13 @@ jobs:
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         python -X dev -m pytest --cov=scalems --cov-report=xml -rA --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
     - name: Command line tests
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
         . $HOME/testenv/bin/activate
         coverage run -m scalems.radical --version
         coverage run -m scalems.radical --help
-        coverage run -m scalems.radical --venv=$HOME/testenv --resource=local.github examples/basic/echo.py hello world
+        coverage run -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local examples/basic/echo.py hello world
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1

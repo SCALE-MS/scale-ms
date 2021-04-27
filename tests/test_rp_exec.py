@@ -553,7 +553,6 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 #         assert t.exit_code == 0
 
 
-@pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping problematic test in CI environment.')
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @pytest.mark.asyncio
 async def test_exec_rp(pilot_description, rp_venv):

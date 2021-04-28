@@ -77,14 +77,16 @@ WORKDIR /home/rp
 
 # If using the PyCharm debug server, install the pydevd-pycharm package corresponding to the IDE version,
 # and set up the IDE to sync the project with an agreed-upon container directory: `/tmp/pycharm_scalems`
-ARG PYCHARM=211.6693.115
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --no-cache-dir pydevd-pycharm~=$PYCHARM && \
-    mkdir /tmp/pycharm_scalems
+#RUN . ~rp/rp-venv/bin/activate && \
+#    pip install --no-cache-dir pydevd-pycharm
+# The above is too hard to maintain. Follow the instructions from JetBrains or perform
+# the above commented-out pip install manually and hope for the best.
+# I most recently found the installed egg distribution in
+# $HOME/Library/Application\ Support/JetBrains/Toolbox/apps/PyCharm-P/ch-0/211.7142.13/PyCharm.app/Contents/debug-eggs/
+RUN mkdir /tmp/scalems_dev
 
 ARG RPREF="project/scalems"
 RUN . ~rp/rp-venv/bin/activate && \
-    pip uninstall -y radical.pilot && \
     pip install --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
 
 # WARNING!!! Security risk!

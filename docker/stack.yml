@@ -17,6 +17,16 @@
 #     docker-compose -f stack.yml exec -u rp login bash -c "cd && . /home/rp/rp-venv/bin/activate && radical-stack"
 #
 # Don't forget to `docker-compose -f stack.yml down` to shutdown the containers when you are done.
+#
+# Once the login (and compute) service(s) are up, you can transfer the local
+# respository files to the container however you prefer and install the scalems package
+# (updating the dependencies if necessary). I have my IDE configured to automatically
+# synchronize repository files to the /tmp/scalems_dev/ directory in the "login"
+# container.
+# Then I `ssh -p 2345 rp@localhost`, `. /home/rp/rp-venv`, install the pydevd package recommend by my IDE,
+# `pip install -r /tmp/scalems_dev/requirements-testing.txt`, and `pip install /tmp/scalems_dev`
+# Then I can run
+#     python -m pytest /tmp/scalems_dev/tests --rp-venv=/home/rp/rp-venv/ --rp-resource=local.docker --rp-access=local
 
 version: '3.1'
 

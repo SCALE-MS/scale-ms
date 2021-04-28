@@ -1,2 +1,3 @@
 include versioneer.py
 include src/scalems/_version.py
+include src/scalems/data

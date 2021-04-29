@@ -4,3 +4,6 @@ codecov:
 
 fixes:
   - "*/site-packages/scalems/::src/scalems/"
+
+github_checks:
+  annotations: false

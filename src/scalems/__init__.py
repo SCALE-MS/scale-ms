@@ -39,7 +39,9 @@ __all__ = [
     'get_context',
     # 'run',
     # 'wait',
-    '__version__'
+    '__version__',
+    # core API
+    'ScriptEntryPoint',
 ]
 
 import logging

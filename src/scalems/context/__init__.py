@@ -607,14 +607,16 @@ class WorkflowManager(abc.ABC):
         # 2. Bind a dispatcher to the executor.
         # 3. Enter executor context.
         # 4. Enter dispatcher context.
-        #         # 1. (While blocking event loop in UI thread) Install a hook for the queuer to catch new calls to add_item (the dispatcher_queue).
+        #         # 1. (While blocking event loop in UI thread) Install a hook
+        #              for the queuer to catch new calls to add_item (the dispatcher_queue).
         #         # 2. Get snapshot of current workflow state with which to initialize the executor. (Unblock.)
         #         # 3. Spool workflow snapshot to executor.
         #         # 4. Start dispatcher queue runner.
         #         # 5. Yield.
         # 5. Exit dispatcher context.
         # 6. Exit executor context.
-        # TODO: Add lock context for WorkflowManager event hooks rather than assume the UI and event loop are always in the same thread.
+        # TODO: Add lock context for WorkflowManager event hooks
+        #  rather than assume the UI and event loop are always in the same thread.
 
         executor = self._executor_factory(context=self, params=params)
 
@@ -643,7 +645,7 @@ class WorkflowManager(abc.ABC):
             #
             # Note: the executor owns a rp.Session during operation.
             async with executor as dispatching_session:
-                async with dispatcher as add_item_handler:
+                async with dispatcher:
                     # We can surrender control here and leave the executor and dispatcher tasks active
                     # while evaluating a `with` block suite for the `dispatch` context manager.
                     yield dispatching_session
@@ -961,7 +963,7 @@ class Queuer:
         while not self._dispatcher_queue.empty():
             await asyncio.sleep(0.1)
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
         """Clean up at context exit.
 
         Drain the dispatching queue and exit.

@@ -117,7 +117,10 @@ class _ExecutionContext:
 
 
 # TODO: Consider explicitly decoupling client-facing workflow manager from executor-facing manager.
-async def run_executor(executor: 'LocalExecutor', *, processing_state: asyncio.Event, queue: asyncio.Queue):
+async def run_executor(executor: 'LocalExecutor',  # noqa: C901
+                       *,
+                       processing_state: asyncio.Event,
+                       queue: asyncio.Queue):
     """Process workflow messages until a stop message is received.
 
     Initial implementation processes commands serially without regard for possible
@@ -245,7 +248,7 @@ async def run_executor(executor: 'LocalExecutor', *, processing_state: asyncio.E
 
 
 # TODO: return an execution status object?
-async def _execute_item(task_type: _context.ResourceType,
+async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
                         item: _context.Task,
                         execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
@@ -469,7 +472,8 @@ class LocalExecutor:
 
                 # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
                 # Currently, the queue runner does not place subtasks, so there is only one thing to await.
-                # TODO: We should probably allow the user to provide some sort of timeout, or infer one from other time limits.
+                # TODO: We should probably allow the user to provide some sort of timeout,
+                #  or infer one from other time limits.
                 try:
                     await self._queue_runner_task
                 except asyncio.CancelledError as e:
@@ -486,6 +490,8 @@ class LocalExecutor:
                     # Wait for the watchers.
                     if len(self.submitted_tasks) > 0:
                         results = await asyncio.gather(*self.submitted_tasks)
+                        # TODO: Log something useful about the results.
+                        assert len(results) == len(self.submitted_tasks)
 
             except asyncio.CancelledError as e:
                 logger.debug(f'{self.__class__.__qualname__} context manager received cancellation while exiting.')

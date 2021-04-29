@@ -28,22 +28,23 @@ from urllib.parse import urlparse, ParseResult
 
 import pytest
 
-
-logger = logging.getLogger('pytest_config')
-logger.setLevel(logging.DEBUG)
-
 # Work around bug in radical.utils pending release 1.6.6
 # Ref https://github.com/SCALE-MS/scale-ms/issues/117
 from importlib import metadata
 from packaging import version
+
 ru_version = version.parse(metadata.version('radical.utils'))
 if ru_version < version.parse('1.6.6'):
     import radical.utils
     import socket
+
     radical.utils.misc._hostname = socket.gethostname()
 else:
     assert ru_version >= version.parse('1.6.6')
     warnings.warn('Unnecessary monkey-patch of radical.utils.misc.', DeprecationWarning)
+
+logger = logging.getLogger('pytest_config')
+logger.setLevel(logging.DEBUG)
 
 
 def pytest_addoption(parser):

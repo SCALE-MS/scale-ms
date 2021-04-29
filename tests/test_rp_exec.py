@@ -11,10 +11,10 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 
 Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 """
-import os
 import asyncio
 import json
 import logging
+import os
 import subprocess
 import typing
 import urllib.parse
@@ -279,9 +279,11 @@ async def test_rp_future(rp_task_manager):
     future = asyncio.get_running_loop().create_future()
     wrapper: asyncio.Task = await scalems.radical.rp_task(task, future)
 
+    timeout = 120
     try:
-        result = await asyncio.wait_for(future, timeout=120)
+        result = await asyncio.wait_for(future, timeout=timeout)
     except asyncio.TimeoutError as e:
+        logger.debug(f'Waited more than {timeout} for {future}: {e}')
         result = None
     assert task.exit_code == 0
     assert 'success' in task.stdout
@@ -354,8 +356,8 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
         pre_exec = None
 
     try:
-        pmgr    = rp.PilotManager(session=session)
-        tmgr    = rp.TaskManager(session=session)
+        pmgr = rp.PilotManager(session=session)
+        tmgr = rp.TaskManager(session=session)
 
         # Illustrate data staging as part of the Pilot launch.
         # By default, file is copied to the root of the Pilot sandbox,
@@ -408,23 +410,23 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
         # through the wrapper script or the Master.create_initial_tasks() hook) do not,
         # and do not have a data staging phase.
         for i in range(3):
-            uid  = 'scalems.%06d' % i
-            work = {'mode'   : 'call',
-                    'cores'  : 1,
+            uid = 'scalems.%06d' % i
+            work = {'mode': 'call',
+                    'cores': 1,
                     'timeout': 10,  # seconds
-                    'data'   : {'method': 'hello',
-                                'kwargs': {'world': uid}}}
+                    'data': {'method': 'hello',
+                             'kwargs': {'world': uid}}}
             tds.append(rp.TaskDescription({
-                'uid'            : uid,
-                'executable'     : '-',
-                'input_staging'  : [{'source': 'pilot:///%s.%s.lnk' % (fname, master.uid),
-                                     'target': 'task:///%s' % fname,
-                                     'action': rp.COPY}],
-                'output_staging' : [{'source': 'task:///%s' % fname,
-                                     'target': 'client:///%s.%s.out' % (fname, uid),
-                                     'action': rp.TRANSFER}],
-                'scheduler'      : master.uid,
-                'arguments'      : [json.dumps(work)],
+                'uid': uid,
+                'executable': '-',
+                'input_staging': [{'source': 'pilot:///%s.%s.lnk' % (fname, master.uid),
+                                   'target': 'task:///%s' % fname,
+                                   'action': rp.COPY}],
+                'output_staging': [{'source': 'task:///%s' % fname,
+                                    'target': 'client:///%s.%s.out' % (fname, uid),
+                                    'action': rp.TRANSFER}],
+                'scheduler': master.uid,
+                'arguments': [json.dumps(work)],
                 'pre_exec': pre_exec
             }))
         # TODO: Organize client-side data with managed hierarchical paths.
@@ -631,11 +633,10 @@ if __name__ == '__main__':
     venv = None
 
     import radical.pilot as rp
+
     pd_init = {'resource': 'local.localhost',
                'runtime': 30,
                'cores': 1,
                }
     pdesc = rp.PilotDescription(pd_init)
     test_rp_raptor_staging(pdesc, venv)
-
-

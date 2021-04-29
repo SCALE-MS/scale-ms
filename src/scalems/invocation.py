@@ -50,7 +50,8 @@ def run_dispatch(work, context: scalems.context.WorkflowManager):
     return _result
 
 
-def run(manager_type: typing.Type[scalems.context.WorkflowManager], _loop: asyncio.AbstractEventLoop = None):
+def run(manager_type: typing.Type[scalems.context.WorkflowManager],  # noqa: C901
+        _loop: asyncio.AbstractEventLoop = None):
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:
         raise RuntimeError('scalems launcher is not reentrant.')
@@ -143,8 +144,10 @@ def run(manager_type: typing.Type[scalems.context.WorkflowManager], _loop: async
                             ref.name = name
                     if main is None:
                         raise scalems.exceptions.DispatchError('No scalems.app callables found in script.')
-                    # The scalems.run call hierarchy goes through utility.run to utility._run to AsyncWorkflowManager.run,
-                    # which then goes through WorkflowManager.dispatch(). We should
+                    # The scalems.run call hierarchy goes through utility.run
+                    # to utility._run to AsyncWorkflowManager.run,
+                    # which then goes through WorkflowManager.dispatch().
+                    # We should
                     # (a) clean this up,
                     # (b) return something sensible,
                     # (c) clarify error behavior.
@@ -156,7 +159,7 @@ def run(manager_type: typing.Type[scalems.context.WorkflowManager], _loop: async
 
                     logger.debug('Starting asyncio run()')
                     try:
-                        result = run_dispatch(main, manager)
+                        run_dispatch(main, manager)
                     except Exception as e:
                         logger.exception('Uncaught exception in scalems runner calling dispatch(): ' + str(e))
                         raise e

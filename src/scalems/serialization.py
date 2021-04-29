@@ -475,7 +475,7 @@ class PythonDecoder:
         return cls._dispatchers[identifier]
 
     @classmethod
-    def decode(cls, obj) -> typing.Union[UnboundObject, BaseDecoded]:
+    def decode(cls, obj) -> typing.Union[UnboundObject, BaseDecoded]:  # noqa: C901
         """Create unbound SCALE-MS objects from their basic Python representations.
 
         We assume this is called in a bottom-up manner as a nested record is deserialized.

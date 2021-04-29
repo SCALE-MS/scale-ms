@@ -33,12 +33,12 @@ import functools
 import json
 import logging
 import os
-import packaging.version
 import pathlib
 import threading
 import typing
 import warnings
 
+import packaging.version
 from radical import pilot as rp
 
 import scalems.subprocess
@@ -292,7 +292,8 @@ def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
         logger.error(f'Exception encountered during rp.Task callback: {repr(e)}')
 
 
-async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinalTaskState,
+async def _rp_task_watcher(task: rp.Task,  # noqa: C901
+                           future: asyncio.Future, final: RPFinalTaskState,
                            ready: asyncio.Event) -> rp.Task:
     """Manage the relationship between an RP.Task and a scalems Future.
 
@@ -324,14 +325,18 @@ async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinal
     """
     try:
         ready.set()
-        finished = lambda: task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED) \
-                           or future.done() \
-                           or final
+
+        def finished():
+            return task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED) \
+                   or future.done() \
+                   or final
+
         while not finished():
             # Let the watcher wake up periodically to check for state changes.
             # TODO: (#96) Use a control thread to manage *threading* primitives and translate to asyncio primitives.
             done, pending = await asyncio.wait([future], timeout=0.05, return_when=asyncio.FIRST_COMPLETED)
             if future.cancelled():
+                assert future in done
                 if task.state != rp.states.CANCELED:
                     logger.debug('Propagating cancellation from scalems future to rp task.')
                     task.cancel()
@@ -341,6 +346,7 @@ async def _rp_task_watcher(task: rp.Task, future: asyncio.Future, final: RPFinal
                 if final.failed.is_set():
                     if not future.cancelled():
                         assert not future.done()
+                        assert future in pending
                         logger.debug('Propagating RP Task failure.')
                         # TODO: Provide more useful error feedback.
                         future.set_exception(RPTaskFailure(f'{task.uid} failed.', task=task))
@@ -398,7 +404,6 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     """
     if not isinstance(rptask, rp.Task):
         raise TypeError('Function requires a RADICAL Pilot Task object.')
-    _rp_task = rptask
 
     final = RPFinalTaskState()
     callback = functools.partial(_rp_callback, final=final)
@@ -525,9 +530,12 @@ async def submit(*, item: _context.Task, task_manager: rp.TaskManager, pre_exec:
 
     Args:
         item: The workflow item to be submitted
-        task_manager: A radical.pilot.TaskManager instance through which the task should be submitted.
-        submitted: (Output parameter) Caller-provided Event to be set once the RP Task has been submitted.
-        scheduler (str): The string name of the "scheduler," corresponding to the UID of a Task running a rp.raptor.Master.
+        task_manager: A radical.pilot.TaskManager instance
+                      through which the task should be submitted.
+        submitted: (Output parameter) Caller-provided Event to be set
+                   once the RP Task has been submitted.
+        scheduler (str): The string name of the "scheduler," corresponding to
+                         the UID of a Task running a rp.raptor.Master.
 
     Returns an asyncio.Task for a submitted rp.Task.
 
@@ -631,7 +639,6 @@ def scalems_callback(fut: asyncio.Future, *, item: _context.Task):
 
 
 def _get_scheduler(name: str, pre_exec: typing.Iterable[str], task_manager: rp.TaskManager):
-
     # This is the name that should be resolvable in an active venv for the script we install
     # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
     master_script = 'scalems_rp_master'
@@ -687,8 +694,9 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
     # we can wrap the remaining RP calls and let this function be inlined, or stick the whole
     # function in a separate thread with loop.run_in_executor().
 
-    # TODO: RP triggers SIGINT in various failure modes. We should use loop.add_signal_handler() to convert to an exception
-    #       that we can raise in an appropriate task.
+    # TODO: RP triggers SIGINT in various failure modes.
+    #  We should use loop.add_signal_handler() to convert to an exception
+    #  that we can raise in an appropriate task.
     # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
     # but we have not explored the consequences of doing so.
 
@@ -816,7 +824,8 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
 
         # Question: when should we remove the pilot from the task manager?
         task_manager.add_pilots(pilot)
-        logger.debug('Added Pilot {} to task manager {}.'.format(execution_manager.pilot_uid, execution_manager._task_manager_uid))
+        logger.debug('Added Pilot {} to task manager {}.'.format(execution_manager.pilot_uid,
+                                                                 execution_manager._task_manager_uid))
 
         # Verify usable SCALEMS RP connector.
         # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
@@ -839,11 +848,12 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
 
         try:
             remote_rp_version = packaging.version.parse(rp_check.stdout.rstrip())
-        except:
-            remote_rp_version = None
+        except Exception as e:
+            raise DispatchError('Could not determine remote RP version.') from e
         # TODO: #100 Improve compatibility checking.
-        if not remote_rp_version or remote_rp_version < packaging.version.parse('1.6.0'):
-            raise DispatchError('Could not get a valid execution environment.')
+        if remote_rp_version < packaging.version.parse('1.6.0'):
+            raise DispatchError(
+                f'Incompatible radical.pilot version in execution environment: {str(remote_rp_version)}')
 
         #
         # Get a scheduler task.
@@ -851,7 +861,10 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
 
         assert execution_manager.scheduler is None
         # TODO: #119 Re-enable raptor.
-        # execution_manager.scheduler = _get_scheduler('raptor.scalems', pre_exec=execution_manager._pre_exec, task_manager=task_manager)
+        # execution_manager.scheduler = _get_scheduler(
+        #     'raptor.scalems',
+        #     pre_exec=execution_manager._pre_exec,
+        #     task_manager=task_manager)
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         # Note: The worker script name only appears in the config file.
         # logger.info('RP scheduler ready.')
@@ -984,7 +997,7 @@ class RPDispatchingExecutor:
         finally:
             _configuration.reset(token)
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
         """Clean up at context exit.
 
         In addition to handling exceptions, the main resource to clean up is the rp.Session.
@@ -1020,7 +1033,8 @@ class RPDispatchingExecutor:
 
                     # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
                     # Currently, the queue runner does not place subtasks, so there is only one thing to await.
-                    # TODO: We should probably allow the user to provide some sort of timeout, or infer one from other time limits.
+                    # TODO: We should probably allow the user to provide some sort of timeout,
+                    #  or infer one from other time limits.
                     try:
                         await self._queue_runner_task
                     except asyncio.CancelledError as e:
@@ -1051,7 +1065,8 @@ class RPDispatchingExecutor:
                         # Wait for the watchers.
                         if len(self.submitted_tasks) > 0:
                             results = await asyncio.gather(*self.submitted_tasks)
-
+                            # TODO: Log something useful about the results.
+                            assert len(results) == len(self.submitted_tasks)
                         # Cancel the master.
                         logger.debug('Canceling the master scheduling task.')
                         task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
@@ -1086,7 +1101,8 @@ class RPDispatchingExecutor:
                         if not session.closed:
                             logger.debug('Queuer is shutting down RP Session.')
                             try:
-                                # Note: close() is not always fast, and we might want to do it asynchronously in the future.
+                                # Note: close() is not always fast, and we might want
+                                # to do it asynchronously in the future.
                                 session.close()
                             except asyncio.CancelledError as e:
                                 cancelled_error = e

@@ -316,12 +316,13 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         os.chdir(original_dir)
 
 
-# TODO: Normalize executor factory signature and handling.
-def executor_factory(context: _context.WorkflowManager, *args, **kwargs):
+def executor_factory(manager: _context.WorkflowManager, params=None):
+    if params is not None:
+        raise TypeError('This factory does not accept a Configuration object.')
     executor = LocalExecutor(
-        source_context=context,
-        loop=context.loop(),
-        dispatcher_lock=context._dispatcher_lock
+        source_context=manager,
+        loop=manager.loop(),
+        dispatcher_lock=manager._dispatcher_lock
     )
     return executor
 

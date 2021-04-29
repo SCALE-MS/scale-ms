@@ -4,12 +4,14 @@ SCALE-MS optimizes data flow and data locality in part by attributing all
 workflow references to well-defined scopes. Stateful API facilities, workflow
 state, and scoped references are managed as WorkflowContext instances.
 
-"Workflow context" is an important parameter in several cases.
+"Workflow Manager" is an important parameter in several cases.
 Execution management tools like scalems.run(), scalems.wait(), and scalems.dispatch()
 update the workflow managed in a particular scope, possibly by interacting with
 other scopes. Commands for declaring work or data add items to specific instances
 of workflow managers. Internally, SCALEMS explicitly refers to theses scopes as
-*context*, but *context* is often an optional parameter for user-facing functions.
+*manager*, or *context*, depending on the nature of the code collaboration.
+*manager* may appear as an optional parameter for user-facing functions to allow
+a particular managed workflow to be specified.
 
 This module supports scoped_context() and get_context() with internal module state.
 These tools interact with the context management of the asynchronous dispatching,
@@ -423,6 +425,14 @@ _QItem_T = typing.TypeVar('_QItem_T', bound=QueueItem)
 AddItemCallback = typing.Callable[[_QItem_T], None]
 
 
+_ParamsT = typing.TypeVar('_ParamsT', contravariant=True)
+
+
+class ExecutorFactory(typing.Protocol[_ParamsT]):
+    def __call__(self, manager: 'WorkflowManager', params: typing.Optional[_ParamsT] = None) -> typing.Any:
+        ...
+
+
 class WorkflowManager:
     """Composable context for SCALE-MS workflow management.
 
@@ -466,7 +476,7 @@ class WorkflowManager:
 
     def __init__(self, *,
                  loop: asyncio.AbstractEventLoop,
-                 executor_factory: typing.Callable):
+                 executor_factory: ExecutorFactory):
         """
         The event loop for the program should be launched in the root thread,
         preferably early in the application launch.
@@ -625,7 +635,7 @@ class WorkflowManager:
         # TODO: Add lock context for WorkflowManager event hooks
         #  rather than assume the UI and event loop are always in the same thread.
 
-        executor = self._executor_factory(context=self, params=params)
+        executor = self._executor_factory(manager=self, params=params)
 
         # Avoid race conditions while checking for a running dispatcher.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
@@ -637,10 +647,7 @@ class WorkflowManager:
             if self._dispatcher is not None:
                 raise ProtocolError('Already dispatching through {}.'.format(repr(self._dispatcher())))
             if dispatcher is None:
-                dispatcher = Queuer(source_context=self,
-                                    # TODO: Only get queue from executor within executor context manager.
-                                    command_queue=executor.queue(),
-                                    dispatcher_lock=self._dispatcher_lock)
+                dispatcher = Queuer(source=self, command_queue=executor.queue(), dispatcher_lock=self._dispatcher_lock)
                 self._dispatcher = dispatcher
             else:
                 self._dispatcher = weakref.proxy(dispatcher)
@@ -846,17 +853,16 @@ class Queuer:
     """Queue, owned by this object, of Workflow Items being processed for dispatch."""
 
     def __init__(self,
-                 source_context: WorkflowManager,
+                 source: WorkflowManager,
                  command_queue: asyncio.Queue,
-                 dispatcher_lock=None,
-                 ):
+                 dispatcher_lock=None):
         """Create a queue-based workflow dispatcher.
 
         Initialization and deinitialization occurs through
         the Python (async) context manager protocol.
         """
 
-        self.source_context = source_context
+        self.source_context = source
         self._dispatcher_queue = _queue.SimpleQueue()
         self.command_queue = command_queue
 

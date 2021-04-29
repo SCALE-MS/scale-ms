@@ -136,10 +136,12 @@ class Description:
 
 class CommandResourceType(ResourceType):
     def input_description(self) -> Description:
-        return Description(self._input_description.type(), shape=self._result_description.shape())
+        return Description(self._input_description.type(),
+                           shape=self._result_description.shape())
 
     def result_description(self) -> Description:
-        return Description(self._result_description.type(), shape=self._result_description.shape())
+        return Description(self._result_description.type(),
+                           shape=self._result_description.shape())
 
     def __init__(self, *args, inputs: Description, results: Description, **kwargs):
         super().__init__(*args, **kwargs)
@@ -236,7 +238,8 @@ class ItemView:
         if isinstance(uid, bytes) and len(uid) == 32:
             self._uid = uid
         else:
-            raise ProtocolError(f'uid should be a 32-byte binary digest (bytes). Got {uid}')
+            raise ProtocolError('uid should be a 32-byte binary digest (bytes). '
+                                f'Got {uid}')
 
 
 class WorkflowView:
@@ -293,7 +296,8 @@ class Task:
         some additional SCALEMS overlay.
 
     State machine:
-        Initial (no coroutine) -> Dispatched (coroutine) -> Executing (Task or Future) -> Final (awaited)
+        Initial (no coroutine) -> Dispatched (coroutine) -> Executing (Task or Future)
+        -> Final (awaited)
 
     TODO:
         Allow composable details. A WorkflowManager can provide its own task factory,
@@ -328,7 +332,8 @@ class Task:
         # TODO: Respect different attribute type semantics.
         try:
             decoded_record = json.loads(self._serialized_record)
-            logger.debug('Decoded {}: {}'.format(type(decoded_record).__name__, str(decoded_record)))
+            logger.debug('Decoded {}: {}'.format(type(decoded_record).__name__,
+                                                 str(decoded_record)))
             value = decoded_record[item]
         except json.JSONDecodeError as e:
             raise AttributeError('Problem retrieving "{}"'.format(item)) from e
@@ -343,11 +348,13 @@ class Task:
 
         self._uid = bytes.fromhex(decoded_record['uid'])
         if not len(self._uid) == 256 // 8:
-            raise ProtocolError('UID is supposed to be a 256-bit hash digest. Got {}'.format(repr(self._uid)))
+            raise ProtocolError('UID is supposed to be a 256-bit hash digest. '
+                                f'Got {repr(self._uid)}')
         self._done = asyncio.Event()
         self._result = None
 
-        # As long as we are storing Tasks in the context, we cannot store contexts in Tasks.
+        # As long as we are storing Tasks in the context, we cannot store contexts in
+        # Tasks.
         self._context = weakref.ref(context)
 
     def set_result(self, result):
@@ -356,7 +363,8 @@ class Task:
             raise ProtocolError('Result is already set for {}.'.format(repr(self)))
         self._result = result
         self._done.set()
-        logger.debug('Result set for {} in {}'.format(self.uid().hex(), str(self._context())))
+        logger.debug('Result set for {} in {}'.format(self.uid().hex(),
+                                                      str(self._context())))
 
     # @classmethod
     # def deserialize(cls, context, record: str):
@@ -373,20 +381,28 @@ class Task:
 # Design note: WorkflowContext classes could cache implementation details for item types,
 # but (since we acknowledge that work may be defined before instantiating the context to
 # which it will be dispatched), we need to allow the WorkflowContext implementation to
-# negotiate/fetch the implementation details at any time. In general, relationships between specific
+# negotiate/fetch the implementation details at any time.
+# In general, relationships between specific
 # workflow item types and context types should be resolved in terms of context traits,
-# not specific class definitions. In practice, we have some more tightly-coupled relationships,
-# at least in early versions, as we handle (a) subprocess-type items, (b) function-based items,
-# and (c) data staging details for (1) local execution and (2) remote (RADICAL Pilot) execution.
+# not specific class definitions.
+# In practice, we have some more tightly-coupled relationships,
+# at least in early versions, as we handle
+# (a) subprocess-type items,
+# (b) function-based items,
+# and (c) data staging details for (1) local execution and (2) remote (RADICAL Pilot)
+# execution.
 @functools.singledispatch
-def workflow_item_director_factory(item, *, context, label: str = None) -> typing.Callable[..., ItemView]:
+def workflow_item_director_factory(item, *, context, label: str = None) -> \
+        typing.Callable[..., ItemView]:
     """
 
     Get a workflow item director for a context and input type.
 
     When called, the director finalizes the new item and returns a view.
     """
-    raise MissingImplementationError('No registered implementation for {} in {}'.format(repr(item), repr(context)))
+    raise MissingImplementationError('No registered implementation for {} in {}'.format(
+        repr(item),
+        repr(context)))
 
 
 # TODO: Do we really want to handle dispatching on type _or_ instance args?
@@ -399,7 +415,8 @@ def _(item_type: type, *, context, label: str = None) -> typing.Callable[..., It
     def constructor_proxy_director(*args, **kwargs) -> ItemView:
         if not isinstance(item_type, type):
             raise ProtocolError(
-                'This function is intended for a dispatching path on which *item_type* is a `type` object.')
+                'This function is intended for a dispatching path on which *item_type* '
+                'is a `type` object.')
         item = item_type(*args, **kwargs)
         director = workflow_item_director_factory(item, context=context, label=label)
         return director()
@@ -424,7 +441,6 @@ class TaskMap(dict, typing.MutableMapping[bytes, Task]):
 
 _QItem_T = typing.TypeVar('_QItem_T', bound=QueueItem)
 AddItemCallback = typing.Callable[[_QItem_T], None]
-
 
 _BackendT = typing.TypeVar('_BackendT', contravariant=True)
 
@@ -511,7 +527,8 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         If the runtime manager uses a Session, this is the place to acquire it.
 
         Arguments:
-            runner_started: and Event to be set as the runtime becomes ready to process its queue.
+            runner_started: an Event to be set as the runtime becomes ready to process
+            its queue.
 
         The *runner_started* argument allows inexpensive synchronization. The caller may
         yield until until the runtime queue processing task has run far enough to be
@@ -591,7 +608,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 # TODO: Consider what to do differently when we want to cancel work
                 #  rather than just finalize it.
 
-                # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
                 # Currently, the queue runner does not place subtasks,
                 # so there is only one thing to await.
                 # TODO: We should probably allow the user to provide some sort of timeout,
@@ -642,7 +658,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                             cancelled_error = e
                         except Exception as e:
                             logger.exception(
-                                f'Exception during Session.close().',
+                                'Exception during Session.close().',
                                 exc_info=e)
                         else:
                             logger.debug('Runtime Session closed.')
@@ -740,25 +756,29 @@ class WorkflowManager:
     * Use abstract base class machinery to register Context implementations.
     * Require Context instances to track their parent Context, or otherwise
       participate in a single tree structure.
-    * Prevent instantiation of Command references without a reference to a Context instance.
+    * Prevent instantiation of Command references without a reference to a Context
+      instance.
 
     TODO:
-        Check that I'm actually toggling something for the context instance to avoid recursive dispatch loops
-        rather than just multiple recursion of self.
+        Check that I'm actually toggling something for the context instance to avoid
+        recursive dispatch loops rather than just multiple recursion of self.
         Maybe keep a reference to the context hierarchy node to use when entering,
         and let implementations decide whether to allow multiple entrance,
         provided there is a reasonable way to clean up
         the correct number of times.
 
     TODO:
-        In addition to adding callbacks to futures, allow subscriptions to workflow updates.
-        This allows intermediate updates to be propagated and could be a superset of the additem hook.
+        In addition to adding callbacks to futures, allow subscriptions to workflow
+        updates.
+        This allows intermediate updates to be propagated and could be a superset of
+        the additem hook.
 
     """
     tasks: TaskMap
 
     # TODO: Consider a threading.Lock for editing permissions.
-    # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
+    # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during
+    #  execution and dispatching.
 
     def __init__(self, *,
                  loop: asyncio.AbstractEventLoop,
@@ -772,16 +792,20 @@ class WorkflowManager:
 
         Args:
             loop: event loop, such as from asyncio.new_event_loop()
-            executor_factory: Implementation-specific callable to get a run time work manager.
+            executor_factory: Implementation-specific callable to get a run time work
+            manager.
         """
         # We are moving towards a composed rather than a derived WorkflowManager Context.
         # Note that we can require the super().__init__() to be called in derived classes,
         # so it is not non-sensical for an abc.ABC to have an __init__ method.
         if not isinstance(loop, asyncio.AbstractEventLoop):
-            raise TypeError('Workflow manager requires an event loop object compatible with asyncio.AbstractEventLoop.')
+            raise TypeError(
+                'Workflow manager requires an event loop object compatible with '
+                'asyncio.AbstractEventLoop.')
         if loop.is_closed():
             raise ProtocolError('Event loop does not appear to be ready to use.')
-        logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.')
+        logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time '
+                     f'{loop.time()}.')
         self._asyncio_event_loop = loop
 
         if not callable(executor_factory):
@@ -795,7 +819,9 @@ class WorkflowManager:
         self._dispatcher: typing.Union[weakref.ref, None] = None
         self._dispatcher_lock = asyncio.Lock()
 
-        self._event_hooks: typing.Mapping[str, typing.MutableSet[AddItemCallback]] = {'add_item': set()}
+        self._event_hooks: typing.Mapping[str, typing.MutableSet[AddItemCallback]] = {
+            'add_item': set()
+        }
 
     def loop(self):
         return self._asyncio_event_loop
@@ -813,7 +839,8 @@ class WorkflowManager:
         prolonging the life of the object providing the callback.
         """
         hook: typing.MutableSet[AddItemCallback] = self._event_hooks[event]
-        # TODO: Do we need to allow the callback to include a contextvars.Context with the registration?
+        # TODO: Do we need to allow the callback to include a contextvars.Context with
+        #  the registration?
         if callback in hook:
             raise ValueError('Provided callback is already registered.')
         hook.add(callback)
@@ -830,7 +857,8 @@ class WorkflowManager:
         if isinstance(identifier, typing.SupportsBytes):
             identifier = bytes(identifier)
         if not isinstance(identifier, bytes):
-            raise MissingImplementationError('Item look-up is currently limited to UID byte sequences.')
+            raise MissingImplementationError(
+                'Item look-up is currently limited to UID byte sequences.')
         identifier = bytes(identifier)
         logger.debug('Looking for {} in ({})'.format(
             identifier.hex(),
@@ -895,11 +923,13 @@ class WorkflowManager:
         will be disconnected.
 
         Currently, we tie the lifetime of the dispatcher to this context manager.
-        When leaving the `with` block, we trigger the executor to clean-up and wait for its task to complete.
+        When leaving the `with` block, we trigger the executor to clean-up and wait for
+        its task to complete.
         We may choose some other relationship in the future.
 
         Args:
-            dispatcher: A queue processor that will subscribe to the add_item hook to feed the executor.
+            dispatcher: A queue processor that will subscribe to the add_item hook to
+            feed the executor.
             params: a parameters object relevant to the execution back-end
 
         .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
@@ -911,8 +941,10 @@ class WorkflowManager:
         # 3. Enter executor context.
         # 4. Enter dispatcher context.
         #         # 1. (While blocking event loop in UI thread) Install a hook
-        #              for the queuer to catch new calls to add_item (the dispatcher_queue).
-        #         # 2. Get snapshot of current workflow state with which to initialize the executor. (Unblock.)
+        #              for the queuer to catch new calls to add_item (the
+        #              dispatcher_queue).
+        #         # 2. Get snapshot of current workflow state with which to initialize
+        #              the executor. (Unblock.)
         #         # 3. Spool workflow snapshot to executor.
         #         # 4. Start dispatcher queue runner.
         #         # 5. Yield.
@@ -925,15 +957,21 @@ class WorkflowManager:
 
         # Avoid race conditions while checking for a running dispatcher.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-        # contention, it probably represents an unintended race condition or systematic dead-lock.
+        # Warning: The dispatching protocol is immature.
+        # Initially, we don't expect contention for the lock,
+        # and if there is contention, it probably represents
+        # an unintended race condition or systematic dead-lock.
         assert not self._dispatcher_lock.locked()
         async with self._dispatcher_lock:
-            # Dispatching state may be reentrant, but it does not make sense to re-enter through this call structure.
+            # Dispatching state may be reentrant, but it does not make sense to
+            # re-enter through this call structure.
             if self._dispatcher is not None:
-                raise ProtocolError('Already dispatching through {}.'.format(repr(self._dispatcher())))
+                raise ProtocolError(
+                    f'Already dispatching through {repr(self._dispatcher())}.')
             if dispatcher is None:
-                dispatcher = Queuer(source=self, command_queue=executor.queue(), dispatcher_lock=self._dispatcher_lock)
+                dispatcher = Queuer(source=self,
+                                    command_queue=executor.queue(),
+                                    dispatcher_lock=self._dispatcher_lock)
                 self._dispatcher = dispatcher
             else:
                 self._dispatcher = weakref.proxy(dispatcher)
@@ -941,25 +979,31 @@ class WorkflowManager:
         try:
             # Manage scope of executor operation with a context manager.
             # RP does not yet use an event loop, but we can use async context manager
-            # for future compatibility with asyncio management of network connections, etc.
+            # for future compatibility with asyncio management of network connections,
+            # etc.
             #
             # Note: the executor owns a rp.Session during operation.
             async with executor as dispatching_session:
                 async with dispatcher:
-                    # We can surrender control here and leave the executor and dispatcher tasks active
-                    # while evaluating a `with` block suite for the `dispatch` context manager.
+                    # We can surrender control here and leave the executor and
+                    # dispatcher tasks active while evaluating a `with` block suite
+                    # for the `dispatch` context manager.
                     yield dispatching_session
                 # Executor receives a *stop* command in __aexit__.
 
         except Exception as e:
-            logger.exception('Uncaught exception while in dispatching context: {}'.format(str(e)))
+            logger.exception(
+                f'Uncaught exception while in dispatching context: {str(e)}')
             raise e
 
         finally:
-            # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-            # contention, it probably represents an unintended race condition or systematic dead-lock.
+            # Warning: The dispatching protocol is immature.
+            # Initially, we don't expect contention for the lock,
+            # and if there is contention, it probably represents
+            # an unintended race condition or systematic dead-lock.
             # TODO: Clarify dispatcher state machine and remove/replace assertions.
-            #       Be on the look-out for nested context managers and usage in `finally` blocks.
+            #       Be on the look-out for nested context managers and usage in
+            #       `finally` blocks.
             assert not self._dispatcher_lock.locked()
             async with self._dispatcher_lock:
                 self._dispatcher = None
@@ -970,11 +1014,14 @@ class WorkflowManager:
                     logger.info('Dispatching queue processor cancelled.')
                 else:
                     assert not isinstance(dispatcher_exception, asyncio.CancelledError)
-                    logger.exception('Queuer encountered exception.', exc_info=dispatcher_exception)
+                    logger.exception('Queuer encountered exception.',
+                                     exc_info=dispatcher_exception)
             else:
                 if not dispatcher.queue().empty():
-                    logger.error('Queuer finished while items remain in dispatcher queue. Approximate size: {}'.format(
-                        dispatcher.queue().qsize()))
+                    logger.error(
+                        'Queuer finished while items remain in dispatcher queue. '
+                        'Approximate size: {}'.format(
+                            dispatcher.queue().qsize()))
 
             executor_exception = executor.exception()
             if executor_exception:
@@ -982,14 +1029,18 @@ class WorkflowManager:
                     logger.info('Executor cancelled.')
                 else:
                     assert not isinstance(executor_exception, asyncio.CancelledError)
-                    logger.exception('Executor task finished with exception', exc_info=executor_exception)
+                    logger.exception('Executor task finished with exception',
+                                     exc_info=executor_exception)
             else:
                 if not executor.queue().empty():
                     # TODO: Handle non-empty queue.
-                    # There are various reasons that the queue might not be empty and we should
-                    # clean up properly instead of bailing out or compounding exceptions.
+                    # There are various reasons that the queue might not be empty and
+                    # we should clean up properly instead of bailing out or compounding
+                    # exceptions.
                     # TODO: Check for extraneous extra *stop* commands.
-                    logger.error('Bug: Executor left tasks in the queue without raising an exception.')
+                    logger.error(
+                        'Bug: Executor left tasks in the queue without raising an '
+                        'exception.')
 
             logger.debug('Exiting {} dispatch context.'.format(type(self).__name__))
 
@@ -1075,30 +1126,26 @@ class WorkflowManager:
         task_view = ItemView(context=self, uid=uid)
 
         # TODO: Register task factory (dependent on executor).
-        # TODO: Register input factory (dependent on dispatcher and task factory / executor).
+        # TODO: Register input factory (dependent on dispatcher and task factory /
+        #  executor).
         # TODO: Register results handler (dependent on dispatcher end points).
 
-        # TODO: Consider an abstract event hook for `add_item` and other (decorated) methods.
-        # Internal functionality can probably explicitly register and unregister, accounting
-        # for the current details of thread safety. External access will need to be in
-        # terms of a concurrency framework, so we can use a scoped `async with event_subscription`
-        # to create an asynchronous iterator that a coroutine can use to receive add_item messages
+        # TODO: Consider an abstract event hook for `add_item` and other (decorated)
+        #  methods.
+        # Internal functionality can probably explicitly register and unregister,
+        # accounting for the current details of thread safety.
+        # External access will need to be in terms of a concurrency framework,
+        # so we can use a scoped `async with event_subscription`
+        # to create an asynchronous iterator that a coroutine can use to receive
+        # add_item messages
         # (with some means to externally end the subscription,
-        # either through the generator protocol directly or through logic in the provider of the iterator)
+        # either through the generator protocol directly or through logic in the
+        # provider of the iterator)
         for callback in self._event_hooks['add_item']:
             # TODO: Do we need to provide a contextvars.Context object to the callback?
-            logger.debug(f'Running dispatching hook for add_item subscriber {repr(callback)}.')
+            logger.debug(f'Running dispatching hook for add_item subscriber '
+                         f'{repr(callback)}.')
             callback(_CommandQueueAddItem({'add_item': uid}))
-        #
-        # dispatcher_queue = getattr(self, '_queue', None)
-        # # During development, a WorkflowManager implementation may not have a self._queue.
-        # # self._queue may be removed by another thread before we add the item to it,
-        # # but that is fine. There is nothing wrong with abandoning an unneeded queue.
-        # if dispatcher_queue is not None:
-        #     logger.debug('Running dispatcher detected. Entering live dispatching hook.')
-        #     # Add the AddItem message to the queue.
-        #     assert isinstance(dispatcher_queue, queue.SimpleQueue)
-        #     dispatcher_queue.put({'add_item': task_description})
 
         return task_view
 
@@ -1171,13 +1218,16 @@ class Queuer:
     async def __aenter__(self):
         try:
             # Get a lock while the state is changing.
-            # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-            # contention, it probably represents an unintended race condition or systematic dead-lock.
+            # Warning: The dispatching protocol is immature.
+            # Initially, we don't expect contention for the lock,
+            # and if there is contention, it probably represents
+            # an unintended race condition or systematic dead-lock.
             # TODO: Clarify dispatcher state machine and remove/replace assertions.
             assert not self._dispatcher_lock.locked()
             async with self._dispatcher_lock:
                 if _dispatcher.get(None):
-                    raise APIError('There is already an active dispatcher in this Context.')
+                    raise APIError(
+                        'There is already an active dispatcher in this Context.')
                 _dispatcher.set(self)
                 # Launch queue processor (proxy executor).
                 runner_started = asyncio.Event()
@@ -1187,7 +1237,8 @@ class Queuer:
 
                 # Without yielding,
                 # 1. Install a hook for the queuer to catch new calls to add_item.
-                # 2. Get snapshot of current workflow state with which to initialize the executor.
+                # 2. Get snapshot of current workflow state with which to initialize
+                #    the executor.
                 # Dont' forget to unsubscribe later!
                 # self.source_context.subscribe('add_item', self._dispatcher_queue.put)
                 self.source_context.subscribe('add_item', self.put)
@@ -1197,7 +1248,8 @@ class Queuer:
                     for _task_id in initial_task_list:
                         self.command_queue.put_nowait(QueueItem({'add_item': _task_id}))
                 except asyncio.QueueFull as e:
-                    raise DispatchError('Executor was unable to receive initial commands.') from e
+                    raise DispatchError('Executor was unable to receive initial '
+                                        'commands.') from e
                 # It is now safe to yield.
 
                 # TODO: Add lock context for WorkflowManager event hooks
@@ -1208,7 +1260,9 @@ class Queuer:
             self._exception = e
             raise e
 
-    async def _single_iteration_queue(self, source: _queue.SimpleQueue, target: asyncio.Queue):
+    async def _single_iteration_queue(self,
+                                      source: _queue.SimpleQueue,
+                                      target: asyncio.Queue):
         """Transfer one queue item.
 
         If a *stop* command is encountered, self-cancel after transfering command.
@@ -1217,7 +1271,8 @@ class Queuer:
         place a *stop* command in *source* and asyncio.shield() a call
         to this coroutine in a *try: ... except: ...* block.
 
-        Note that the caller will then receive CancelledError after *stop* command has been transferred.
+        Note that the caller will then receive CancelledError after *stop* command has
+        been transferred.
 
         Raises:
             queue.Empty if *source* is empty
@@ -1231,17 +1286,21 @@ class Queuer:
 
         # TODO: Use formal RPC protocol.
         if 'control' in command:
-            # Note that we don't necessarily need to stop managing the dispatcher queue at this point,
-            # but the Executor will be directed to shut down, so we must not put anything else onto the
-            # command queue until we have a new command queue or a new executor.
+            # Note that we don't necessarily need to stop managing the dispatcher queue
+            # at this point, but the Executor will be directed to shut down,
+            # so we must not put anything else onto the command queue until we have a
+            # new command queue or a new executor.
             if command['control'] == 'stop':
                 raise asyncio.CancelledError()
             else:
                 raise ProtocolError('Unknown command: {}'.format(command['control']))
         else:
             if 'add_item' not in command:
-                # TODO: We might want a call-back or Event to force errors before the queue-runner task is awaited.
-                raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
+                # TODO: We might want a call-back or Event to force errors before the
+                #  queue-runner task is awaited.
+                raise MissingImplementationError(
+                    f'Executor has no implementation for {str(command)}'
+                )
         return command
 
     async def _queue_runner(self, processing_state: asyncio.Event):
@@ -1249,7 +1308,8 @@ class Queuer:
         while True:
             try:
                 await asyncio.shield(
-                    self._single_iteration_queue(source=self._dispatcher_queue, target=self.command_queue))
+                    self._single_iteration_queue(source=self._dispatcher_queue,
+                                                 target=self.command_queue))
             except _queue.Empty:
                 # Wait a moment and try again.
                 await asyncio.sleep(0.5)
@@ -1267,10 +1327,12 @@ class Queuer:
 
         Drain the dispatching queue and exit.
 
-        Unsubscribes from the WorkflowManager add_item hook, deactivates the dispatching context, and exits.
+        Unsubscribes from the WorkflowManager add_item hook, deactivates the
+        dispatching context, and exits.
         Does not cancel or send instructions to the Executor managing the command queue.
         """
-        # Note that this coroutine could take a long time and could be cancelled at several points.
+        # Note that this coroutine could take a long time and could be cancelled at
+        # several points.
         cancelled_error = None
         # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
         # contention, it probably represents an unintended race condition or systematic dead-lock.
@@ -1299,14 +1361,16 @@ class Queuer:
                 else:
                     exception = None
                 if exception:
-                    logger.exception('Queuer queue processing encountered exception', exc_info=exception)
+                    logger.exception('Queuer queue processing encountered exception',
+                                     exc_info=exception)
                     if self._exception:
                         logger.error('Queuer is already holding an exception.')
                     else:
                         self._exception = exception
 
             except asyncio.CancelledError as e:
-                logger.debug('Queuer context manager received cancellation while exiting.')
+                logger.debug('Queuer context manager received cancellation while '
+                             'exiting.')
                 cancelled_error = e
             except Exception as e:
                 logger.exception('Exception while stopping dispatcher.', exc_info=e)
@@ -1392,14 +1456,18 @@ class Scope(typing.NamedTuple):
 # # Root workflow context for the interpreter process.
 # _interpreter_context = DefaultContext()
 
-# Note: Scope indicates the hierarchy of "active" WorkflowManager instances (related by dispatching).
-# This is separate from WorkflowManager lifetime and ownership. WorkflowManagers should track their
-# own activation status and provide logic for whether to allow reentrant dispatching.
-# TODO: Shouldn't the previous "current" be notified or negotiated with? Should we be locking something?
-# Note that it makes no sense to start a dispatching session without concurrency, so we can think
-# in terms of a parent context doing contextvars.copy_context().run(...)
-# I think we have to make sure not to nest scopes without a combination of copy_context and context managers,
-# so we don't need to track the parent scope. We should also be able to use weakrefs.
+# Note: Scope indicates the hierarchy of "active" WorkflowManager instances
+# (related by dispatching).
+# This is separate from WorkflowManager lifetime and ownership.
+# WorkflowManagers should track their own activation status and provide logic for
+# whether to allow reentrant dispatching.
+# TODO: Shouldn't the previous "current" be notified or negotiated with? Should we be
+#  locking something?
+# Note that it makes no sense to start a dispatching session without concurrency,
+# so we can think in terms of a parent context doing contextvars.copy_context().run(...)
+# I think we have to make sure not to nest scopes without a combination of copy_context
+# and context managers, so we don't need to track the parent scope. We should also be
+# able to use weakrefs.
 current_scope = contextvars.ContextVar('current_scope')
 
 
@@ -1412,7 +1480,8 @@ def get_context():
     # get_context() is used to determine the default workflow manager when *context*
     # is not provided to scalems object factories, scalems.run(), scalems.wait() and
     # (non-async) `result()` methods. Default *context* values are a user convenience
-    # and so should only occur in the root thread for the UI / high-level scripting interface.
+    # and so should only occur in the root thread for the UI / high-level scripting
+    # interface.
     # Async coroutines can safely use get_context(), but should not use the
     # non-async workflow_scope() context manager for nested scopes without wrapping
     # in a contextvars.run().
@@ -1443,7 +1512,9 @@ def scope(context):
     parent = get_context()
     dispatcher = _dispatcher.get(None)
     if dispatcher is not None and parent is not dispatcher:
-        raise ProtocolError('It is unsafe to use concurrent scope() context managers in an asynchronous context.')
+        raise ProtocolError(
+            'It is unsafe to use concurrent scope() context managers in an asynchronous '
+            'context.')
     logger.debug('Entering scope of {}'.format(str(context)))
     current = context
     token = current_scope.set(
@@ -1452,28 +1523,36 @@ def scope(context):
             current=current)
     )
     if token.var.get().parent is current:
-        logger.warning('Unexpected re-entrance. Workflow is already managed by {}.'.format(repr(current)))
-    if token.old_value is not token.MISSING and token.old_value.current != token.var.get().parent:
-        raise ProtocolError('Unrecoverable race condition: multiple threads are updating global context unsafely.')
+        logger.warning('Unexpected re-entrance. Workflow is already managed by '
+                       f'{repr(current)}')
+    if token.old_value is not token.MISSING and token.old_value.current != \
+            token.var.get().parent:
+        raise ProtocolError(
+            'Unrecoverable race condition: multiple threads are updating global context '
+            'unsafely.')
     # Try to confirm that current_scope is not already subject to modification by another
     #  context manager in a shared asynchronous context.
-    # This nesting has to have LIFO semantics both in and out of coroutines, and cannot block.
+    # This nesting has to have LIFO semantics both in and out of coroutines,
+    # and cannot block.
     # One option would be to refuse to nest if the current scope is not the root scope and
     # the root scope has an active dispatcher. Note that a dispatcher should use
     # contextvars.copy_context().run() and set a new root context.
     # Alternatively, we could try to make sure that no asynchronous yields are allowed
-    # when the current context is a nested scope within a dispatcher context, but technically
-    # this is okay as long as a second scope is not nested within the first from within
-    # a coroutine that might not finish until after the first scope finishes.
+    # when the current context is a nested scope within a dispatcher context,
+    # but technically this is okay as long as a second scope is not nested within the
+    # first from within a coroutine that might not finish until after the first scope
+    # finishes.
     try:
         yield current
     finally:
         """Exit context manager without processing exceptions."""
         logger.debug('Leaving scope of {}'.format(str(context)))
-        # Restore context module state since we are not using contextvars.Context.run() or equivalent.
+        # Restore context module state since we are not using contextvars.Context.run()
+        # or equivalent.
         if token.var.get().parent is not parent or token.var.get().current is not current:
             raise ProtocolError(
-                'Unexpected re-entrance. Workflow scope changed while in context manager {}.'.format(repr(current)))
+                'Unexpected re-entrance. Workflow scope changed while in context '
+                f'manager {repr(current)}.')
         else:
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.

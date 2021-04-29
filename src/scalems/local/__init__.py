@@ -18,11 +18,9 @@ import logging
 import os
 import pathlib
 import typing
-import warnings
 
 from . import operations
 from .. import context as _context
-from ..context import _session_is_closed
 from ..context import QueueItem
 from ..context import RuntimeManager
 from ..exceptions import InternalError

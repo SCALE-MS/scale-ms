@@ -26,7 +26,7 @@ import typing
 from pathlib import Path
 
 import scalems
-from scalems.local import AsyncWorkflowManager as WorkflowManager
+from scalems.local import workflow_manager
 from scalems import executable
 
 
@@ -61,7 +61,7 @@ async def main(execution_context, words: typing.Iterable[str] = ()):
 
 
 if __name__ == '__main__':
-    manager = WorkflowManager(asyncio.get_event_loop())
+    manager = workflow_manager(asyncio.get_event_loop())
     with scalems.context.scope(manager) as context:
         outfile = asyncio.run(main(context, sys.argv[1:]))
     with open(outfile, 'r') as fh:

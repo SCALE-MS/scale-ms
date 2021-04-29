@@ -577,7 +577,7 @@ async def test_exec_rp(pilot_description, rp_venv):
     )
 
     # Test RPDispatcher context
-    context = scalems.radical.RPWorkflowContext(loop)
+    context = scalems.radical.workflow_manager(loop)
     with scalems.context.scope(context):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher

@@ -195,20 +195,20 @@ def configuration(*args, **kwargs) -> Configuration:
     return _configuration.get()
 
 
-def executor_factory(context: _context.WorkflowManager, params: Configuration = None):
+def executor_factory(manager: _context.WorkflowManager, params: Configuration = None):
     if params is not None:
         _set_configuration(params)
     params = configuration()
 
-    executor = RPDispatchingExecutor(source_context=context,
-                                     loop=context.loop(),
+    executor = RPDispatchingExecutor(source_context=manager,
+                                     loop=manager.loop(),
                                      rp_params=params,
-                                     dispatcher_lock=context._dispatcher_lock,
+                                     dispatcher_lock=manager._dispatcher_lock,
                                      )
     return executor
 
 
-class RPWorkflowContext(_context.WorkflowManager):
+def workflow_manager(loop: asyncio.AbstractEventLoop):
     """Manage a workflow context for RADICAL Pilot work loads.
 
     The rp.Session is created when the Python Context Manager is "entered",
@@ -226,10 +226,7 @@ class RPWorkflowContext(_context.WorkflowManager):
         The importer of this module should be sure to import radical.pilot
         before importing the built-in logging module to avoid spurious warnings.
     """
-
-    def __init__(self, loop):
-        self._executor_factory = executor_factory
-        super(RPWorkflowContext, self).__init__(loop)
+    return _context.WorkflowManager(loop=loop, executor_factory=executor_factory)
 
 
 class RPResult:

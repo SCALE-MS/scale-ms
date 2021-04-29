@@ -423,10 +423,10 @@ _QItem_T = typing.TypeVar('_QItem_T', bound=QueueItem)
 AddItemCallback = typing.Callable[[_QItem_T], None]
 
 
-class WorkflowManager(abc.ABC):
-    """Abstract base class for SCALE-MS workflow Contexts.
+class WorkflowManager:
+    """Composable context for SCALE-MS workflow management.
 
-    A workflow context includes a strategy for dispatching a workflow
+    A workflow manager includes a strategy for dispatching a workflow
     for execution. Instances provide the concurrent.futures.Executor
     interface with support and semantics that depend on the Executor
     implementation and execution environment.
@@ -464,7 +464,9 @@ class WorkflowManager(abc.ABC):
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during execution and dispatching.
 
-    def __init__(self, loop: asyncio.AbstractEventLoop):
+    def __init__(self, *,
+                 loop: asyncio.AbstractEventLoop,
+                 executor_factory: typing.Callable):
         """
         The event loop for the program should be launched in the root thread,
         preferably early in the application launch.
@@ -474,6 +476,7 @@ class WorkflowManager(abc.ABC):
 
         Args:
             loop: event loop, such as from asyncio.new_event_loop()
+            executor_factory: Implementation-specific callable to get a run time work manager.
         """
         # We are moving towards a composed rather than a derived WorkflowManager Context.
         # Note that we can require the super().__init__() to be called in derived classes,
@@ -484,6 +487,10 @@ class WorkflowManager(abc.ABC):
             raise ProtocolError('Event loop does not appear to be ready to use.')
         logger.debug(f'{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.')
         self._asyncio_event_loop = loop
+
+        if not callable(executor_factory):
+            raise TypeError('*executor_factory* argument must be a callable.')
+        self._executor_factory = executor_factory
 
         # Basic Context implementation details
         # TODO: Tasks should only writable within a WorkflowEditor context.

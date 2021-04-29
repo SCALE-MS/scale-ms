@@ -18,7 +18,7 @@ from scalems.subprocess import executable
 async def test_exec_local(cleandir):
     # Test local execution with standard deferred launch.
     # TODO: The `with` block should be equivalent to a `-m scalems.local` invocation. Test.
-    context = scalems.local.AsyncWorkflowManager(asyncio.get_event_loop())
+    context = scalems.local.workflow_manager(asyncio.get_event_loop())
     asyncio.get_event_loop().set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Note that a coroutine object created from an `async def` function is only awaitable once.
@@ -41,7 +41,7 @@ async def test_exec_local(cleandir):
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
             assert fh.read().startswith('hi there')
-    with scalems.context.scope(scalems.local.AsyncWorkflowManager(asyncio.get_event_loop())) as context:
+    with scalems.context.scope(scalems.local.workflow_manager(asyncio.get_event_loop())) as context:
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
         # TODO: #82

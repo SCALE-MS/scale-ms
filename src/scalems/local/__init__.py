@@ -36,57 +36,14 @@ logger.debug('Importing {}'.format(__name__))
 # and, come on... add the fingerprinter... and the basic serializer...  `
 
 
-class AsyncWorkflowManager(_context.WorkflowManager):
+def workflow_manager(loop: asyncio.AbstractEventLoop):
     """Standard basic workflow context for local execution.
 
     Uses the asyncio module to allow commands to be staged as asyncio coroutines.
 
     There is no implicit OS level multithreading or multiprocessing.
     """
-
-    def __init__(self, loop):
-        self._executor_factory = executor_factory
-        super(AsyncWorkflowManager, self).__init__(loop)
-
-    async def run(self, task=None, **kwargs):
-        """Run the configured workflow.
-
-        TODO:
-            Consider whether to use an awaitable argument as a hint to narrow the scope
-            of the work graph to execute, or whether to just run everything.
-
-        TODO: Move this function implementation to the executor instance / Session implementation.
-        """
-        if len(kwargs) > 0:
-            raise TypeError('One or more unrecognized key word arguments: {}'.format(', '.join(kwargs.keys())))
-
-        logger.debug('{}.run() called on {}'.format(str(type(self).__name__), repr(self)))
-        try:
-            async with self.dispatch():
-                logger.debug('Entered dispatch().')
-                # if isinstance(task, ItemView):
-                #     raise MissingImplementationError('Semantics for run(task) are not yet defined.')
-                if task is None:
-                    logger.debug('Running all work managed by {}.'.format(str(self)))
-                    # The current queue will be processed by the activation of the dispatch() context manager.
-                    return None
-                if asyncio.iscoroutine(task):
-                    logger.debug('Awaiting asyncio coroutine.')
-                    result = await task
-                elif asyncio.iscoroutinefunction(task):
-                    logger.debug('Running coroutine with provided args.')
-                    result = await task(**kwargs)
-                elif callable(task):
-                    logger.debug('Running provided function within asyncio event loop.')
-                    result = task(**kwargs)
-                else:
-                    raise TypeError('Unrecognized awaitable: {}'.format(repr(task)))
-                return result
-        except Exception as e:
-            logger.exception('Uncaught exception during {}.run(): {}'.format(type(self).__name__, str(e)))
-        finally:
-            # Note: The following line will not appear until the dispatch context manager has finished exiting.
-            logger.debug('Leaving {}.run()'.format(type(self).__name__))
+    return _context.WorkflowManager(loop=loop, executor_factory=executor_factory)
 
 
 class _ExecutionContext:

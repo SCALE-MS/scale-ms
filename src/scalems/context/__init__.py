@@ -458,6 +458,16 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
             raise TypeError('An asyncio.Lock is required to control dispatcher state.')
         self._dispatcher_lock = dispatcher_lock
 
+    def runtime_shutdown(self, session):
+        """Shutdown hook for runtime sessions.
+
+        Called while exiting the context manager. Allows specialized handling of
+        runtime backends in terms of the RuntimeManager instance and an abstract
+        *session* object, presumably acquired while entering the context manager
+        through the *runtime_startup* hook.
+        """
+        pass
+
     def queue(self):
         # TODO: Only expose queue while in an active context manager.
         return self._command_queue
@@ -476,6 +486,230 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     def exception(self) -> typing.Union[None, Exception]:
         return self._exception
+
+    @contextlib.contextmanager
+    def runtime_configuration(self):
+        """Runtime startup context manager hook.
+
+        This allows arbitrary environment changes during the scope of the __aenter__()
+        function, as well as a chance to modify the stored runtime configuration object.
+
+        Warning: this is probably not a permanent part of the interface. We should settle
+        on whether to store a configuration/context object or rely on the current
+        contextvars.Context.
+        """
+        ...
+        try:
+            yield None
+        finally:
+            ...
+
+    @abc.abstractmethod
+    def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
+        """Runtime startup hook.
+
+        If the runtime manager uses a Session, this is the place to acquire it.
+
+        Arguments:
+            runner_started: and Event to be set as the runtime becomes ready to process its queue.
+
+        The *runner_started* argument allows inexpensive synchronization. The caller may
+        yield until until the runtime queue processing task has run far enough to be
+        well behaved if it later encounters an error or is subsequently canceled.
+        """
+        ...
+
+    async def __aenter__(self):
+        with self.runtime_configuration():
+            try:
+                # Get a lock while the state is changing.
+                # Warning: The dispatching protocol is immature.
+                # Initially, we don't expect contention for the lock, and if there is
+                # contention, it probably represents an unintended race condition
+                # or systematic dead-lock.
+                # TODO: Clarify dispatcher state machine and remove/replace assertions.
+                assert not self._dispatcher_lock.locked()
+                async with self._dispatcher_lock:
+                    runner_started = asyncio.Event()
+                    runner_task = self.runtime_startup(runner_started)
+                    is_started = asyncio.create_task(runner_started.wait())
+                    done, pending = await asyncio.wait((is_started, runner_task),
+                                                       return_when=asyncio.FIRST_COMPLETED)
+                    if runner_task in done:
+                        logger.error('Runner task stopped early.')
+                        if runner_task.cancelled():
+                            raise DispatchError('Runner unexpectedly canceled while '
+                                                'starting dispatching.')
+                        else:
+                            e = runner_task.exception()
+                            logger.exception('Runner task failed with an exception.',
+                                             exc_info=e)
+                            raise e
+                    self._queue_runner_task = runner_task
+
+                # Note: it would probably be most useful to return something with a
+                # WorkflowManager interface...
+                return self
+            except Exception as e:
+                self._exception = e
+                raise e
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
+        """Clean up at context exit.
+
+        In addition to handling exceptions, clean up any Session resource.
+
+        We also need to make sure that we properly disengage from any queues
+        or generators.
+
+        We can also leave flags for ourself to be checked at __await__,
+        if there is a Task associated with the Executor.
+        """
+        # Note that this coroutine could take a long time and could be
+        # cancelled at several points.
+        cancelled_error = None
+        # The dispatching protocol is immature.
+        # Initially, we don't expect contention for the lock, and if there is
+        # contention, it probably represents an unintended race condition
+        # or systematic dead-lock.
+        # TODO: Clarify dispatcher state machine and remove/replace assertions.
+        assert not self._dispatcher_lock.locked()
+        async with self._dispatcher_lock:
+            session = self.session
+            # This method is not thread safe, but we try to make clear as early as
+            # possible that instance.session is no longer publicly available.
+            self.session = None
+
+            try:
+                # Stop the executor.
+                logger.debug('Stopping workflow execution.')
+                # TODO: Make sure that nothing else will be adding items to the
+                #  queue from this point.
+                # We should establish some assurance that the next line represents
+                # the last thing that we will put in the queue.
+                self._command_queue.put_nowait({'control': 'stop'})
+                # TODO: Consider what to do differently when we want to cancel work
+                #  rather than just finalize it.
+
+                # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
+                # Currently, the queue runner does not place subtasks,
+                # so there is only one thing to await.
+                # TODO: We should probably allow the user to provide some sort of timeout,
+                #  or infer one from other time limits.
+                try:
+                    await self._queue_runner_task
+                except asyncio.CancelledError as e:
+                    raise e
+                except Exception as queue_runner_exception:
+                    logger.exception('Unhandled exception when stopping queue handler.',
+                                     exc_info=True)
+                    self._exception = queue_runner_exception
+                else:
+                    logger.debug('Queue runner task completed.')
+                finally:
+                    if not self._command_queue.empty():
+                        logger.error('Command queue never emptied.')
+
+                    # Wait for the watchers.
+                    if len(self.submitted_tasks) > 0:
+                        results = await asyncio.gather(*self.submitted_tasks)
+                        # TODO: Log something useful about the results.
+                        assert len(results) == len(self.submitted_tasks)
+
+                    self.runtime_shutdown(session)
+            except asyncio.CancelledError as e:
+                logger.debug(f'{self.__class__.__qualname__} context manager received '
+                             f'cancellation while exiting.')
+                cancelled_error = e
+            except Exception as e:
+                logger.exception('Exception while stopping dispatcher.', exc_info=True)
+                if self._exception:
+                    logger.error('Queuer is already holding an exception.')
+                else:
+                    self._exception = e
+            finally:
+                # Should we do any other clean-up here?
+                # self.pilot = None
+                # self._pilot_manager = None
+                if session is not None:
+                    if not _session_is_closed(session):
+                        logger.debug(f'Queuer is shutting down {session}.')
+                        try:
+                            # Note: close() is not always fast, and we might want
+                            # to do it asynchronously in the future.
+                            session.close()
+                        except asyncio.CancelledError as e:
+                            cancelled_error = e
+                        except Exception as e:
+                            logger.exception(
+                                f'Exception during Session.close().',
+                                exc_info=e)
+                        else:
+                            logger.debug('Runtime Session closed.')
+        if cancelled_error:
+            raise cancelled_error
+
+        # Only return true if an exception should be suppressed (because it was handled).
+        # TODO: Catch internal exceptions for useful logging and user-friendliness.
+        if exc_type is not None:
+            return False
+
+    # We don't currently have a use for a stand-alone Task.
+    # We use the async context manager and the exception() method.
+    # def __await__(self):
+    #     """Implement the asyncio task represented by this object."""
+    #     # Note that this is not a native coroutine object; we cannot `await`
+    #     # The role of object.__await__() is to return an iterator that will be
+    #     # run to exhaustion in the context of an event loop.
+    #     # We assume that most of the asyncio activity happens through the
+    #     # async context mananager behavior and other async member functions.
+    #     # If we choose to `await instance` at all, we need a light-weight
+    #     # iteration we can perform to surrender control of the event loop,
+    #     # and then just do some sort of tidying or reporting that doesn't fit well
+    #     # into __aexit__(), such as the ability to return a value.
+    #
+    #     # # Note: We can't do this without first wait on some sort of Done event...
+    #     # failures = []
+    #     # for t in self.rp_tasks:
+    #     #     logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
+    #     #     if t.state != rp.states.DONE or t.exit_code != 0:
+    #     #         logger.error(f'RP Task unsuccessful: {repr(t)}')
+    #     #         failures.append(t)
+    #     # if len(failures) > 0:
+    #     #     warnings.warn('Unsuccessful tasks: ' + ', '.join([repr(t) for t in failures]))
+    #
+    #     yield
+    #     if self._exception:
+    #         raise self._exception
+    #     return self.scheduler
+    #
+    #     # # If we want to provide a "Future-like" interface, we should support the callback
+    #     # # protocols and implement the following generator function.
+    #     # if not self.done():
+    #     #     self._asyncio_future_blocking = True
+    #     #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio.isfuture
+    #     #
+    #     #     yield self  # This tells Task to wait for completion.
+    #     # if not self.done():
+    #     #     raise RuntimeError("The dispatcher task was not 'await'ed.")
+    #     # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
+    #     # to be raised upon exit from the generator."
+    #     # The Task works like a `result = yield from awaitable` expression.
+    #     # The iterator (generator) yields until exhausted,
+    #     # then raises StopIteration with the value returned in by the generator function.
+    #     # return self.result()  # May raise too.
+    #     # # Otherwise, the only allowed value from the iterator is None.
+
+
+def _session_is_closed(session):
+    """Generic check for status of a session instance."""
+    if not hasattr(session, 'closed'):
+        raise TypeError('Bad argument. *session* does not report its open/closed status.')
+    if callable(session.closed):
+        return session.closed()
+    else:
+        # For example, radical.pilot.Session.closed is a `property`.
+        return session.closed
 
 
 class ExecutorFactory(typing.Protocol[_BackendT]):

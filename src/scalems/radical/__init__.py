@@ -27,6 +27,7 @@ Executor:
 
 import argparse
 import asyncio
+import contextlib
 import contextvars
 import dataclasses
 import functools
@@ -928,7 +929,8 @@ class RPDispatchingExecutor(RuntimeManager):
             raise TypeError(f'RP Resource Parameters are expected to be dict-like. Got '
                             f'{repr(runtime.rp_resource_params)}') from e
 
-    async def __aenter__(self):
+    @contextlib.contextmanager
+    def runtime_configuration(self):
         # Get default configuration.
         c = configuration()
         # Update with any internal configuration.
@@ -939,218 +941,51 @@ class RPDispatchingExecutor(RuntimeManager):
         if self.execution_target is not None and len(self.execution_target) > 0:
             c.execution_target = self.execution_target
         token = _configuration.set(c)
-
         try:
-            # Get a lock while the state is changing.
-            # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-            # contention, it probably represents an unintended race condition or systematic dead-lock.
-            # TODO: Clarify dispatcher state machine and remove/replace assertions.
-            assert not self._dispatcher_lock.locked()
-            async with self._dispatcher_lock:
-                _connect_rp(self)
-                # Post-conditions of _connect_rp:
-                assert self._task_manager_uid is not None
-                assert self._pilot_manager_uid is not None
-                assert self.pilot_uid is not None
-
-                if self.session is None or self.session.closed:
-                    raise ProtocolError('Cannot process queue without a RP Session.')
-
-                # Launch queue processor (proxy executor).
-                runner_started = asyncio.Event()
-                task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                runner_task = asyncio.create_task(run_executor(self,
-                                                               task_manager=task_manager,
-                                                               processing_state=runner_started,
-                                                               queue=self._command_queue))
-                await runner_started.wait()
-                self._queue_runner_task = runner_task
-
-            # Note: it would probably be most useful to return something with a WorkflowManager
-            # interface...
-            return self
-        except Exception as e:
-            self._exception = e
-            raise e
+            yield c
         finally:
             _configuration.reset(token)
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
-        """Clean up at context exit.
+    def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
+        _connect_rp(self)
+        # Post-conditions of _connect_rp:
+        assert self._task_manager_uid is not None
+        assert self._pilot_manager_uid is not None
+        assert self.pilot_uid is not None
 
-        In addition to handling exceptions, the main resource to clean up is the rp.Session.
+        if self.session is None or self.session.closed:
+            raise ProtocolError('Cannot process queue without a RP Session.')
 
-        We also need to make sure that we properly disengage from any queues or generators.
+        # Launch queue processor (proxy executor).
+        task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
+        runner_task = asyncio.create_task(run_executor(self,
+                                                       task_manager=task_manager,
+                                                       processing_state=runner_started,
+                                                       queue=self._command_queue))
+        return runner_task
 
-        We can also leave flags for ourself to be checked at __await__, if there is a Task
-        associated with the Executor.
-        """
-        # Note that this coroutine could take a long time and could be cancelled at several points.
-        cancelled_error = None
-        # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-        # contention, it probably represents an unintended race condition or systematic dead-lock.
-        # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        assert not self._dispatcher_lock.locked()
-        async with self._dispatcher_lock:
-            session: rp.Session = self.session
-            # This method is not thread safe, but we try to make clear that instance.session
-            # is no longer publicly available as soon as possible.
-            self.session = None
+    def runtime_shutdown(self, session: rp.Session):
+        if session is None or session.closed:
+            logger.error('Runtime Session is already closed?!')
+        # Cancel the master.
+        logger.debug('Canceling the master scheduling task.')
+        task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
+        if self.scheduler is not None:
+            task_manager.cancel_tasks(uids=self.scheduler.uid)
+        # Cancel blocks until the task is done so the following wait would (currently)
+        # be redundant,
+        # but there is a ticket open to change this behavior.
+        # See https://github.com/radical-cybertools/radical.pilot/issues/2336
+        # tmgr.wait_tasks([scheduler.uid])
+        logger.debug('Master scheduling task complete.')
 
-            if session is None or session.closed:
-                logger.error('rp.Session is already closed?!')
-            else:
-                try:
-                    # Stop the executor.
-                    logger.debug('Stopping the SCALEMS RP dispatching executor.')
-                    # TODO: Make sure that nothing else will be adding items to the queue from this point.
-                    # We should establish some assurance that the next line represents the last thing
-                    # that we will put in the queue.
-                    self._command_queue.put_nowait({'control': 'stop'})
-                    # TODO: Consider what to do differently when we want to cancel work rather than just finalize it.
-
-                    # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
-                    # Currently, the queue runner does not place subtasks, so there is only one thing to await.
-                    # TODO: We should probably allow the user to provide some sort of timeout,
-                    #  or infer one from other time limits.
-                    try:
-                        await self._queue_runner_task
-                    except asyncio.CancelledError as e:
-                        raise e
-                    except Exception as queue_runner_exception:
-                        logger.exception('Unhandled exception when stopping queue handler.', exc_info=True)
-                        self._exception = queue_runner_exception
-                    else:
-                        logger.debug('Queue runner task completed.')
-                    finally:
-                        if not self._command_queue.empty():
-                            logger.error('Command queue never emptied.')
-
-                        # This should be encapsulated into the task watcher and just gathered.
-                        # Do we need to wait for the RP Tasks?
-                        # task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                        # if len(self.rp_tasks) > 0:
-                        #     logger.debug('Waiting for RP tasks: {}'.format(', '.join([t.uid for t in self.rp_tasks])))
-                        #     states = task_manager.wait_tasks(uids=[t.uid for t in self.rp_tasks])
-                        #     assert states
-                        #     logger.debug('Worker tasks complete.')
-                        #     for t in self.rp_tasks:
-                        #         logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-                        #         if t.state != rp.states.DONE or t.exit_code != 0:
-                        #             logger.error(f'RP Task unsuccessful: {repr(t)}')
-                        # end annotation
-
-                        # Wait for the watchers.
-                        if len(self.submitted_tasks) > 0:
-                            results = await asyncio.gather(*self.submitted_tasks)
-                            # TODO: Log something useful about the results.
-                            assert len(results) == len(self.submitted_tasks)
-                        # Cancel the master.
-                        logger.debug('Canceling the master scheduling task.')
-                        task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                        if self.scheduler is not None:
-                            task_manager.cancel_tasks(uids=self.scheduler.uid)
-                        # Cancel blocks until the task is done so the following wait would (currently) be redundant,
-                        # but there is a ticket open to change this behavior.
-                        # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-                        # tmgr.wait_tasks([scheduler.uid])
-                        logger.debug('Master scheduling task complete.')
-
-                        pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=self._pilot_manager_uid)
-                        # TODO: We may have multiple pilots.
-                        # TODO: Check for errors?
-                        logger.debug('Canceling Pilot.')
-                        pmgr.cancel_pilots(uids=self.pilot_uid)
-                        logger.debug('Pilot canceled.')
-                except asyncio.CancelledError as e:
-                    logger.debug(f'{self.__class__.__qualname__} context manager received cancellation while exiting.')
-                    cancelled_error = e
-                except Exception as e:
-                    logger.exception('Exception while stopping dispatcher.', exc_info=True)
-                    if self._exception:
-                        logger.error('Queuer is already holding an exception.')
-                    else:
-                        self._exception = e
-                finally:
-                    # Should we do any other clean-up here?
-                    # self.pilot = None
-                    # self._pilot_manager = None
-                    if session is not None:
-                        if not session.closed:
-                            logger.debug('Queuer is shutting down RP Session.')
-                            try:
-                                # Note: close() is not always fast, and we might want
-                                # to do it asynchronously in the future.
-                                session.close()
-                            except asyncio.CancelledError as e:
-                                cancelled_error = e
-                            except Exception as e:
-                                logger.exception(f'RADICAL Pilot threw {repr(e)} during Session.close().',
-                                                 exc_info=True)
-                            else:
-                                logger.debug('RP Session closed.')
-        if cancelled_error:
-            raise cancelled_error
-
-        # Only return true if an exception should be suppressed (because it was handled).
-        # TODO: Catch internal exceptions for useful logging and user-friendliness.
-        if exc_type is not None:
-            return False
-
-    def shutdown(self):
-        if self.active():
-            self.session.close()
-            assert self.session.closed
-            # Is there any reason to reuse a closed Session?
-            self.session = None
-        else:
-            warnings.warn('shutdown has been called more than once.')
-
-    # We don't currently have a use for a stand-alone Task.
-    # We use the async context manager and the exception() method.
-    # def __await__(self):
-    #     """Implement the asyncio task represented by this object."""
-    #     # Note that this is not a native coroutine object; we cannot `await`
-    #     # The role of object.__await__() is to return an iterator that will be
-    #     # run to exhaustion in the context of an event loop.
-    #     # We assume that most of the asyncio activity happens through the
-    #     # async context mananager behavior and other async member functions.
-    #     # If we choose to `await instance` at all, we need a light-weight
-    #     # iteration we can perform to surrender control of the event loop,
-    #     # and then just do some sort of tidying or reporting that doesn't fit well
-    #     # into __aexit__(), such as the ability to return a value.
-    #
-    #     # # Note: We can't do this without first wait on some sort of Done event...
-    #     # failures = []
-    #     # for t in self.rp_tasks:
-    #     #     logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-    #     #     if t.state != rp.states.DONE or t.exit_code != 0:
-    #     #         logger.error(f'RP Task unsuccessful: {repr(t)}')
-    #     #         failures.append(t)
-    #     # if len(failures) > 0:
-    #     #     warnings.warn('Unsuccessful tasks: ' + ', '.join([repr(t) for t in failures]))
-    #
-    #     yield
-    #     if self._exception:
-    #         raise self._exception
-    #     return self.scheduler
-    #
-    #     # # If we want to provide a "Future-like" interface, we should support the callback
-    #     # # protocols and implement the following generator function.
-    #     # if not self.done():
-    #     #     self._asyncio_future_blocking = True
-    #     #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio.isfuture
-    #     #
-    #     #     yield self  # This tells Task to wait for completion.
-    #     # if not self.done():
-    #     #     raise RuntimeError("The dispatcher task was not 'await'ed.")
-    #     # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
-    #     # to be raised upon exit from the generator."
-    #     # The Task works like a `result = yield from awaitable` expression.
-    #     # The iterator (generator) yields until exhausted,
-    #     # then raises StopIteration with the value returned in by the generator function.
-    #     # return self.result()  # May raise too.
-    #     # # Otherwise, the only allowed value from the iterator is None.
+        pmgr: rp.PilotManager = session.get_pilot_managers(
+            pmgr_uids=self._pilot_manager_uid)
+        # TODO: We may have multiple pilots.
+        # TODO: Check for errors?
+        logger.debug('Canceling Pilot.')
+        pmgr.cancel_pilots(uids=self.pilot_uid)
+        logger.debug('Pilot canceled.')
 
 
 async def run_executor(executor: RPDispatchingExecutor,

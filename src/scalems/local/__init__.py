@@ -22,6 +22,7 @@ import warnings
 
 from . import operations
 from .. import context as _context
+from ..context import _session_is_closed
 from ..context import QueueItem
 from ..context import RuntimeManager
 from ..exceptions import InternalError
@@ -338,100 +339,8 @@ class LocalExecutor(RuntimeManager):
                          runtime=_runtime,
                          dispatcher_lock=dispatcher_lock)
 
-    async def __aenter__(self):
-        try:
-            # Get a lock while the state is changing.
-            # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-            # contention, it probably represents an unintended race condition or systematic dead-lock.
-            # TODO: Clarify dispatcher state machine and remove/replace assertions.
-            assert not self._dispatcher_lock.locked()
-            async with self._dispatcher_lock:
-                # self._connect_rp()
-                # if self.session is None or self.session.closed:
-                #     raise ProtocolError('Cannot process queue without a RP Session.')
-
-                # Launch queue processor (proxy executor).
-                runner_started = asyncio.Event()
-                # task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                runner_task = asyncio.create_task(run_executor(executor=self,
-                    processing_state=runner_started,
-                    queue=self._command_queue))
-                await runner_started.wait()
-                self._queue_runner_task = runner_task
-
-            # Note: it would probably be most useful to return something with a WorkflowManager
-            # interface...
-            return self
-        except Exception as e:
-            self._exception = e
-            raise e
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Clean up at context exit.
-
-        In addition to handling exceptions, the main resource to clean up is the rp.Session.
-
-        We also need to make sure that we properly disengage from any queues or generators.
-
-        We can also leave flags for ourself to be checked at __await__, if there is a Task
-        associated with the Executor.
-        """
-        # Note that this coroutine could take a long time and could be cancelled at several points.
-        cancelled_error = None
-        # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-        # contention, it probably represents an unintended race condition or systematic dead-lock.
-        # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        assert not self._dispatcher_lock.locked()
-        async with self._dispatcher_lock:
-
-            # if session is None or session.closed:
-            #     logger.error('rp.Session is already closed?!')
-            # else:
-            try:
-                # Stop the executor.
-                logger.debug('Stopping the SCALEMS local executor.')
-                # TODO: Make sure that nothing else will be adding items to the queue from this point.
-                # We should establish some assurance that the next line represents the last thing
-                # that we will put in the queue.
-                self._command_queue.put_nowait({'control': 'stop'})
-                # TODO: Consider what to do differently when we want to cancel work rather than just finalize it.
-
-                # done, pending = await asyncio.wait(aws, timeout=0.1, return_when=FIRST_EXCEPTION)
-                # Currently, the queue runner does not place subtasks, so there is only one thing to await.
-                # TODO: We should probably allow the user to provide some sort of timeout,
-                #  or infer one from other time limits.
-                try:
-                    await self._queue_runner_task
-                except asyncio.CancelledError as e:
-                    raise e
-                except Exception as queue_runner_exception:
-                    logger.exception('Unhandled exception when stopping queue handler.', exc_info=True)
-                    self._exception = queue_runner_exception
-                else:
-                    logger.debug('Queue runner task completed.')
-                finally:
-                    if not self._command_queue.empty():
-                        logger.error('Command queue never emptied.')
-
-                    # Wait for the watchers.
-                    if len(self.submitted_tasks) > 0:
-                        results = await asyncio.gather(*self.submitted_tasks)
-                        # TODO: Log something useful about the results.
-                        assert len(results) == len(self.submitted_tasks)
-
-            except asyncio.CancelledError as e:
-                logger.debug(f'{self.__class__.__qualname__} context manager received cancellation while exiting.')
-                cancelled_error = e
-            except Exception as e:
-                logger.exception('Exception while stopping dispatcher.', exc_info=True)
-                if self._exception:
-                    logger.error('Queuer is already holding an exception.')
-                else:
-                    self._exception = e
-        if cancelled_error:
-            raise cancelled_error
-
-        # Only return true if an exception should be suppressed (because it was handled).
-        # TODO: Catch internal exceptions for useful logging and user-friendliness.
-        if exc_type is not None:
-            return False
+    def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
+        runner_task = asyncio.create_task(run_executor(executor=self,
+                                                       processing_state=runner_started,
+                                                       queue=self._command_queue))
+        return runner_task

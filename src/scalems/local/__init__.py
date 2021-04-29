@@ -23,6 +23,7 @@ import warnings
 from . import operations
 from .. import context as _context
 from ..context import QueueItem
+from ..context import RuntimeManager
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
@@ -56,8 +57,9 @@ class _ExecutionContext:
             self.workflow_manager.item(self.identifier)
         except Exception as e:
             raise InternalError('Unable to access managed item.') from e
-        self._task_directory = pathlib.Path(os.path.join(os.getcwd(), self.identifier.hex()))
-        # TODO: Find a canonical way to get the workflow directory.
+        self._task_directory = pathlib.Path(os.path.join(os.getcwd(),
+                                                         self.identifier.hex()))  # TODO: Find a canonical way to get
+        # the workflow directory.
 
     @property
     def task_directory(self) -> pathlib.Path:
@@ -75,9 +77,7 @@ class _ExecutionContext:
 
 # TODO: Consider explicitly decoupling client-facing workflow manager from executor-facing manager.
 async def run_executor(executor: 'LocalExecutor',  # noqa: C901
-                       *,
-                       processing_state: asyncio.Event,
-                       queue: asyncio.Queue):
+                       *, processing_state: asyncio.Event, queue: asyncio.Queue):
     """Process workflow messages until a stop message is received.
 
     Initial implementation processes commands serially without regard for possible
@@ -165,8 +165,8 @@ async def run_executor(executor: 'LocalExecutor',  # noqa: C901
             key = command['add_item']
             with executor.source_context.edit_item(key) as item:
                 if not isinstance(item, _context.Task):
-                    raise InternalError(
-                        'Expected {}.item() to return a scalems.context.Task'.format(repr(executor.source_context)))
+                    raise InternalError('Expected {}.item() to return a scalems.context.Task'.format(repr(
+                        executor.source_context)))
 
                 # TODO: Ensemble handling
                 item_shape = item.description().shape()
@@ -183,17 +183,14 @@ async def run_executor(executor: 'LocalExecutor',  # noqa: C901
                         id = key.hex()
                     else:
                         id = str(key)
-                    logger.info(f'Skipping task that is already done. ({id})')
-                    # TODO: Update local status and results.
+                    logger.info(f'Skipping task that is already done. ({id})')  # TODO: Update local status and results.
                 else:
                     assert not item.done()
                     assert not executor.source_context.item(key).done()
                     task = asyncio.create_task(_execute_item(task_type=task_type,
                                                              item=item,
                                                              execution_context=execution_context))
-                    executor.submitted_tasks.append(task)
-                # TODO: output handling
-                # TODO: failure handling
+                    executor.submitted_tasks.append(task)  # TODO: output handling  # TODO: failure handling
         except Exception as e:
             logger.debug('Leaving queue runner due to exception.')
             raise e
@@ -206,8 +203,7 @@ async def run_executor(executor: 'LocalExecutor',  # noqa: C901
 
 # TODO: return an execution status object?
 async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
-                        item: _context.Task,
-                        execution_context: _ExecutionContext):
+                        item: _context.Task, execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
     if task_type.identifier() == 'scalems.subprocess.SubprocessTask':
         task_type = SubprocessTask()
@@ -280,8 +276,8 @@ async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
                 logger.debug(f'Looking for "scalems_helper in {module}.')
                 helper = getattr(implementation, 'scalems_helper', None)
                 if not callable(helper):
-                    raise MissingImplementationError(
-                        'Executor does not have an implementation for {}'.format(str(task_type)))
+                    raise MissingImplementationError('Executor does not have an implementation for {}'.format(str(
+                        task_type)))
                 else:
                     logger.debug('Helper found. Passing item to helper for execution.')
                     # Note: we need more of a hook for two-way interaction here.
@@ -319,54 +315,28 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
 def executor_factory(manager: _context.WorkflowManager, params=None):
     if params is not None:
         raise TypeError('This factory does not accept a Configuration object.')
-    executor = LocalExecutor(
-        source_context=manager,
-        loop=manager.loop(),
-        dispatcher_lock=manager._dispatcher_lock
-    )
+    executor = LocalExecutor(source=manager, loop=manager.loop(), dispatcher_lock=manager._dispatcher_lock)
     return executor
 
 
-class LocalExecutor:
+class LocalExecutor(RuntimeManager):
     """Client side manager for work dispatched locally.
     """
-    source_context: _context.WorkflowManager
-    submitted_tasks: typing.List[asyncio.Task]
-
-    _command_queue: asyncio.Queue
-    _dispatcher_lock: asyncio.Lock
-    _queue_runner_task: asyncio.Task
-
     def __init__(self,
-                 source_context: _context.WorkflowManager,
+                 source: _context.WorkflowManager,
+                 *,
                  loop: asyncio.AbstractEventLoop,
                  dispatcher_lock=None,
-                 ):
+                 _runtime=None):
         """Create a client side execution manager.
 
         Initialization and deinitialization occurs through
         the Python (async) context manager protocol.
         """
-        self.source_context = source_context
-
-        # TODO: Only hold a queue in an active context manager.
-        self._command_queue = asyncio.Queue()
-
-        self._loop: asyncio.AbstractEventLoop = loop
-
-        self.session = None
-        self._finalizer = None
-
-        if not isinstance(dispatcher_lock, asyncio.Lock):
-            raise TypeError('An asyncio.Lock is required to control dispatcher state.')
-        self._dispatcher_lock = dispatcher_lock
-
-        self._exception = None
-        self.submitted_tasks = []
-
-    def queue(self):
-        # TODO: Only expose queue while in an active context manager.
-        return self._command_queue
+        super().__init__(source,
+                         loop=loop,
+                         runtime=_runtime,
+                         dispatcher_lock=dispatcher_lock)
 
     async def __aenter__(self):
         try:
@@ -383,11 +353,9 @@ class LocalExecutor:
                 # Launch queue processor (proxy executor).
                 runner_started = asyncio.Event()
                 # task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
-                runner_task = asyncio.create_task(run_executor(
-                    executor=self,
+                runner_task = asyncio.create_task(run_executor(executor=self,
                     processing_state=runner_started,
-                    queue=self._command_queue
-                ))
+                    queue=self._command_queue))
                 await runner_started.wait()
                 self._queue_runner_task = runner_task
 
@@ -467,27 +435,3 @@ class LocalExecutor:
         # TODO: Catch internal exceptions for useful logging and user-friendliness.
         if exc_type is not None:
             return False
-
-    def active(self) -> bool:
-        session = self.session
-        if session is None:
-            return False
-        else:
-            assert session is not None
-            return not session.closed
-
-    def shutdown(self):
-        if self.active():
-            self.session.close()
-            assert self.session.closed
-            # Is there any reason to reuse a closed Session?
-            self.session = None
-        else:
-            warnings.warn('shutdown has been called more than once.')
-
-    def __del__(self):
-        if self.active():
-            warnings.warn('{} was not explicitly shutdown.'.format(repr(self)))
-
-    def exception(self) -> typing.Union[None, Exception]:
-        return self._exception

@@ -33,6 +33,7 @@ import json
 import logging
 import queue as _queue
 import typing
+import warnings
 import weakref
 
 from scalems.exceptions import APIError
@@ -425,11 +426,62 @@ _QItem_T = typing.TypeVar('_QItem_T', bound=QueueItem)
 AddItemCallback = typing.Callable[[_QItem_T], None]
 
 
-_ParamsT = typing.TypeVar('_ParamsT', contravariant=True)
+_BackendT = typing.TypeVar('_BackendT', contravariant=True)
 
 
-class ExecutorFactory(typing.Protocol[_ParamsT]):
-    def __call__(self, manager: 'WorkflowManager', params: typing.Optional[_ParamsT] = None) -> typing.Any:
+class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
+    """Client side manager for dispatching work loads and managing data flow."""
+    source_context: 'WorkflowManager'
+    submitted_tasks: typing.List[asyncio.Task]
+
+    _command_queue: asyncio.Queue
+    _dispatcher_lock: asyncio.Lock
+    _queue_runner_task: asyncio.Task = None
+
+    def __init__(self,
+                 source: 'WorkflowManager',
+                 *,
+                 loop: asyncio.AbstractEventLoop,
+                 runtime: _BackendT,
+                 dispatcher_lock=None):
+        self.submitted_tasks = []
+        self.session = None
+        self._finalizer = None
+
+        # TODO: Only hold a queue in an active context manager.
+        self._command_queue = asyncio.Queue()
+        self._exception = None
+        self.source_context = source
+        self._loop: asyncio.AbstractEventLoop = loop
+        self.configuration = runtime
+        if not isinstance(dispatcher_lock, asyncio.Lock):
+            raise TypeError('An asyncio.Lock is required to control dispatcher state.')
+        self._dispatcher_lock = dispatcher_lock
+
+    def queue(self):
+        # TODO: Only expose queue while in an active context manager.
+        return self._command_queue
+
+    def active(self) -> bool:
+        session = self.session
+        if session is None:
+            return False
+        else:
+            assert session is not None
+            return not session.closed
+
+    def __del__(self):
+        if self.active():
+            warnings.warn('{} was not explicitly shutdown.'.format(repr(self)))
+
+    def exception(self) -> typing.Union[None, Exception]:
+        return self._exception
+
+
+class ExecutorFactory(typing.Protocol[_BackendT]):
+    def __call__(self,
+                 manager: 'WorkflowManager',
+                 params: typing.Optional[_BackendT] = None) -> RuntimeManager[_BackendT]:
         ...
 
 

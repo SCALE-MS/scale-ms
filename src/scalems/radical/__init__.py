@@ -45,6 +45,7 @@ import scalems.subprocess
 from .. import context as _context
 from .. import utility as _utility
 from ..context import QueueItem
+from ..context import RuntimeManager
 from ..exceptions import APIError
 from ..exceptions import DispatchError
 from ..exceptions import InternalError
@@ -88,13 +89,11 @@ def parser(add_help=False):
     # Ref https://github.com/SCALE-MS/scale-ms/issues/89
     # See also https://github.com/SCALE-MS/scale-ms/issues/90
     # TODO: Set module variables rather than carry around an args namespace?
-    _parser.add_argument(
-        '--venv',
-        metavar='PATH',
-        type=str,
-        required=True,
-        help='Full path to a (pre-configured) venv to use for RP tasks.'
-    )
+    _parser.add_argument('--venv',
+                         metavar='PATH',
+                         type=str,
+                         required=True,
+                         help='Full path to a (pre-configured) venv to use for RP tasks.')
 
     _parser.add_argument(
         '--resource',
@@ -200,11 +199,10 @@ def executor_factory(manager: _context.WorkflowManager, params: Configuration = 
         _set_configuration(params)
     params = configuration()
 
-    executor = RPDispatchingExecutor(source_context=manager,
+    executor = RPDispatchingExecutor(source=manager,
                                      loop=manager.loop(),
-                                     rp_params=params,
-                                     dispatcher_lock=manager._dispatcher_lock,
-                                     )
+                                     runtime=params,
+                                     dispatcher_lock=manager._dispatcher_lock)
     return executor
 
 
@@ -423,21 +421,15 @@ def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescrip
     """
     assert item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask')
     input_data = item.input
-    task_input = scalems.subprocess.SubprocessInput(
-        **input_data
-    )
+    task_input = scalems.subprocess.SubprocessInput(**input_data)
     args = list([arg for arg in task_input.argv])
     # Warning: TaskDescription class does not have a strongly defined interface.
     # Check docs for schema.
-    task_description = rp.TaskDescription(
-        from_dict=dict(
-            executable=args[0],
-            arguments=args[1:],
-            stdout=str(task_input.stdout),
-            stderr=str(task_input.stderr),
-            pre_exec=pre_exec
-        )
-    )
+    task_description = rp.TaskDescription(from_dict=dict(executable=args[0],
+                                                         arguments=args[1:],
+                                                         stdout=str(task_input.stdout),
+                                                         stderr=str(task_input.stderr),
+                                                         pre_exec=pre_exec))
     uid: str = item.uid().hex()
     task_description.uid = uid
 
@@ -449,14 +441,15 @@ def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescrip
 
     # TODO: Interpret item details and derive appropriate staging directives.
     task_description.input_staging = list(task_input.inputs.values())
-    task_description.output_staging = [
-        {'source': str(task_input.stdout),
-         'target': os.path.join(uid, pathlib.Path(task_input.stdout).name),
-         'action': rp.TRANSFER},
-        {'source': str(task_input.stderr),
-         'target': os.path.join(uid, pathlib.Path(task_input.stderr).name),
-         'action': rp.TRANSFER}
-    ]
+    task_description.output_staging = [{
+        'source': str(task_input.stdout),
+        'target': os.path.join(uid, pathlib.Path(task_input.stdout).name),
+        'action': rp.TRANSFER
+    }, {
+        'source': str(task_input.stderr),
+        'target': os.path.join(uid, pathlib.Path(task_input.stderr).name),
+        'action': rp.TRANSFER
+    }]
     task_description.output_staging += task_input.outputs.values()
 
     return task_description
@@ -519,7 +512,11 @@ def _describe_raptor_task(item: _context.Task, scheduler: str, pre_exec: list) -
     return task_description
 
 
-async def submit(*, item: _context.Task, task_manager: rp.TaskManager, pre_exec: list, submitted: asyncio.Event = None,
+async def submit(*,
+                 item: _context.Task,
+                 task_manager: rp.TaskManager,
+                 pre_exec: list,
+                 submitted: asyncio.Event = None,
                  scheduler: str = None) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
@@ -778,7 +775,8 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         pilot_description.update({
             'resource': execution_manager.execution_target,
             'cores': 4,
-            'gpus': 0})
+            'gpus': 0
+        })
         # TODO: Pilot venv (#90, #94).
         # Currently, Pilot venv must be specified in the JSON file for resource definitions.
         execution_manager._pilot_description = rp.PilotDescription(pilot_description)
@@ -821,23 +819,20 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
 
         # Question: when should we remove the pilot from the task manager?
         task_manager.add_pilots(pilot)
-        logger.debug('Added Pilot {} to task manager {}.'.format(execution_manager.pilot_uid,
-                                                                 execution_manager._task_manager_uid))
+        logger.debug('Added Pilot {} to task manager {}.'.format(
+            execution_manager.pilot_uid,
+            execution_manager._task_manager_uid))
 
         # Verify usable SCALEMS RP connector.
         # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
         # TODO: Check for compatible installed scalems API version.
-        rp_check = task_manager.submit_tasks(
-            rp.TaskDescription(
-                {
-                    # 'executable': py_venv,
-                    'executable': 'python3',
-                    'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
-                    'pre_exec': execution_manager._pre_exec
-                    # 'named_env': 'scalems_env'
-                }
-            )
-        )
+        rp_check = task_manager.submit_tasks(rp.TaskDescription({
+            # 'executable': py_venv,
+            'executable': 'python3',
+            'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
+            'pre_exec': execution_manager._pre_exec
+            # 'named_env': 'scalems_env'
+        }))
         logger.debug('Checking RP execution environment.')
         states = task_manager.wait_tasks(uids=[rp_check.uid])
         if states[0] != rp.states.DONE or rp_check.exit_code != 0:
@@ -849,8 +844,8 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
             raise DispatchError('Could not determine remote RP version.') from e
         # TODO: #100 Improve compatibility checking.
         if remote_rp_version < packaging.version.parse('1.6.0'):
-            raise DispatchError(
-                f'Incompatible radical.pilot version in execution environment: {str(remote_rp_version)}')
+            raise DispatchError(f'Incompatible radical.pilot version in execution '
+                                f'environment: {str(remote_rp_version)}')
 
         #
         # Get a scheduler task.
@@ -873,7 +868,7 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         raise DispatchError('Failed to launch SCALE-MS master task.') from e
 
 
-class RPDispatchingExecutor:
+class RPDispatchingExecutor(RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 
     Configuration points::
@@ -898,54 +893,40 @@ class RPDispatchingExecutor:
     _queue_runner_task: asyncio.Task
 
     def __init__(self,
-                 source_context: _context.WorkflowManager,
+                 source: _context.WorkflowManager,
+                 *,
                  loop: asyncio.AbstractEventLoop,
-                 rp_params: Configuration,
-                 dispatcher_lock=None,
-                 ):
+                 runtime: Configuration,
+                 dispatcher_lock=None):
         """Create a client side execution manager.
 
         Initialization and deinitialization occurs through
         the Python (async) context manager protocol.
         """
+        super().__init__(source,
+                         loop=loop,
+                         runtime=runtime,
+                         dispatcher_lock=dispatcher_lock)
+
         if 'RADICAL_PILOT_DBURL' not in os.environ:
             raise DispatchError('RADICAL Pilot environment is not available.')
 
-        self._loop: asyncio.AbstractEventLoop = loop
-        self.session = None
-        self._finalizer = None
         self.pilot = None
         self.scheduler = None
-        self._exception = None
 
-        if not isinstance(rp_params.target_venv, str) or len(rp_params.target_venv) == 0:
+        if not isinstance(runtime.target_venv, str) or len(runtime.target_venv) == 0:
             raise ValueError('Caller must specify a venv to be activated by the execution agent for dispatched tasks.')
         else:
-            self._target_venv: str = rp_params.target_venv
+            self._target_venv: str = runtime.target_venv
             self._pre_exec = ['. ' + str(os.path.join(self._target_venv, 'bin', 'activate'))]
 
-        self.source_context = source_context
-
-        # TODO: Only hold a queue in an active context manager.
-        self._command_queue = asyncio.Queue()
-
-        self.execution_target = rp_params.execution_target
+        self.execution_target = runtime.execution_target
         self._rp_resource_params = {}
         try:
-            self._rp_resource_params.update(rp_params.rp_resource_params)
+            self._rp_resource_params.update(runtime.rp_resource_params)
         except TypeError as e:
-            raise TypeError(
-                f'RP Resource Parameters are expected to be dict-like. Got {repr(rp_params.rp_resource_params)}') from e
-
-        if not isinstance(dispatcher_lock, asyncio.Lock):
-            raise TypeError('An asyncio.Lock is required to control dispatcher state.')
-        self._dispatcher_lock = dispatcher_lock
-
-        self.submitted_tasks = []
-
-    def queue(self):
-        # TODO: Only expose queue while in an active context manager.
-        return self._command_queue
+            raise TypeError(f'RP Resource Parameters are expected to be dict-like. Got '
+                            f'{repr(runtime.rp_resource_params)}') from e
 
     async def __aenter__(self):
         # Get default configuration.
@@ -1116,14 +1097,6 @@ class RPDispatchingExecutor:
         if exc_type is not None:
             return False
 
-    def active(self) -> bool:
-        session = self.session
-        if session is None:
-            return False
-        else:
-            assert session is not None
-            return not session.closed
-
     def shutdown(self):
         if self.active():
             self.session.close()
@@ -1132,13 +1105,6 @@ class RPDispatchingExecutor:
             self.session = None
         else:
             warnings.warn('shutdown has been called more than once.')
-
-    def __del__(self):
-        if self.active():
-            warnings.warn('{} was not explicitly shutdown.'.format(repr(self)))
-
-    def exception(self) -> typing.Union[None, Exception]:
-        return self._exception
 
     # We don't currently have a use for a stand-alone Task.
     # We use the async context manager and the exception() method.
@@ -1187,7 +1153,10 @@ class RPDispatchingExecutor:
     #     # # Otherwise, the only allowed value from the iterator is None.
 
 
-async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asyncio.Event, queue: asyncio.Queue,
+async def run_executor(executor: RPDispatchingExecutor,
+                       *,
+                       processing_state: asyncio.Event,
+                       queue: asyncio.Queue,
                        task_manager: rp.TaskManager):
     processing_state.set()
     _target_venv = configuration().target_venv
@@ -1237,13 +1206,11 @@ async def run_executor(executor: RPDispatchingExecutor, *, processing_state: asy
                 # TODO: Optimization: skip tasks that are already done.
                 # TODO: Check task dependencies.
                 submitted = asyncio.Event()  # Not yet used.
-                task: asyncio.Task[rp.Task] = await submit(
-                    item=item,
-                    task_manager=task_manager,
-                    submitted=submitted,
-                    # scheduler=executor.scheduler.uid,
-                    pre_exec=_pre_exec
-                )
+                task: asyncio.Task[rp.Task] = await submit(item=item,
+                                                           task_manager=task_manager,
+                                                           submitted=submitted,
+                                                           # scheduler=executor.scheduler.uid,
+                                                           pre_exec=_pre_exec)
 
                 executor.submitted_tasks.append(task)
 

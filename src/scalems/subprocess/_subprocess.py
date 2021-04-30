@@ -27,6 +27,8 @@ from scalems.exceptions import InternalError
 from scalems.serialization import encode
 from scalems.utility import next_monotonic_integer
 from .. import context as _context
+from ..context import WorkflowManager
+from ..exceptions import APIError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -87,7 +89,9 @@ class SubprocessInput:
 # TODO: Generate from class decorator.
 # TODO: Need a generic TaskView class for clients with reference to managed elements.
 @_context.workflow_item_director_factory.register
-def _(item: SubprocessInput, *, context, label: str = None):
+def _(item: SubprocessInput, *, manager: WorkflowManager, label: str = None):
+    assert isinstance(manager, WorkflowManager)
+
     def director(*args, **kwargs):
         if len(args) > 0:
             # TODO: Reconsider reasonable exceptions.
@@ -95,12 +99,12 @@ def _(item: SubprocessInput, *, context, label: str = None):
         if len(kwargs) > 0:
             raise TypeError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
         uid = hash(item)
-        if uid in context.task_map:
+        if uid in manager.tasks:
             # TODO: Consider whether this is the correct behavior
-            return context.task_map[uid]
+            return manager.tasks[uid]
         else:
-            context.task_map[uid] = item
-            return context.task_map[uid]
+            manager.tasks[uid] = item
+            return manager.tasks[uid]
 
     return director
 
@@ -258,7 +262,10 @@ class Subprocess:
 # Register a director for Subprocess workflow items.
 # TODO: Wrap this in the decorator or metaclass used for TaskTypes.
 @_context.workflow_item_director_factory.register
-def _(item: Subprocess, *, context: _context.WorkflowManager, label: str = None):
+def _(item: Subprocess, *, manager: _context.WorkflowManager, label: str = None):
+    if not isinstance(manager, _context.WorkflowManager):
+        raise APIError(f'No director for {repr(manager)}')
+
     def director(*args, **kwargs):
         if len(args) > 0:
             # TODO: Reconsider reasonable exceptions.
@@ -271,14 +278,14 @@ def _(item: Subprocess, *, context: _context.WorkflowManager, label: str = None)
         # environment needs to provide a specialized implementation for the
         # foreseeable future. It does not make sense for this module to provide
         # a default Python function reference for a task factory or callable.
-        task_view = context.add_item(item)
+        task_view = manager.add_item(item)
 
         return task_view
 
     return director
 
 
-def executable(*args, context=None, **kwargs):
+def executable(*args, manager: _context.WorkflowManager = None, **kwargs):
     """Execute a command line program.
 
     Configure an executable to run in one (or more) subprocess(es).
@@ -294,22 +301,30 @@ def executable(*args, context=None, **kwargs):
     think this disallows important use cases, please let us know.
 
     Arguments:
-         argv: a tuple (or list) to be the subprocess arguments, including the executable
+         manager: Workflow manager to which the work should be submitted.
+         args: a tuple (or list) to be the subprocess arguments, including the executable
 
-    *argv* is required. Additional key words are optional.
+    *args* is required. Additional key words are optional.
 
     Other Parameters:
-         outputs (Mapping): labeled output files, mapping command line flag to one (or more) filenames.
-         inputs (Mapping): labeled input files, mapping command line flag to one (or more) filenames.
-         environment (Mapping): environment variables to be set in the process environment.
+         outputs (Mapping): labeled output files, mapping command line flag to one (or
+                            more) filenames.
+         inputs (Mapping): labeled input files, mapping command line flag to one (or
+                           more) filenames.
+         environment (Mapping): environment variables to be set in the process
+                                environment.
          stdin (str): source for posix style standard input file handle (default None).
-         stdout (str): Capture standard out to a filesystem artifact, even if it is not consumed in the workflow.
-         stderr (str): Capture standard error to a filesystem artifact, even if it is not consumed in the workflow.
-         resources (Mapping): Name additional required resources, such as an MPI environment.
+         stdout (str): Capture standard out to a filesystem artifact, even if it is not
+                       consumed in the workflow.
+         stderr (str): Capture standard error to a filesystem artifact, even if it is
+                       not consumed in the workflow.
+         resources (Mapping): Name additional required resources, such as an MPI
+                              environment.
 
     .. todo:: Support POSIX sigaction / IPC traps?
 
-    .. todo:: Consider dataclasses.dataclass types to replace reusable/composable function signatures.
+    .. todo:: Consider dataclasses.dataclass types to replace reusable/composable
+              function signatures.
 
     Program arguments are iteratively added to the command line with standard Python
     iteration, so you should use a tuple or list even if you have only one parameter.
@@ -325,7 +340,8 @@ def executable(*args, context=None, **kwargs):
 
     * procs_per_task (int): Number of processes to spawn for an instance of the *exec*.
     * threads_per_proc (int): Number of threads to allocate for each process.
-    * gpus_per_task (int): Number of GPU devices to allocate for and instance of the *exec*.
+    * gpus_per_task (int): Number of GPU devices to allocate for and instance of the
+      *exec*.
     * launcher (str): Task launch mechanism, such as `mpiexec`.
 
     Returns:
@@ -336,27 +352,32 @@ def executable(*args, context=None, **kwargs):
     Example:
         Execute a command named ``exe`` that takes a flagged option for input
         and output file names
-        (stored in a local Python variable ``my_filename`` and as the string literal ``'exe.out'``)
+        (stored in a local Python variable ``my_filename`` and as the string literal
+        ``'exe.out'``)
         and an ``origin`` flag
         that uses the next three arguments to define a vector.
 
             >>> my_filename = "somefilename"
-            >>> command = scalems.executable(('exe', '--origin', 1.0, 2.0, 3.0),
-            ...                              inputs={'--infile': scalems.file(my_filename)},
-            ...                              outputs={'--outfile': scalems.file('exe.out')})
+            >>> command = scalems.executable(
+            ...    ('exe', '--origin', 1.0, 2.0, 3.0),
+            ...    inputs={'--infile': scalems.file(my_filename)},
+            ...    outputs={'--outfile': scalems.file('exe.out')})
             >>> assert hasattr(command, 'file')
             >>> import os
             >>> assert os.path.exists(command.file['--outfile'].result())
             >>> assert hasattr(command, 'exitcode')
 
     TODO:
-        Consider input/output files that do not appear on the command line, but which must figure into data flow.
+        Consider input/output files that do not appear on the command line, but which
+        must figure into data flow.
 
     """
-    if context is None:
-        context = _context.get_context()
+    if manager is None:
+        manager = _context.get_context()
 
-    # TODO: Figure out a reasonable way to check and catch invalid input through a dispatcher.
+    # TODO: Figure out a reasonable way to check and catch invalid input
+    #  through a dispatcher.
+
     # subprocess_input = context.add(Subprocess.input_type(), *args, **kwargs)
     input_type = Subprocess.resource_type().input_type()
     if not isinstance(input_type, type):
@@ -368,17 +389,21 @@ def executable(*args, context=None, **kwargs):
         )
 
     # TODO: Add input separately. First, just add the Subprocess object.
-    # Note: static type checkers may not be able to resolve that `input_type is SubprocessInput` for argument checking.
-    # Provide local object to the context and replace local reference with a view to the workflow item.
-    # subprocess_input = _context.add_to_workflow(context, Subprocess.resource_type().input_type(), *args, **kwargs)
+    # Note: static type checkers may not be able to resolve that `input_type is
+    # SubprocessInput` for argument checking. Provide local object to the context and
+    # replace local reference with a view to the workflow item.
+    # subprocess_input = _context.add_to_workflow(
+    #     context, Subprocess.resource_type().input_type(), *args, **kwargs)
     bound_input = SubprocessInput(*args, **kwargs)
 
-    director = _context.workflow_item_director_factory(Subprocess, context=context)
+    director = _context.workflow_item_director_factory(Subprocess, manager=manager)
     # Design note: at some point, dynamic workflows will require thread-safe
     # workflow editing context. We could either block on acquiring the editor
     # context, use an async context manager, or hide the possible async
     # aspect by letting the return value of the director be awaitable.
-    # TODO: This would be more readable in a form like workflow.add_item(Subprocess, bound_input)
+
+    # TODO: This would be more readable in a form like
+    #  `workflow.add_item(Subprocess, bound_input)`
 
     try:
         task_view: _context.ItemView = director(input=bound_input)

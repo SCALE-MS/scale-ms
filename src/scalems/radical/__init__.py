@@ -627,8 +627,8 @@ async def submit(*,
                and len(scheduler) > 0 \
                and isinstance(task_manager.get_tasks(scheduler), rp.Task)
 
-    if item.description().type() \
-            == ResourceType(('scalems', 'subprocess', 'SubprocessTask')):
+    subprocess_type = ResourceType(('scalems', 'subprocess', 'SubprocessTask'))
+    if item.description().type() == subprocess_type:
         if scheduler is not None:
             raise DispatchError('Raptor not yet supported for scalems.executable.')
         rp_task_description = _describe_legacy_task(item, pre_exec=pre_exec)

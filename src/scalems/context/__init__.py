@@ -25,6 +25,7 @@ __all__ = ['WorkflowManager']
 
 import abc
 import asyncio
+import collections.abc
 import contextlib
 import contextvars
 import dataclasses
@@ -106,6 +107,7 @@ class _CommandQueueAddItem(QueueItem, typing.MutableMapping[str, bytes]):
             raise APIError(f'Unsupported command: {repr(k)}')
 
 
+# TODO: Replace by details developed for serialization module.
 class ResourceType:
     def identifier(self) -> str:
         """Resource type identifier"""
@@ -119,6 +121,17 @@ class ResourceType:
             raise TypeError('Expected a tuple of identifier strings.')
         # TODO: format checking.
         self._identifier = tuple([element for element in type_identifier])
+
+    def __eq__(self, other):
+        # Warning: This may be too permissive...
+        if isinstance(other, ResourceType):
+            return self._identifier == other._identifier
+        elif isinstance(other, str):
+            return self.identifier() == other
+        elif isinstance(other, collections.abc.Iterable):
+            return all([lhs == rhs] for lhs, rhs in zip(self._identifier, other))
+        else:
+            raise TypeError(f'Cannot compare ResourceType to {repr(other)}.')
 
 
 class Description:
@@ -161,9 +174,9 @@ class ItemView:
     Provides a Future like interface.
 
     At least in the initial implementation, a ItemView does not extend the lifetime
-    of the Context to which it refers. If the Context from which the ItemView was
-    obtained goes out of scope or otherwise becomes invalid, some ItemView interfaces
-    can raise exceptions.
+    of the WorkflowManager to which it refers.
+    If the WorkflowManager from which the ItemView was obtained goes out of scope or
+    otherwise becomes invalid, some ItemView interfaces can raise exceptions.
 
     .. todo:: Allows proxied access to future results through attribute access.
 
@@ -188,10 +201,10 @@ class ItemView:
             true if the task has finished.
 
         """
-        context: WorkflowManager = self._context()
-        if context is None:
+        manager: WorkflowManager = self._workflow_manager()
+        if manager is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.tasks[self.uid()].done()
+        return manager.tasks[self.uid()].done()
 
     def result(self):
         """Get a local object of the tasks's result type.
@@ -199,20 +212,20 @@ class ItemView:
         .. todo:: Forces dependency resolution.
 
         """
-        context: WorkflowManager = self._context()
-        if context is None:
+        manager: WorkflowManager = self._workflow_manager()
+        if manager is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
         # TODO: What is the public interface to the tasks or completion status?
         # Note: We want to keep the View object as lightweight as possible, such
         # as storing just the weak ref to the manager, and the item identifier.
-        return context.tasks[self.uid()].result()
+        return manager.tasks[self.uid()].result()
 
     def description(self) -> Description:
         """Get a description of the resource type."""
-        context: WorkflowManager = self._context()
-        if context is None:
+        manager: WorkflowManager = self._workflow_manager()
+        if manager is None:
             raise ScopeError('Out of scope. Managing context no longer exists!')
-        return context.tasks[self.uid()].description()
+        return manager.tasks[self.uid()].description()
 
     def __getattr__(self, item):
         """Proxy attribute accessor for special task members.
@@ -224,17 +237,17 @@ class ItemView:
         # We don't actually want to do this check here, but this is essentially what
         # needs to happen:
         #     assert hasattr(self.description().type().result_description().type(), item)
-        context: WorkflowManager = self._context()
-        if context is None:
+        manager: WorkflowManager = self._workflow_manager()
+        if manager is None:
             raise ScopeError('Out of scope. Managing context no longer available!')
-        task = context.tasks[self.uid()]  # type: Task
+        task = manager.tasks[self.uid()]  # type: Task
         try:
             return getattr(task, item)
         except KeyError as e:
             raise e
 
-    def __init__(self, context, uid: bytes):
-        self._context = weakref.ref(context)
+    def __init__(self, manager, uid: bytes):
+        self._workflow_manager = weakref.ref(manager)
         if isinstance(uid, bytes) and len(uid) == 32:
             self._uid = uid
         else:
@@ -376,55 +389,6 @@ class Task:
 
     def serialize(self):
         return self._serialized_record
-
-
-# USE SINGLEDISPATCHMETHOD?
-
-# TODO: Incorporate into WorkflowContext interface.
-# Design note: WorkflowContext classes could cache implementation details for item types,
-# but (since we acknowledge that work may be defined before instantiating the context to
-# which it will be dispatched), we need to allow the WorkflowContext implementation to
-# negotiate/fetch the implementation details at any time.
-# In general, relationships between specific
-# workflow item types and context types should be resolved in terms of context traits,
-# not specific class definitions.
-# In practice, we have some more tightly-coupled relationships,
-# at least in early versions, as we handle
-# (a) subprocess-type items,
-# (b) function-based items,
-# and (c) data staging details for (1) local execution and (2) remote (RADICAL Pilot)
-# execution.
-@functools.singledispatch
-def workflow_item_director_factory(item, *, context, label: str = None) -> \
-        typing.Callable[..., ItemView]:
-    """
-
-    Get a workflow item director for a context and input type.
-
-    When called, the director finalizes the new item and returns a view.
-    """
-    raise MissingImplementationError('No registered implementation for {} in {}'.format(
-        repr(item),
-        repr(context)))
-
-
-# TODO: Do we really want to handle dispatching on type _or_ instance args?
-@workflow_item_director_factory.register
-def _(item_type: type, *, context, label: str = None) -> typing.Callable[..., ItemView]:
-    # When dispatching on a class instead of an instance, just construct an
-    # object of the indicated type and re-dispatch. Note that implementers of
-    # item types must register an overload with this singledispatch function.
-    # TODO: Consider how best to register operations and manage their state.
-    def constructor_proxy_director(*args, **kwargs) -> ItemView:
-        if not isinstance(item_type, type):
-            raise ProtocolError(
-                'This function is intended for a dispatching path on which *item_type* '
-                'is a `type` object.')
-        item = item_type(*args, **kwargs)
-        director = workflow_item_director_factory(item, context=context, label=label)
-        return director()
-
-    return constructor_proxy_director
 
 
 class WorkflowEditor(abc.ABC):
@@ -899,7 +863,7 @@ class WorkflowManager:
         ))
         if identifier not in self.tasks:
             raise KeyError(f'WorkflowManager does not have item {identifier}')
-        item_view = ItemView(context=self, uid=identifier)
+        item_view = ItemView(manager=self, uid=identifier)
 
         return item_view
 
@@ -1160,7 +1124,7 @@ class WorkflowManager:
         # We do not yet check that the derived classes actually initialize self.tasks.
         self.tasks[uid] = item
 
-        task_view = ItemView(context=self, uid=uid)
+        task_view = ItemView(manager=self, uid=uid)
 
         # TODO: Register task factory (dependent on executor).
         # TODO: Register input factory (dependent on dispatcher and task factory /
@@ -1185,6 +1149,55 @@ class WorkflowManager:
             callback(_CommandQueueAddItem({'add_item': uid}))
 
         return task_view
+
+
+# TODO: Incorporate into WorkflowManager interface as a singledispatchmethod.
+# Design note: WorkflowManager classes could cache implementation details for item types,
+# but (since we acknowledge that work may be defined before instantiating the context to
+# which it will be dispatched), we need to allow the WorkflowContext implementation to
+# negotiate/fetch the implementation details at any time.
+# In general, relationships between specific
+# workflow item types and context types should be resolved in terms of context traits,
+# not specific class definitions.
+# In practice, we have some more tightly-coupled relationships,
+# at least in early versions, as we handle
+# (a) subprocess-type items,
+# (b) function-based items,
+# and (c) data staging details for (1) local execution and (2) remote (RADICAL Pilot)
+# execution.
+@functools.singledispatch
+def workflow_item_director_factory(
+        item,
+        *,
+        manager: WorkflowManager,
+        label: str = None) -> typing.Callable[..., ItemView]:
+    """Get a workflow item director for a workflow manager and input type.
+
+    When called, the director finalizes the new item and returns a view.
+    """
+    raise MissingImplementationError(
+        'No registered implementation for {} in {}'.format(
+            repr(item),
+            repr(manager)))
+
+
+# TODO: Do we really want to handle dispatching on type _or_ instance args?
+@workflow_item_director_factory.register
+def _(item_type: type, *, manager: WorkflowManager, label: str = None) -> typing.Callable[..., ItemView]:
+    # When dispatching on a class instead of an instance, just construct an
+    # object of the indicated type and re-dispatch. Note that implementers of
+    # item types must register an overload with this singledispatch function.
+    # TODO: Consider how best to register operations and manage their state.
+    def constructor_proxy_director(*args, **kwargs) -> ItemView:
+        if not isinstance(item_type, type):
+            raise ProtocolError(
+                'This function is intended for a dispatching path on which *item_type* '
+                'is a `type` object.')
+        item = item_type(*args, **kwargs)
+        director = workflow_item_director_factory(item, manager=manager, label=label)
+        return director()
+
+    return constructor_proxy_director
 
 
 class Queuer:
@@ -1213,7 +1226,7 @@ class Queuer:
     command_queue: asyncio.Queue
     """Target queue for dispatched commands."""
 
-    source_context: WorkflowManager
+    source: WorkflowManager
     """Owner of the workflow items being queued."""
 
     _dispatcher_lock: asyncio.Lock
@@ -1232,7 +1245,7 @@ class Queuer:
         the Python (async) context manager protocol.
         """
 
-        self.source_context = source
+        self.source = source
         self._dispatcher_queue = _queue.SimpleQueue()
         self.command_queue = command_queue
 
@@ -1278,9 +1291,9 @@ class Queuer:
                 #    the executor.
                 # Dont' forget to unsubscribe later!
                 # self.source_context.subscribe('add_item', self._dispatcher_queue.put)
-                self.source_context.subscribe('add_item', self.put)
+                self.source.subscribe('add_item', self.put)
                 # TODO: Topologically sort DAG!
-                initial_task_list = list(self.source_context.tasks.keys())
+                initial_task_list = list(self.source.tasks.keys())
                 try:
                     for _task_id in initial_task_list:
                         self.command_queue.put_nowait(QueueItem({'add_item': _task_id}))
@@ -1378,7 +1391,7 @@ class Queuer:
         assert not self._dispatcher_lock.locked()
         async with self._dispatcher_lock:
             try:
-                self.source_context.unsubscribe('add_item', self.put)
+                self.source.unsubscribe('add_item', self.put)
                 _dispatcher.set(None)
 
                 # Stop the dispatcher.

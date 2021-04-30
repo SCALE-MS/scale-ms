@@ -17,6 +17,7 @@ import threading
 import typing
 
 import scalems.exceptions
+import scalems.workflow
 from scalems.utility import parser as base_parser
 
 _reentrance_guard = threading.Lock()
@@ -34,7 +35,7 @@ _reentrance_guard = threading.Lock()
 # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
 
 
-def run_dispatch(work, context: scalems.context.WorkflowManager):
+def run_dispatch(work, context: scalems.workflow.WorkflowManager):
     async def _dispatch(_work):
         async with context.dispatch():
             # Add work to the queue
@@ -50,7 +51,7 @@ def run_dispatch(work, context: scalems.context.WorkflowManager):
     return _result
 
 
-def run(manager_type: typing.Type[scalems.context.WorkflowManager],  # noqa: C901
+def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C901
         _loop: asyncio.AbstractEventLoop = None):
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:

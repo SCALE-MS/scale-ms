@@ -8,7 +8,7 @@ import uuid
 
 import pytest
 
-import scalems.context as _context
+import scalems.workflow
 from scalems.exceptions import ProtocolError
 from scalems.serialization import BasicSerializable
 from scalems.serialization import decode
@@ -222,10 +222,10 @@ def test_shape():
 
 def test_resource_type():
     scoped_name = ['scalems', 'subprocess', 'SubprocessTask']
-    description = _context.Description(
-        resource_type=_context.ResourceType(tuple(scoped_name)),
+    description = scalems.workflow.Description(
+        resource_type=scalems.workflow.ResourceType(tuple(scoped_name)),
         shape=(1,))
-    assert description.type() == _context.ResourceType(tuple(scoped_name))
+    assert description.type() == scalems.workflow.ResourceType(tuple(scoped_name))
 
 
 def test_encoding_str():

@@ -23,12 +23,13 @@ import logging
 import typing
 from pathlib import Path  # We probably need a scalems abstraction for Path.
 
+import scalems.workflow
 from scalems.exceptions import InternalError
 from scalems.serialization import encode
 from scalems.utility import next_monotonic_integer
 from .. import context as _context
-from ..context import WorkflowManager
 from ..exceptions import APIError
+from ..workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -88,7 +89,7 @@ class SubprocessInput:
 # TODO: Normalize task_builder protocol.
 # TODO: Generate from class decorator.
 # TODO: Need a generic TaskView class for clients with reference to managed elements.
-@_context.workflow_item_director_factory.register
+@scalems.workflow.workflow_item_director_factory.register
 def _(item: SubprocessInput, *, manager: WorkflowManager, label: str = None):
     assert isinstance(manager, WorkflowManager)
 
@@ -261,9 +262,9 @@ class Subprocess:
 
 # Register a director for Subprocess workflow items.
 # TODO: Wrap this in the decorator or metaclass used for TaskTypes.
-@_context.workflow_item_director_factory.register
-def _(item: Subprocess, *, manager: _context.WorkflowManager, label: str = None):
-    if not isinstance(manager, _context.WorkflowManager):
+@scalems.workflow.workflow_item_director_factory.register
+def _(item: Subprocess, *, manager: scalems.workflow.WorkflowManager, label: str = None):
+    if not isinstance(manager, scalems.workflow.WorkflowManager):
         raise APIError(f'No director for {repr(manager)}')
 
     def director(*args, **kwargs):
@@ -285,7 +286,7 @@ def _(item: Subprocess, *, manager: _context.WorkflowManager, label: str = None)
     return director
 
 
-def executable(*args, manager: _context.WorkflowManager = None, **kwargs):
+def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs):
     """Execute a command line program.
 
     Configure an executable to run in one (or more) subprocess(es).
@@ -396,7 +397,7 @@ def executable(*args, manager: _context.WorkflowManager = None, **kwargs):
     #     context, Subprocess.resource_type().input_type(), *args, **kwargs)
     bound_input = SubprocessInput(*args, **kwargs)
 
-    director = _context.workflow_item_director_factory(Subprocess, manager=manager)
+    director = scalems.workflow.workflow_item_director_factory(Subprocess, manager=manager)
     # Design note: at some point, dynamic workflows will require thread-safe
     # workflow editing context. We could either block on acquiring the editor
     # context, use an async context manager, or hide the possible async
@@ -406,7 +407,7 @@ def executable(*args, manager: _context.WorkflowManager = None, **kwargs):
     #  `workflow.add_item(Subprocess, bound_input)`
 
     try:
-        task_view: _context.ItemView = director(input=bound_input)
+        task_view: scalems.workflow.ItemView = director(input=bound_input)
     except TypeError as e:
         logger.error('Invalid input in SubprocessInput: ' + str(e))
         raise

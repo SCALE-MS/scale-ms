@@ -19,10 +19,9 @@ import os
 import pathlib
 import typing
 
+from .. import execution as _execution
+from .. import workflow as _workflow
 from . import operations
-from .. import context as _context
-from ..context import AbstractWorkflowUpdater
-from ..context import RuntimeManager
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
@@ -43,17 +42,17 @@ def workflow_manager(loop: asyncio.AbstractEventLoop):
 
     There is no implicit OS level multithreading or multiprocessing.
     """
-    return _context.WorkflowManager(loop=loop, executor_factory=executor_factory)
+    return _workflow.WorkflowManager(loop=loop, executor_factory=executor_factory)
 
 
 class _ExecutionContext:
     """Represent the run time environment for a managed workflow item."""
 
-    def __init__(self, manager: _context.WorkflowManager, identifier: bytes):
+    def __init__(self, manager: _workflow.WorkflowManager, identifier: bytes):
         if manager is None:
             raise ProtocolError('Could not acquire reference to WorkflowManager. Stale '
                                 'reference?')
-        self.workflow_manager: _context.WorkflowManager = manager
+        self.workflow_manager: _workflow.WorkflowManager = manager
         self.identifier: bytes = identifier
         try:
             self.workflow_manager.item(self.identifier)
@@ -78,11 +77,11 @@ class _ExecutionContext:
         return os.path.exists(done_token)
 
 
-class WorkflowUpdater(AbstractWorkflowUpdater):
-    def __init__(self, runtime: RuntimeManager):
+class WorkflowUpdater(_execution.AbstractWorkflowUpdater):
+    def __init__(self, runtime: _execution.RuntimeManager):
         self.executor = runtime
 
-    async def submit(self, *, item: _context.Task) -> asyncio.Task:
+    async def submit(self, *, item: _workflow.Task) -> asyncio.Task:
         # TODO: Ensemble handling
         item_shape = item.description().shape()
         if len(item_shape) != 1 or item_shape[0] != 1:
@@ -93,7 +92,7 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
         return task
 
 
-async def submit(item: _context.Task) -> asyncio.Task:
+async def submit(item: _workflow.Task) -> asyncio.Task:
     key = item.uid()
     # Note that we could insert resource management here. We could create
     # tasks until we run out of free resources, then switch modes to awaiting
@@ -109,7 +108,7 @@ async def submit(item: _context.Task) -> asyncio.Task:
     else:
         assert not item.done()
         assert not item.manager().item(key).done()
-        task_type: _context.ResourceType = item.description().type()
+        task_type: _workflow.ResourceType = item.description().type()
         task = asyncio.create_task(_execute_item(task_type=task_type,
                                                  item=item,
                                                  execution_context=execution_context))
@@ -117,8 +116,8 @@ async def submit(item: _context.Task) -> asyncio.Task:
 
 
 # TODO: return an execution status object?
-async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
-                        item: _context.Task, execution_context: _ExecutionContext):
+async def _execute_item(task_type: _workflow.ResourceType,  # noqa: C901
+                        item: _workflow.Task, execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
     if task_type.identifier() == 'scalems.subprocess.SubprocessTask':
         task_type = SubprocessTask()
@@ -232,7 +231,7 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         os.chdir(original_dir)
 
 
-def executor_factory(manager: _context.WorkflowManager, params=None):
+def executor_factory(manager: _workflow.WorkflowManager, params=None):
     if params is not None:
         raise TypeError('This factory does not accept a Configuration object.')
     executor = LocalExecutor(source=manager,
@@ -241,12 +240,12 @@ def executor_factory(manager: _context.WorkflowManager, params=None):
     return executor
 
 
-class LocalExecutor(RuntimeManager):
+class LocalExecutor(_execution.RuntimeManager):
     """Client side manager for work dispatched locally.
     """
 
     def __init__(self,
-                 source: _context.WorkflowManager,
+                 source: _workflow.WorkflowManager,
                  *,
                  loop: asyncio.AbstractEventLoop,
                  dispatcher_lock=None,
@@ -266,7 +265,7 @@ class LocalExecutor(RuntimeManager):
 
     def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
         runner_task = asyncio.create_task(
-            _context.manage_execution(
+            _execution.manage_execution(
                 executor=self,
                 processing_state=runner_started))
         return runner_task

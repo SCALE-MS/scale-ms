@@ -11,6 +11,7 @@ import pytest
 
 import scalems.context
 import scalems.local
+import scalems.workflow
 from scalems.subprocess import executable
 
 
@@ -28,7 +29,7 @@ async def test_exec_local(cleandir):
             cmd = executable(('/bin/cat', '-'), stdin=('hi there\n', 'hello world'), stdout='stdout.txt')
         except Exception as e:
             raise e
-        assert isinstance(cmd, scalems.context.ItemView)
+        assert isinstance(cmd, scalems.workflow.ItemView)
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
         # TODO: #82
@@ -49,7 +50,7 @@ async def test_exec_local(cleandir):
         async with context.dispatch():
             # TODO: Input type checking.
             cmd = executable(('/bin/echo', 'hello', 'world'), stdout='stdout.txt')
-            assert isinstance(cmd, scalems.context.ItemView)
+            assert isinstance(cmd, scalems.workflow.ItemView)
         result = cmd.result()  # type: scalems.subprocess.SubprocessResult
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:

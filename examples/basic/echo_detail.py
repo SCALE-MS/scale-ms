@@ -21,14 +21,13 @@ cached results may be returned without new execution.
 import asyncio
 import logging
 import sys
-
 import typing
 from pathlib import Path
 
 import scalems
-from scalems.local import workflow_manager
+import scalems.workflow
 from scalems import executable
-
+from scalems.local import workflow_manager
 
 asyncio.get_event_loop().set_debug(True)
 logging.getLogger("asyncio").setLevel(logging.DEBUG)
@@ -40,7 +39,7 @@ async def main(execution_context, words: typing.Iterable[str] = ()):
         cmd = executable(('/bin/cat', '-'), stdin=(' '.join(words) + '\n\n',), stdout='outfile.txt')
     except Exception as e:
         raise
-    assert isinstance(cmd, scalems.context.ItemView)
+    assert isinstance(cmd, scalems.workflow.ItemView)
     # TODO: Future interface allows client to force resolution of dependencies.
     # cmd.result()
     # TODO: #82

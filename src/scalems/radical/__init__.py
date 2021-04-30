@@ -43,12 +43,13 @@ import warnings
 import packaging.version
 from radical import pilot as rp
 
+import scalems.execution
 import scalems.subprocess
-from .. import context as _context
+import scalems.workflow
+from scalems.execution import AbstractWorkflowUpdater
+from scalems.execution import RuntimeManager
+from scalems.workflow import ResourceType
 from .. import utility as _utility
-from ..context import AbstractWorkflowUpdater
-from ..context import ResourceType
-from ..context import RuntimeManager
 from ..exceptions import APIError
 from ..exceptions import DispatchError
 from ..exceptions import MissingImplementationError
@@ -200,7 +201,7 @@ def configuration(*args, **kwargs) -> Configuration:
     return _configuration.get()
 
 
-def executor_factory(manager: _context.WorkflowManager, params: Configuration = None):
+def executor_factory(manager: scalems.workflow.WorkflowManager, params: Configuration = None):
     if params is not None:
         _set_configuration(params)
     params = configuration()
@@ -230,7 +231,7 @@ def workflow_manager(loop: asyncio.AbstractEventLoop):
         The importer of this module should be sure to import radical.pilot
         before importing the built-in logging module to avoid spurious warnings.
     """
-    return _context.WorkflowManager(loop=loop, executor_factory=executor_factory)
+    return scalems.workflow.WorkflowManager(loop=loop, executor_factory=executor_factory)
 
 
 class RPResult:
@@ -441,7 +442,7 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     return wrapped_task
 
 
-def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescription:
+def _describe_legacy_task(item: scalems.workflow.Task, pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
 
     For a "raptor" style task, see _describe_raptor_task()
@@ -483,7 +484,7 @@ def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescrip
     return task_description
 
 
-def _describe_raptor_task(item: _context.Task,
+def _describe_raptor_task(item: scalems.workflow.Task,
                           scheduler: str,
                           pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
@@ -544,7 +545,7 @@ def _describe_raptor_task(item: _context.Task,
 
 
 async def submit(*,
-                 item: _context.Task,
+                 item: scalems.workflow.Task,
                  task_manager: rp.TaskManager,
                  pre_exec: list,
                  scheduler: str = None) -> asyncio.Task:
@@ -663,7 +664,7 @@ async def submit(*,
     return rp_task_watcher
 
 
-def scalems_callback(fut: asyncio.Future, *, item: _context.Task):
+def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
     """Process the completed Future for an rp.Task.
 
     Partially bind *item* to use this as the argument to *fut.add_done_callback()*.
@@ -953,7 +954,7 @@ class RPDispatchingExecutor(RuntimeManager):
     _task_manager_uid: str = None
 
     def __init__(self,
-                 source: _context.WorkflowManager,
+                 source: scalems.workflow.WorkflowManager,
                  *,
                  loop: asyncio.AbstractEventLoop,
                  runtime: Configuration,
@@ -1023,7 +1024,7 @@ class RPDispatchingExecutor(RuntimeManager):
         #  provided to the normalized run_executor(), or maybe use it to configure the
         #  Submitter that will be provided to the run_executor.
         runner_task = asyncio.create_task(
-            _context.manage_execution(
+            scalems.execution.manage_execution(
                 self,
                 processing_state=runner_started))
         return runner_task
@@ -1069,7 +1070,7 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
         self._pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
         # end TODO
 
-    async def submit(self, *, item: _context.Task) -> asyncio.Task:
+    async def submit(self, *, item: scalems.workflow.Task) -> asyncio.Task:
         # TODO: Ensemble handling
         item_shape = item.description().shape()
         if len(item_shape) != 1 or item_shape[0] != 1:

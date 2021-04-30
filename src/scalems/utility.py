@@ -20,8 +20,8 @@ from typing import Protocol
 
 from scalems import exceptions as _exceptions
 from scalems.context import get_context
-from scalems.context import WorkflowManager
 from ._version import get_versions
+from .workflow import WorkflowManager
 
 _scalems_version = get_versions()['version']
 del get_versions

@@ -447,6 +447,7 @@ _BackendT = typing.TypeVar('_BackendT', contravariant=True)
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """Client side manager for dispatching work loads and managing data flow."""
+    session = None
     source_context: 'WorkflowManager'
     submitted_tasks: typing.List[asyncio.Task]
 
@@ -461,7 +462,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                  runtime: _BackendT,
                  dispatcher_lock=None):
         self.submitted_tasks = []
-        self.session = None
         self._finalizer = None
 
         # TODO: Only hold a queue in an active context manager.
@@ -534,6 +534,12 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         yield until until the runtime queue processing task has run far enough to be
         well behaved if it later encounters an error or is subsequently canceled.
         """
+        ...
+
+    @abc.abstractmethod
+    def updater(self) -> 'AbstractWorkflowUpdater':
+        """Initialize a WorkflowUpdater for the configured runtime."""
+        # TODO: Convert from an abstract method to a registration pattern.
         ...
 
     async def __aenter__(self):
@@ -716,6 +722,29 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     #     # return self.result()  # May raise too.
     #     # # Otherwise, the only allowed value from the iterator is None.
 
+
+class AbstractWorkflowUpdater(abc.ABC):
+    @abc.abstractmethod
+    async def submit(self, *, item: Task) -> asyncio.Task:
+        """Submit work to update a workflow item.
+
+        Args:
+            item: managed workflow item as produced by WorkflowManager.edit_item()
+
+        Returns:
+            watcher task for a coroutine that has already started.
+
+        The returned Task is a watcher task to confirm completion of or allow
+        cancellation of the dispatched work. Additional hidden Tasks may be
+        responsible for updating the provided item when results are available,
+        so the result of this task is not necessarily directly interesting to
+        the execution manager.
+
+        The caller check for unexpected cancellation or early failure. If the task has
+        not failed or been canceled by the time *submit()* returns, then we can
+        conclude that the task has been appropriately bound to the workfow item.
+        """
+        ...
 
 def _session_is_closed(session):
     """Generic check for status of a session instance."""
@@ -1556,3 +1585,148 @@ def scope(context):
         else:
             token.var.reset(token)
         # TODO: Consider if/how we should process un-awaited tasks.
+
+
+async def manage_execution(executor: RuntimeManager,
+                           *,
+                           processing_state: asyncio.Event):
+    """Process workflow messages until a stop message is received.
+
+    Initial implementation processes commands serially without regard for possible
+    concurrency.
+
+    Towards concurrency:
+        We can create all tasks without awaiting any of them.
+
+        Some tasks will be awaiting results from other tasks.
+
+        All tasks will be awaiting a asyncio.Lock or asyncio.Condition for each
+        required resource, but must do so indirectly.
+
+        To avoid dead-locks, we can't have a Lock object for each resource unless
+        they are managed by an intermediary that can do some serialization of requests.
+        In other words, we need a Scheduler that tracks the resource pool, packages
+        resource locks only when they can all be acquired without race conditions or blocking,
+        and which then notifies the Condition for each task that it is allowed to run.
+
+        It should not do so until the dependencies of the task are known to have
+        all of the resources they need to complete (running with any dynamic dependencies
+        also running) and, preferably, complete.
+
+        Alternatively, the Scheduler can operate in blocks, allocating all resources,
+        offering the locks to tasks, waiting for all resources to be released, then repeating.
+        We can allow some conditions to "wake up" the scheduler to back fill a block
+        of resources, but we should be careful with that.
+
+        (We still need to consider dynamic tasks that
+        generate other tasks. I think the only way to distinguish tasks which can't be
+        dynamic from those which might be would be with the `def` versus `async def` in
+        the implementing function declaration. If we abstract `await` with `scalems.wait`,
+        we can throw an exception at execution time after checking a ContextVar.
+        It may be better to just let implementers use `await` for dynamically created tasks,
+        but we need to make the same check if a function calls `.result()` or otherwise
+        tries to create a dependency on an item that was not allocated resources before
+        the function started executing. In a conservative first draft, we can simply
+        throw an exception if a non-`async def` function attempts to call a scalems workflow
+        command like add_item while in an executing context.)
+
+    """
+    queue = executor.queue()
+    updater = executor.updater()
+
+    # Acknowledge that the coroutine is running and will immediately begin processing
+    # queue items.
+    processing_state.set()
+    # Note that if an exception is raised here, the queue will never be processed.
+
+    # Could also accept a "stop" Event object for the loop conditional,
+    # but we would still need a way to yield on an empty queue until either
+    # the "stop" event or an item arrives, and then we might have to account
+    # for queues that potentially never yield any items, such as by sleeping briefly.
+    # We should be able to do
+    #     signal_task = asyncio.create_task(stop_event.wait())
+    #     queue_getter = asyncio.create_task(command_queue.get())
+    #     waiter = asyncio.create_task(asyncio.wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
+    #     while await waiter:
+    #         done, pending = waiter.result()
+    #         assert len(done) == 1
+    #         if signal_task in done:
+    #             break
+    #         else:
+    #             command: QueueItem = queue_getter.result()
+    #         ...
+    #         queue_getter = asyncio.create_task(command_queue.get())
+    #         waiter = asyncio.create_task(asyncio(wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
+    #
+    while True:
+        # Note: If the function exits at this line, the queue may be missing a call
+        #  to task_done() and should not be `join()`ed. It does not seem completely
+        #  clear whether the `get()` will have completed if the task for this function
+        #  is canceled or a Task.send() or Task.throw() is used. Alternatively, we could
+        #  include the `get()` in the `try` block and catch a possible ValueError at the
+        #  task_done() call, in case we arrive there without Queue.get() having completed.
+        #  However, that could allow a Queue.join() to complete early by accident.
+        command: QueueItem = await queue.get()
+        # Developer note: The preceding line and the following try/finally block are coupled!
+        # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
+        # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block with a
+        # `finally` suite. Don't separate these without considering the Queue protocol.
+
+        try:
+            if not len(command.items()) == 1:
+                raise ProtocolError('Expected a single key-value pair.')
+            logger.debug(f'Processing command {repr(command)}')
+
+            # TODO: Use formal RPC protocol.
+            if 'control' in command:
+                if command['control'] == 'stop':
+                    logger.debug('Execution manager received stop command.')
+                    # This effectively breaks the `while True` loop, but may not be obvious.
+                    # Consider explicit `break` to clarify that we want to run off the end
+                    # of the function.
+                    return
+                else:
+                    raise ProtocolError('Unknown command: {}'.format(command['control']))
+            if 'add_item' not in command:
+                # This will end queue processing. Tasks already submitted may still
+                # complete. Tasks subsequently added will update the static part of
+                # the workflow (WorkflowManager) and be eligible for dispatching in
+                # another dispatching session.
+                # If we need to begin to address the remaining queued items before
+                # this (the queue processor) task is awaited, we could insert a
+                # Condition here to alert some sort of previously scheduled special
+                # tear-down task.
+                raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
+
+            key = command['add_item']
+            with executor.source_context.edit_item(key) as item:
+                if not isinstance(item, Task):
+                    raise InternalError(
+                        'Bug: Expected {}.edit_item() to return a _context.Task'.format(repr(executor.source_context)))
+
+                # Bind the WorkflowManager item to an RP Task.
+                task = await updater.submit(item=item)
+
+                if task.done():
+                    # Stop processing the queue if task was cancelled or errored.
+                    # TODO: Test this logical branch.
+                    if task.cancelled():
+                        logger.info('Stopping queue processing after unexpected '
+                                    f'cancellation of task {task}')
+                        return
+                    elif task.exception():
+                        logger.error(f'Task failed: {task}')
+                        raise task.exception()
+                    else:
+                        logger.debug(f'Task {task} already done. Continuing.')
+                else:
+                    executor.submitted_tasks.append(task)
+
+        except Exception as e:
+            logger.debug('Leaving queue runner due to exception.')
+            raise e
+        finally:
+            # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
+            # and fail to decrement the queue.
+            logger.debug('Releasing "{}" from command queue.'.format(str(command)))
+            queue.task_done()

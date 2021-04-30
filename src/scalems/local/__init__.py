@@ -10,7 +10,7 @@ Example:
 """
 # TODO: Consider converting to a namespace package to improve modularity of implementation.
 
-
+import abc
 import asyncio
 import contextlib
 import importlib
@@ -21,6 +21,7 @@ import typing
 
 from . import operations
 from .. import context as _context
+from ..context import AbstractWorkflowUpdater
 from ..context import QueueItem
 from ..context import RuntimeManager
 from ..exceptions import InternalError
@@ -74,130 +75,37 @@ class _ExecutionContext:
         return os.path.exists(done_token)
 
 
-# TODO: Consider explicitly decoupling client-facing workflow manager from executor-facing manager.
-async def run_executor(executor: 'LocalExecutor',  # noqa: C901
-                       *, processing_state: asyncio.Event, queue: asyncio.Queue):
-    """Process workflow messages until a stop message is received.
+class WorkflowUpdater(AbstractWorkflowUpdater):
+    def __init__(self, runtime: RuntimeManager):
+        self.executor = runtime
 
-    Initial implementation processes commands serially without regard for possible
-    concurrency.
+    async def submit(self, *, item: _context.Task) -> asyncio.Task:
+        # TODO: Ensemble handling
+        item_shape = item.description().shape()
+        if len(item_shape) != 1 or item_shape[0] != 1:
+            raise MissingImplementationError(
+                'Executor cannot handle multidimensional tasks yet.')
 
-    Towards concurrency:
-        We can create all tasks without awaiting any of them.
-
-        Some tasks will be awaiting results from other tasks.
-
-        All tasks will be awaiting a asyncio.Lock or asyncio.Condition for each
-        required resource, but must do so indirectly.
-
-        To avoid dead-locks, we can't have a Lock object for each resource unless
-        they are managed by an intermediary that can do some serialization of requests.
-        In other words, we need a Scheduler that tracks the resource pool, packages
-        resource locks only when they can all be acquired without race conditions or blocking,
-        and which then notifies the Condition for each task that it is allowed to run.
-
-        It should not do so until the dependencies of the task are known to have
-        all of the resources they need to complete (running with any dynamic dependencies
-        also running) and, preferably, complete.
-
-        Alternatively, the Scheduler can operate in blocks, allocating all resources,
-        offering the locks to tasks, waiting for all resources to be released, then repeating.
-        We can allow some conditions to "wake up" the scheduler to back fill a block
-        of resources, but we should be careful with that.
-
-        (We still need to consider dynamic tasks that
-        generate other tasks. I think the only way to distinguish tasks which can't be
-        dynamic from those which might be would be with the `def` versus `async def` in
-        the implementing function declaration. If we abstract `await` with `scalems.wait`,
-        we can throw an exception at execution time after checking a ContextVar.
-        It may be better to just let implementers use `await` for dynamically created tasks,
-        but we need to make the same check if a function calls `.result()` or otherwise
-        tries to create a dependency on an item that was not allocated resources before
-        the function started executing. In a conservative first draft, we can simply
-        throw an exception if a non-`async def` function attempts to call a scalems workflow
-        command like add_item while in an executing context.)
-
-    """
-    # Could also accept a "stop" Event object for the loop conditional,
-    # but we would still need a way to yield on an empty queue until either
-    # the "stop" event or an item arrives, and then we might have to account
-    # for queues that potentially never yield any items, such as by sleeping briefly.
-    # We should be able to do
-    #     signal_task = asyncio.create_task(stop_event.wait())
-    #     queue_getter = asyncio.create_task(command_queue.get())
-    #     waiter = asyncio.create_task(asyncio.wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
-    #     while await waiter:
-    #         done, pending = waiter.result()
-    #         assert len(done) == 1
-    #         if signal_task in done:
-    #             break
-    #         else:
-    #             command: QueueItem = queue_getter.result()
-    #         ...
-    #         queue_getter = asyncio.create_task(command_queue.get())
-    #         waiter = asyncio.create_task(asyncio(wait((signal_task, queue_getter), return_when=FIRST_COMPLETED))
-    #
-    processing_state.set()
-    while True:
-        command: QueueItem = await queue.get()
-        # Developer note: The preceding line and the following try/finally block are coupled!
-        # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
-        # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block with a
-        # `finally` suite. Don't separate these without considering the Queue protocol.
-        try:
-            if not len(command.items()) == 1:
-                raise ProtocolError('Expected a single key-value pair.')
-            logger.debug('Executor is handling {}'.format(str(command)))
-
-            # TODO: Use formal RPC protocol.
-            if 'control' in command:
-                if command['control'] == 'stop':
-                    # This effectively breaks the `while True` loop, but may not be obvious.
-                    # Consider explicit `break` to clarify that we want to run off the end
-                    # of the function.
-                    return
-                else:
-                    raise ProtocolError('Unknown command: {}'.format(command['control']))
-            if 'add_item' not in command:
-                raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
-
-            key = command['add_item']
-            with executor.source_context.edit_item(key) as item:
-                if not isinstance(item, _context.Task):
-                    raise InternalError('Expected {}.item() to return a scalems.context.Task'.format(repr(
-                        executor.source_context)))
-
-                # TODO: Ensemble handling
-                item_shape = item.description().shape()
-                if len(item_shape) != 1 or item_shape[0] != 1:
-                    raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
-
-                task_type: _context.ResourceType = item.description().type()
-                # Note that we could insert resource management here. We could create
-                # tasks until we run out of free resources, then switch modes to awaiting
-                # tasks until resources become available, then switch back to placing tasks.
-                execution_context = _ExecutionContext(executor.source_context, key)
-                if execution_context.done():
-                    if isinstance(key, bytes):
-                        id = key.hex()
-                    else:
-                        id = str(key)
-                    logger.info(f'Skipping task that is already done. ({id})')  # TODO: Update local status and results.
-                else:
-                    assert not item.done()
-                    assert not executor.source_context.item(key).done()
-                    task = asyncio.create_task(_execute_item(task_type=task_type,
-                                                             item=item,
-                                                             execution_context=execution_context))
-                    executor.submitted_tasks.append(task)  # TODO: output handling  # TODO: failure handling
-        except Exception as e:
-            logger.debug('Leaving queue runner due to exception.')
-            raise e
-        finally:
-            # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
-            # and fail to decrement the queue.
-            logger.debug('Releasing "{}" from command queue.'.format(str(command)))
-            queue.task_done()
+        key = item.uid()
+        # Note that we could insert resource management here. We could create
+        # tasks until we run out of free resources, then switch modes to awaiting
+        # tasks until resources become available, then switch back to placing tasks.
+        execution_context = _ExecutionContext(self.executor.source_context, key)
+        if execution_context.done():
+            if isinstance(key, bytes):
+                id = key.hex()
+            else:
+                id = str(key)
+            logger.info(f'Skipping task that is already done. ({id})')
+            # TODO: Update local status and results.
+        else:
+            assert not item.done()
+            assert not self.executor.source_context.item(key).done()
+            task_type: _context.ResourceType = item.description().type()
+            task = asyncio.create_task(_execute_item(task_type=task_type,
+                                                     item=item,
+                                                     execution_context=execution_context))
+            return task
 
 
 # TODO: return an execution status object?
@@ -337,8 +245,10 @@ class LocalExecutor(RuntimeManager):
                          runtime=_runtime,
                          dispatcher_lock=dispatcher_lock)
 
+    def updater(self) -> WorkflowUpdater:
+        return WorkflowUpdater(runtime=self)
+
     def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
-        runner_task = asyncio.create_task(run_executor(executor=self,
-                                                       processing_state=runner_started,
-                                                       queue=self._command_queue))
+        runner_task = asyncio.create_task(_context.manage_execution(executor=self,
+                                                       processing_state=runner_started))
         return runner_task

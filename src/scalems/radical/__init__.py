@@ -45,6 +45,7 @@ from radical import pilot as rp
 import scalems.subprocess
 from .. import context as _context
 from .. import utility as _utility
+from ..context import AbstractWorkflowUpdater
 from ..context import QueueItem
 from ..context import RuntimeManager
 from ..exceptions import APIError
@@ -408,9 +409,17 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
 
     asyncio.get_running_loop().slow_callback_duration = 0.2
     watcher_started = asyncio.Event()
+    waiter = asyncio.create_task(watcher_started.wait())
     wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask, future=future, final=final, ready=watcher_started))
+
     # Make sure that the task is cancellable before returning it to the caller.
-    await watcher_started.wait()
+    await asyncio.wait((waiter, wrapped_task),
+                                  return_when=asyncio.FIRST_COMPLETED)
+    if wrapped_task.done():
+        # Let CancelledError propagate.
+        e = wrapped_task.exception()
+        if e is not None:
+            raise e
     # watcher_task.
     return wrapped_task
 
@@ -517,7 +526,6 @@ async def submit(*,
                  item: _context.Task,
                  task_manager: rp.TaskManager,
                  pre_exec: list,
-                 submitted: asyncio.Event = None,
                  scheduler: str = None) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
@@ -527,25 +535,25 @@ async def submit(*,
         item: The workflow item to be submitted
         task_manager: A radical.pilot.TaskManager instance
                       through which the task should be submitted.
-        submitted: (Output parameter) Caller-provided Event to be set
-                   once the RP Task has been submitted.
         scheduler (str): The string name of the "scheduler," corresponding to
                          the UID of a Task running a rp.raptor.Master.
 
     Returns an asyncio.Task for a submitted rp.Task.
 
-    The caller should immediately await *submitted* (or the result of this coroutine)
-    to ensure that the task has actually been submitted. The caller *must* await
-    the result of the coroutine to obtain an asyncio.Task that can be cancelled or
-    awaited as a proxy to direct RP task management.
+    The caller *must* await the result of the coroutine to obtain an asyncio.Task that
+    can be cancelled or awaited as a proxy to direct RP task management. The Task will
+    hold a coroutine that is guaranteed to already be running, failed, or canceled. The
+    caller should check the status of the task immediately before making assumptions
+    about whether a Future has been successfully bound to the managed workflow item.
 
-    The *submitted* (output) event is likely a short-term placeholder and subject to change.
-    For instance, the use case for waiting on such an event could be met by waiting on the
-    state change of the workflow item to a SUBMITTED state. However, note that this function
-    will block for a short time at the rp.TaskManager.submit_tasks() call, so it is useful
-    to separate the submission event from the completion of this coroutine early in development
-    while we decide whether and how to relegate RP calls to threads separated from that of
-    the event loop.
+    The *submitted* (output) event is likely a short-term placeholder and subject to
+    change. For instance, the use case for waiting on such an event could be met by
+    waiting on the state change of the workflow item to a SUBMITTED state. However,
+    note that this function will block for a short time at the
+    rp.TaskManager.submit_tasks() call, so it is useful to separate the submission
+    event from the completion of this coroutine early in development while we decide
+    whether and how to relegate RP calls to threads separated from that of the event
+    loop.
 
     The returned asyncio.Task can be used to cancel the rp.Task (and the Future)
     or to await the RP.Task cleanup.
@@ -555,34 +563,41 @@ async def submit(*,
 
     Notes:
 
-        workflow manager maintains the workflow state without expensive or stateful volatile resources,
-        and can mediate updates to the managed workflow at any time. Items enter the graph in an IDLE state. The
-        WorkflowManager can provide Futures for the results of the managed items. For IDLE items, the WorkflowManager
-        retains a weakref to the issued Futures, which it can use to make sure that there is only zero or one Future for
-        a particular result.
+        workflow manager maintains the workflow state without expensive or stateful
+        volatile resources, and can mediate updates to the managed workflow at any
+        time. Items enter the graph in an IDLE state. The WorkflowManager can provide
+        Futures for the results of the managed items. For IDLE items,
+        the WorkflowManager retains a weakref to the issued Futures, which it can use
+        to make sure that there is only zero or one Future for a particular result.
 
-        WorkflowManager collaborates with Queuer to transition the graph to an "active" or "executing" state.
-        This transition is mediated through the dispatcher_lock.
+        WorkflowManager collaborates with Queuer to transition the graph to an "active"
+        or "executing" state. This transition is mediated through the dispatcher_lock.
 
-        Queuer sequences and queues workflow items to be handled, pushing them to a dispatch_queue. No state
-        change to the workflow item seems necessary at this time.
+        Queuer sequences and queues workflow items to be handled, pushing them to a
+        dispatch_queue. No state change to the workflow item seems necessary at this
+        time.
 
-        The dispatch_queue is read by an ExecutionManager. Items may be processed immediately or staged in a
-        command_queue. Workflow items are then either SUBMITTED or BLOCKED (awaiting dependencies). Optionally,
-        Items may be marked ELIGIBLE and re-queued for batch submission.
+        The dispatch_queue is read by an ExecutionManager. Items may be processed
+        immediately or staged in a command_queue. Workflow items are then either
+        SUBMITTED or BLOCKED (awaiting dependencies). Optionally, Items may be marked
+        ELIGIBLE and re-queued for batch submission.
 
-        If the ExecutionManager is able to submit a task, the Task has a call-back registered for the workflow item.
-        The WorkflowManager needs to convert any Future weakrefs to strong references when items are SUBMITTED,
-        and the workflow Futures are subscribed to the item. Tasks are wrapped in a scalems object that the
-        WorkflowManager is able to take ownership of. BLOCKED items are wrapped in Tasks which are subscribed to
-        their dependencies (WorkflowItems should already be subscribed to WorkflowItem Futures for any dependencies)
-        and stored by the ExecutionManager. When the call-backs for all of the dependencies indicate the Item should
-        be processed into an upcoming workload, the Item becomes ELIGIBLE, and its wrapper Task (in collaboration
-        with the ExecutionManager) puts it in the command_queue.
+        If the ExecutionManager is able to submit a task, the Task has a call-back
+        registered for the workflow item. The WorkflowManager needs to convert any
+        Future weakrefs to strong references when items are SUBMITTED, and the workflow
+        Futures are subscribed to the item. Tasks are wrapped in a scalems object that
+        the WorkflowManager is able to take ownership of. BLOCKED items are wrapped in
+        Tasks which are subscribed to their dependencies (WorkflowItems should already
+        be subscribed to WorkflowItem Futures for any dependencies) and stored by the
+        ExecutionManager. When the call-backs for all of the dependencies indicate the
+        Item should be processed into an upcoming workload, the Item becomes ELIGIBLE,
+        and its wrapper Task (in collaboration with the ExecutionManager) puts it in
+        the command_queue.
 
-        As an optimization, and to support co-scheduling, a WorkflowItem call-back can provide notification of state
-        changes. For instance, a BLOCKED item may become ELIGIBLE once all of its dependencies are SUBMITTED,
-        when the actual Executor has some degree of data flow management capabilities.
+        As an optimization, and to support co-scheduling, a WorkflowItem call-back can
+        provide notification of state changes. For instance, a BLOCKED item may become
+        ELIGIBLE once all of its dependencies are SUBMITTED, when the actual Executor
+        has some degree of data flow management capabilities.
 
     """
     if item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask'):
@@ -605,11 +620,16 @@ async def submit(*,
 
     # TODO: Move slow blocking RP calls to a separate RP control thread.
     task = task_manager.submit_tasks(rp_task_description)
-    # TODO: What checks can/should we do to allow checks that dependencies have been successfully scheduled?
-    if isinstance(submitted, asyncio.Event):
-        submitted.set()
 
     rp_task_watcher = await rp_task(rptask=task, future=rp_task_result_future)
+
+    if rp_task_watcher.done():
+        if rp_task_watcher.cancelled():
+            raise DispatchError(f'Task for {item} was unexpectedly canceled during '
+                                'dispatching.')
+        e = rp_task_watcher.exception()
+        if e is not None:
+            raise DispatchError('Task for {item} failed during dispatching.') from e
 
     return rp_task_watcher
 
@@ -881,17 +901,12 @@ class RPDispatchingExecutor(RuntimeManager):
     pilot_uid: str = None
     scheduler: typing.Union[rp.Task, None]
     session: typing.Union[rp.Session, None] = None
-    source_context: _context.WorkflowManager
-    submitted_tasks: typing.List[asyncio.Task]
 
-    _command_queue: asyncio.Queue
-    _dispatcher_lock: asyncio.Lock
     _pilot_description: rp.PilotDescription
     _pilot_manager_uid: str = None
     _rp_resource_params: typing.Optional[dict]
     _task_description: rp.TaskDescription
     _task_manager_uid: str = None
-    _queue_runner_task: asyncio.Task
 
     def __init__(self,
                  source: _context.WorkflowManager,
@@ -957,11 +972,11 @@ class RPDispatchingExecutor(RuntimeManager):
             raise ProtocolError('Cannot process queue without a RP Session.')
 
         # Launch queue processor (proxy executor).
-        task_manager = self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
-        runner_task = asyncio.create_task(run_executor(self,
-                                                       task_manager=task_manager,
-                                                       processing_state=runner_started,
-                                                       queue=self._command_queue))
+        # TODO: Make runtime_startup optional. Let it return a resource that is
+        #  provided to the normalized run_executor(), or maybe use it to configure the
+        #  Submitter that will be provided to the run_executor.
+        runner_task = asyncio.create_task(_context.manage_execution(self,
+                                                       processing_state=runner_started))
         return runner_task
 
     def runtime_shutdown(self, session: rp.Session):
@@ -987,95 +1002,42 @@ class RPDispatchingExecutor(RuntimeManager):
         pmgr.cancel_pilots(uids=self.pilot_uid)
         logger.debug('Pilot canceled.')
 
+    def updater(self) -> 'WorkflowUpdater':
+        return WorkflowUpdater(runtime=self)
 
-async def run_executor(executor: RPDispatchingExecutor,
-                       *,
-                       processing_state: asyncio.Event,
-                       queue: asyncio.Queue,
-                       task_manager: rp.TaskManager):
-    processing_state.set()
-    _target_venv = configuration().target_venv
-    if _target_venv is None or len(_target_venv) == 0:
-        raise DispatchError('Currently, tasks cannot be dispatched without a target venv.')
-    _pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
-    # Note that if an exception is raised here, the queue will never be processed.
-    while True:
-        # Note: If the function exits at this line, the queue may be missing a call
-        #  to task_done() and should not be `join()`ed. It does not seem completely
-        #  clear whether the `get()` will have completed if the task for this function
-        #  is canceled or a Task.send() or Task.throw() is used. Alternatively, we could
-        #  include the `get()` in the `try` block and catch a possible ValueError at the
-        #  task_done() call, in case we arrive there without Queue.get() having completed.
-        #  However, that could allow a Queue.join() to complete early by accident.
-        command: QueueItem = await queue.get()
-        try:
-            logger.debug(f'Processing command {repr(command)}')
-            # TODO: Use formal RPC protocol.
-            if 'control' in command:
-                if command['control'] == 'stop':
-                    logger.debug('Dispatching executor received stop command.')
-                    # This effectively breaks the `while True` loop, but may not be obvious.
-                    # Consider explicit `break` to clarify that we want to run off the end
-                    # of the function.
-                    return
-                else:
-                    raise ProtocolError('Unknown command: {}'.format(command['control']))
-            else:
-                if 'add_item' not in command:
-                    # TODO: We might want a call-back or Event to force errors before the queue-runner task is awaited.
-                    raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
 
-            key = command['add_item']
-            with executor.source_context.edit_item(key) as item:
-                if not isinstance(item, _context.Task):
-                    raise InternalError(
-                        'Bug: Expected {}.edit_item() to return a _context.Task'.format(repr(executor.source_context)))
+class WorkflowUpdater(AbstractWorkflowUpdater):
+    def __init__(self, runtime: RPDispatchingExecutor):
+        self.executor = runtime
+        # TODO: Move to Submitter initialization.
+        self.task_manager = self.executor.session.get_task_managers(
+            tmgr_uids=self.executor._task_manager_uid)
 
-                # TODO: Ensemble handling
-                item_shape = item.description().shape()
-                if len(item_shape) != 1 or item_shape[0] != 1:
-                    raise MissingImplementationError('Executor cannot handle multidimensional tasks yet.')
+        _target_venv = configuration().target_venv
+        if _target_venv is None or len(_target_venv) == 0:
+            raise DispatchError('Currently, tasks cannot be dispatched without a target venv.')
+        self._pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
+        # end TODO
 
-                # Bind the WorkflowManager item to an RP Task.
+    async def submit(self, *, item: _context.Task) -> asyncio.Task:
+        # TODO: Optimization: skip tasks that are already done.
+        # TODO: Check task dependencies.
+        ##
+        # Note that we could insert resource management here. We could create
+        # tasks until we run out of free resources, then switch modes to awaiting
+        # tasks until resources become available, then switch back to placing tasks.
 
-                # TODO: Optimization: skip tasks that are already done.
-                # TODO: Check task dependencies.
-                submitted = asyncio.Event()  # Not yet used.
-                task: asyncio.Task[rp.Task] = await submit(item=item,
-                                                           task_manager=task_manager,
-                                                           submitted=submitted,
-                                                           # scheduler=executor.scheduler.uid,
-                                                           pre_exec=_pre_exec)
+        # TODO: Ensemble handling
+        item_shape = item.description().shape()
+        if len(item_shape) != 1 or item_shape[0] != 1:
+            raise MissingImplementationError(
+                'Executor cannot handle multidimensional tasks yet.')
 
-                executor.submitted_tasks.append(task)
-
-                # This is the role of the Executor, not the Dispatcher.
-                # task_type: _context.ResourceType = item.description().type()
-                # # Note that we could insert resource management here. We could create
-                # # tasks until we run out of free resources, then switch modes to awaiting
-                # # tasks until resources become available, then switch back to placing tasks.
-                # execution_context = _ExecutionContext(source_context, key)
-                # if execution_context.done():
-                #     if isinstance(key, bytes):
-                #         id = key.hex()
-                #     else:
-                #         id = str(key)
-                #     logger.info(f'Skipping task that is already done. ({id})')
-                #     # TODO: Update local status and results.
-                # else:
-                #     assert not item.done()
-                #     assert not source_context.item(key).done()
-                #     await _execute_item(task_type=task_type,
-                #                         item=item,
-                #                         execution_context=execution_context)
-        except Exception as e:
-            logger.debug('Leaving queue runner due to exception.')
-            raise e
-        finally:
-            # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
-            # and fail to decrement the queue.
-            logger.debug('Releasing "{}" from command queue.'.format(str(command)))
-            queue.task_done()
+        key = item.uid()
+        task: asyncio.Task[rp.Task] = await submit(item=item,
+                                                   task_manager=self.task_manager,
+                                                   pre_exec=self._pre_exec)
+        return task
 
 
 class ExecutionContext:

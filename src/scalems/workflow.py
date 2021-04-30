@@ -386,7 +386,7 @@ class WorkflowManager:
 
     def __init__(self, *,
                  loop: asyncio.AbstractEventLoop,
-                 executor_factory: 'ExecutorFactory'):
+                 executor_factory):
         """
         The event loop for the program should be launched in the root thread,
         preferably early in the application launch.
@@ -791,8 +791,10 @@ def workflow_item_director_factory(
 
 
 @workflow_item_director_factory.register
-def _(item_type: type, *, manager: WorkflowManager, label: str = None) -> typing.Callable[
-    ..., ItemView]:
+def _(item_type: type,
+      *,
+      manager: WorkflowManager,
+      label: str = None) -> typing.Callable[..., ItemView]:
     # TODO: Do we really want to handle dispatching on type _or_ instance args?
     # When dispatching on a class instead of an instance, just construct an
     # object of the indicated type and re-dispatch. Note that implementers of

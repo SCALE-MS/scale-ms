@@ -5,7 +5,6 @@ Usage:
 
 """
 
-import argparse
 import sys
 
 import scalems.invocation

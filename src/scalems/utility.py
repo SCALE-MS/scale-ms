@@ -32,7 +32,6 @@ del get_versions
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
-
 try:
     cache = functools.cache
 except AttributeError:

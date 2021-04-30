@@ -8,9 +8,9 @@ Example:
     python3 -m scalems.local my_workflow.py
 
 """
-# TODO: Consider converting to a namespace package to improve modularity of implementation.
+# TODO: Consider converting to a namespace package to improve modularity of
+#  implementation.
 
-import abc
 import asyncio
 import contextlib
 import importlib
@@ -22,7 +22,6 @@ import typing
 from . import operations
 from .. import context as _context
 from ..context import AbstractWorkflowUpdater
-from ..context import QueueItem
 from ..context import RuntimeManager
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
@@ -51,6 +50,9 @@ class _ExecutionContext:
     """Represent the run time environment for a managed workflow item."""
 
     def __init__(self, manager: _context.WorkflowManager, identifier: bytes):
+        if manager is None:
+            raise ProtocolError('Could not acquire reference to WorkflowManager. Stale '
+                                'reference?')
         self.workflow_manager: _context.WorkflowManager = manager
         self.identifier: bytes = identifier
         try:
@@ -58,7 +60,8 @@ class _ExecutionContext:
         except Exception as e:
             raise InternalError('Unable to access managed item.') from e
         self._task_directory = pathlib.Path(os.path.join(os.getcwd(),
-                                                         self.identifier.hex()))  # TODO: Find a canonical way to get
+                                                         self.identifier.hex()))  #
+        # TODO: Find a canonical way to get
         # the workflow directory.
 
     @property
@@ -86,26 +89,31 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
             raise MissingImplementationError(
                 'Executor cannot handle multidimensional tasks yet.')
 
-        key = item.uid()
-        # Note that we could insert resource management here. We could create
-        # tasks until we run out of free resources, then switch modes to awaiting
-        # tasks until resources become available, then switch back to placing tasks.
-        execution_context = _ExecutionContext(self.executor.source_context, key)
-        if execution_context.done():
-            if isinstance(key, bytes):
-                id = key.hex()
-            else:
-                id = str(key)
-            logger.info(f'Skipping task that is already done. ({id})')
-            # TODO: Update local status and results.
+        task: asyncio.Task = await submit(item=item)
+        return task
+
+
+async def submit(item: _context.Task) -> asyncio.Task:
+    key = item.uid()
+    # Note that we could insert resource management here. We could create
+    # tasks until we run out of free resources, then switch modes to awaiting
+    # tasks until resources become available, then switch back to placing tasks.
+    execution_context = _ExecutionContext(item.manager(), key)
+    if execution_context.done():
+        if isinstance(key, bytes):
+            id = key.hex()
         else:
-            assert not item.done()
-            assert not self.executor.source_context.item(key).done()
-            task_type: _context.ResourceType = item.description().type()
-            task = asyncio.create_task(_execute_item(task_type=task_type,
-                                                     item=item,
-                                                     execution_context=execution_context))
-            return task
+            id = str(key)
+        logger.info(f'Skipping task that is already done. ({id})')
+        # TODO: Update local status and results.
+    else:
+        assert not item.done()
+        assert not item.manager().item(key).done()
+        task_type: _context.ResourceType = item.description().type()
+        task = asyncio.create_task(_execute_item(task_type=task_type,
+                                                 item=item,
+                                                 execution_context=execution_context))
+        return task
 
 
 # TODO: return an execution status object?
@@ -119,7 +127,8 @@ async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
         logger.debug('Resolving input for {}'.format(str(item)))
         input_type = task_type.input_type()
         input_record = input_type(**item.input)
-        input_resources = operations.input_resource_scope(context=execution_context, task_input=input_record)
+        input_resources = operations.input_resource_scope(context=execution_context,
+                                                          task_input=input_record)
 
         # We need to provide a scope in which we guarantee the availability of resources,
         # such as temporary files provided for input, or other internally-generated
@@ -127,7 +136,8 @@ async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
         async with input_resources as subprocess_input:
             logger.debug('Creating coroutine for {}'.format(task_type.__class__.__name__))
             # TODO: Use abstract task factory.
-            coroutine = operations.subprocessCoroutine(context=execution_context, signature=subprocess_input)
+            coroutine = operations.subprocessCoroutine(context=execution_context,
+                                                       signature=subprocess_input)
             logger.debug('Creating asyncio Task for {}'.format(repr(coroutine)))
             awaitable = asyncio.create_task(coroutine)
 
@@ -136,7 +146,8 @@ async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
             result = await awaitable
             subprocess_exception = awaitable.exception()
             if subprocess_exception is not None:
-                logger.exception('subprocess task raised exception {}'.format(str(subprocess_exception)))
+                logger.exception('subprocess task raised exception {}'.format(str(
+                    subprocess_exception)))
                 raise subprocess_exception
             logger.debug('Setting result for {}'.format(str(item)))
             item.set_result(result)
@@ -159,7 +170,8 @@ async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
                 task_dir.mkdir()
             logger.debug(f'Entering {task_dir}')
             # Note: This limits us to one task-per-process.
-            # TODO: Use one (or more) subprocesses per task, setting the working directory.
+            # TODO: Use one (or more) subprocesses per task, setting the working
+            #  directory.
             # The forking may be specialized to the task type, or we can default
             # to just always forking the Python interpreter.
             with scoped_chdir(task_dir):
@@ -183,8 +195,9 @@ async def _execute_item(task_type: _context.ResourceType,  # noqa: C901
                 logger.debug(f'Looking for "scalems_helper in {module}.')
                 helper = getattr(implementation, 'scalems_helper', None)
                 if not callable(helper):
-                    raise MissingImplementationError('Executor does not have an implementation for {}'.format(str(
-                        task_type)))
+                    raise MissingImplementationError(
+                        'Executor does not have an implementation for {}'.format(str(
+                            task_type)))
                 else:
                     logger.debug('Helper found. Passing item to helper for execution.')
                     # Note: we need more of a hook for two-way interaction here.
@@ -222,13 +235,16 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
 def executor_factory(manager: _context.WorkflowManager, params=None):
     if params is not None:
         raise TypeError('This factory does not accept a Configuration object.')
-    executor = LocalExecutor(source=manager, loop=manager.loop(), dispatcher_lock=manager._dispatcher_lock)
+    executor = LocalExecutor(source=manager,
+                             loop=manager.loop(),
+                             dispatcher_lock=manager._dispatcher_lock)
     return executor
 
 
 class LocalExecutor(RuntimeManager):
     """Client side manager for work dispatched locally.
     """
+
     def __init__(self,
                  source: _context.WorkflowManager,
                  *,
@@ -249,6 +265,8 @@ class LocalExecutor(RuntimeManager):
         return WorkflowUpdater(runtime=self)
 
     def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
-        runner_task = asyncio.create_task(_context.manage_execution(executor=self,
-                                                       processing_state=runner_started))
+        runner_task = asyncio.create_task(
+            _context.manage_execution(
+                executor=self,
+                processing_state=runner_started))
         return runner_task

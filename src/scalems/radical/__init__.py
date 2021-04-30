@@ -23,7 +23,8 @@ Executor:
     through multiple RPContextManager instances.
 
 """
-# TODO: Consider converting to a namespace package to improve modularity of implementation.
+# TODO: Consider converting to a namespace package to improve modularity of
+#  implementation.
 
 import argparse
 import asyncio
@@ -46,11 +47,10 @@ import scalems.subprocess
 from .. import context as _context
 from .. import utility as _utility
 from ..context import AbstractWorkflowUpdater
-from ..context import QueueItem
+from ..context import ResourceType
 from ..context import RuntimeManager
 from ..exceptions import APIError
 from ..exceptions import DispatchError
-from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
 from ..exceptions import ScaleMSError
@@ -85,7 +85,8 @@ def parser(add_help=False):
     """
     _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
 
-    # We could consider inferring a default venv from the VIRTUAL_ENV environment variable,
+    # We could consider inferring a default venv from the VIRTUAL_ENV environment
+    # variable,
     # but we currently have very poor error handling regarding venvs. For now, this needs
     # to be explicit.
     # Ref https://github.com/SCALE-MS/scale-ms/issues/89
@@ -114,7 +115,8 @@ def parser(add_help=False):
 
 @dataclasses.dataclass
 class Configuration:
-    # Note that the use cases for this dataclass interact with module ContextVars, pending refinement.
+    # Note that the use cases for this dataclass interact with module ContextVars,
+    # pending refinement.
     # TODO: Check that the resource is defined.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
@@ -137,7 +139,8 @@ def _set_configuration(*args, **kwargs) -> Configuration:
     # Caller has provided arguments.
     # Not thread-safe
     if _configuration.get(None):
-        raise APIError(f'configuration() cannot accept arguments when {__name__} is already configured.')
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is '
+                       f'already configured.')
     c = Configuration(*args, **kwargs)
     _configuration.set(c)
     return _configuration.get()
@@ -147,7 +150,8 @@ def _set_configuration(*args, **kwargs) -> Configuration:
 def _(config: Configuration) -> Configuration:
     # Not thread-safe
     if _configuration.get(None):
-        raise APIError(f'configuration() cannot accept arguments when {__name__} is already configured.')
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is '
+                       f'already configured.')
     _configuration.set(config)
     return _configuration.get()
 
@@ -266,8 +270,8 @@ class RPFinalTaskState:
 def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
     """Prototype for RP.Task callback.
 
-    To use, partially bind the *final* parameter (with functools.partial) to get a callable
-    with the RP.Task callback signature.
+    To use, partially bind the *final* parameter (with functools.partial) to get a
+    callable with the RP.Task callback signature.
 
     Register with *task* to be called when the rp.Task state changes.
     """
@@ -302,7 +306,8 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
     Arguments:
         task: RADICAL Pilot Task, submitted by caller.
         future: asyncio.Future to which *task* results should be propagated.
-        ready: output parameter, set when coroutine has run enough to perform its responsibilities.
+        ready: output parameter, set when coroutine has run enough to perform its
+        responsibilities.
 
     Returns:
         *task* in its final state.
@@ -318,7 +323,8 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
     coroutine is a detail of the task management. Still, these two modes of output
     are subject to revision without notice.
 
-    Caller should await the *ready* event before assuming the watcher task is doing its job.
+    Caller should await the *ready* event before assuming the watcher task is doing its
+    job.
     """
     try:
         ready.set()
@@ -330,12 +336,16 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
 
         while not finished():
             # Let the watcher wake up periodically to check for state changes.
-            # TODO: (#96) Use a control thread to manage *threading* primitives and translate to asyncio primitives.
-            done, pending = await asyncio.wait([future], timeout=0.05, return_when=asyncio.FIRST_COMPLETED)
+            # TODO: (#96) Use a control thread to manage *threading* primitives and
+            #  translate to asyncio primitives.
+            done, pending = await asyncio.wait([future],
+                                               timeout=0.05,
+                                               return_when=asyncio.FIRST_COMPLETED)
             if future.cancelled():
                 assert future in done
                 if task.state != rp.states.CANCELED:
-                    logger.debug('Propagating cancellation from scalems future to rp task.')
+                    logger.debug(
+                        'Propagating cancellation from scalems future to rp task.')
                     task.cancel()
                 return task
             if final:
@@ -346,7 +356,8 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
                         assert future in pending
                         logger.debug('Propagating RP Task failure.')
                         # TODO: Provide more useful error feedback.
-                        future.set_exception(RPTaskFailure(f'{task.uid} failed.', task=task))
+                        future.set_exception(RPTaskFailure(f'{task.uid} failed.',
+                                                           task=task))
                 elif final.canceled.is_set():
                     logger.debug('Propagating RP Task cancellation to scalems future.')
                     future.cancel()
@@ -361,9 +372,12 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
                 return task
             if task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
                 if not final:
-                    logger.debug(f'RP Task {task.uid} complete, but Event not triggered. Possible race condition.')
+                    logger.debug(f'RP Task {task.uid} complete, but Event not '
+                                 'triggered. Possible race condition.')
     except asyncio.CancelledError as e:
-        logger.debug('Propagating scalems manager task cancellation to scalems future and rp task.')
+        logger.debug(
+            'Propagating scalems manager task cancellation to scalems future and rp '
+            'task.')
         future.cancel()
         task.cancel()
         raise e
@@ -381,9 +395,9 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     separately.
 
     Internally, this function provides a call-back to the rp.Task. The call-back
-    provided to RP cannot directly call asyncio.Future methods (such as set_result() or set_exception())
-    because RP will be making the call from another thread without mediation by the
-    asyncio event loop.
+    provided to RP cannot directly call asyncio.Future methods (such as set_result() or
+    set_exception()) because RP will be making the call from another thread without
+    mediation by the asyncio event loop.
 
     As such, we also need to provide a thread-safe event handler to propagate the
     RP Task call-back to the asyncio Future.
@@ -410,11 +424,14 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     asyncio.get_running_loop().slow_callback_duration = 0.2
     watcher_started = asyncio.Event()
     waiter = asyncio.create_task(watcher_started.wait())
-    wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask, future=future, final=final, ready=watcher_started))
+    wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask,
+                                                        future=future,
+                                                        final=final,
+                                                        ready=watcher_started))
 
     # Make sure that the task is cancellable before returning it to the caller.
     await asyncio.wait((waiter, wrapped_task),
-                                  return_when=asyncio.FIRST_COMPLETED)
+                       return_when=asyncio.FIRST_COMPLETED)
     if wrapped_task.done():
         # Let CancelledError propagate.
         e = wrapped_task.exception()
@@ -429,7 +446,8 @@ def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescrip
 
     For a "raptor" style task, see _describe_raptor_task()
     """
-    assert item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask')
+    subprocess_type = ResourceType(('scalems', 'subprocess', 'SubprocessTask'))
+    assert item.description().type() == subprocess_type
     input_data = item.input
     task_input = scalems.subprocess.SubprocessInput(**input_data)
     args = list([arg for arg in task_input.argv])
@@ -465,11 +483,14 @@ def _describe_legacy_task(item: _context.Task, pre_exec: list) -> rp.TaskDescrip
     return task_description
 
 
-def _describe_raptor_task(item: _context.Task, scheduler: str, pre_exec: list) -> rp.TaskDescription:
+def _describe_raptor_task(item: _context.Task,
+                          scheduler: str,
+                          pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
 
     The TaskDescription will be submitted to the named *scheduler*,
-    where *scheduler* is the UID of a task managing the life of a rp.raptor.Master instance.
+    where *scheduler* is the UID of a task managing the life of a rp.raptor.Master
+    instance.
 
     Caller is responsible for ensuring that *scheduler* is valid.
     """
@@ -600,11 +621,18 @@ async def submit(*,
         has some degree of data flow management capabilities.
 
     """
-    if item.description().type().as_tuple() == ('scalems', 'subprocess', 'SubprocessTask'):
+    # TODO: Optimization: skip tasks that are already done (cached results available).
+    def scheduler_is_ready(scheduler):
+        return isinstance(scheduler, str) \
+               and len(scheduler) > 0 \
+               and isinstance(task_manager.get_tasks(scheduler), rp.Task)
+
+    if item.description().type() \
+            == ResourceType(('scalems', 'subprocess', 'SubprocessTask')):
         if scheduler is not None:
             raise DispatchError('Raptor not yet supported for scalems.executable.')
         rp_task_description = _describe_legacy_task(item, pre_exec=pre_exec)
-    elif isinstance(scheduler, str) and len(scheduler) > 0 and isinstance(task_manager.get_tasks(scheduler), rp.Task):
+    elif scheduler_is_ready(scheduler):
         # We might want a contextvars.Context to hold the current rp.Master instance name.
         rp_task_description = _describe_raptor_task(item, scheduler, pre_exec=pre_exec)
     else:
@@ -616,7 +644,8 @@ async def submit(*,
     # Warning: in the long run, we should not extend the life of the reference returned
     # by edit_item, and we need to consider the robust way to publish item results.
     # TODO: Translate RP result to item result type.
-    rp_task_result_future.add_done_callback(functools.partial(scalems_callback, item=item))
+    rp_task_result_future.add_done_callback(functools.partial(scalems_callback,
+                                                              item=item))
 
     # TODO: Move slow blocking RP calls to a separate RP control thread.
     task = task_manager.submit_tasks(rp_task_description)
@@ -653,9 +682,12 @@ def scalems_callback(fut: asyncio.Future, *, item: _context.Task):
             item.set_result(fut.result())
 
 
-def _get_scheduler(name: str, pre_exec: typing.Iterable[str], task_manager: rp.TaskManager):
-    # This is the name that should be resolvable in an active venv for the script we install
-    # as pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+def _get_scheduler(name: str,
+                   pre_exec: typing.Iterable[str],
+                   task_manager: rp.TaskManager):
+    # This is the name that should be resolvable in an active venv for the script we
+    # install as
+    # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
     master_script = 'scalems_rp_master'
 
     # We can probably make the config file a permanent part of the local metadata,
@@ -671,13 +703,15 @@ def _get_scheduler(name: str, pre_exec: typing.Iterable[str], task_manager: rp.T
     td = rp.TaskDescription(
         {
             'uid': name,
-            'executable': master_script})
+            'executable': master_script
+        })
     td.arguments = []
     td.pre_exec = pre_exec
     # td.named_env = 'scalems_env'
     logger.debug('Launching RP scheduler.')
     scheduler = task_manager.submit_tasks(td)
-    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
+    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
+    # check type.
     scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
     if scheduler.state not in {rp.states.CANCELED, rp.states.FAILED}:
         raise DispatchError('Could not get Master task for dispatching.')
@@ -690,9 +724,10 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
     Acquire as many re-usable resources as possible. The scope established by
     this function is as broad as it can be within the life of this instance.
 
-    Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to clean
-    up resources. Use the async context manager behavior of the instance to automatically
-    follow this protocol. I.e. instead of calling ``instance._connect_rp(); ...; instance._disconnect_rp()``,
+    Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to
+    clean up resources. Use the async context manager behavior of the instance to
+    automatically follow this protocol. I.e. instead of calling
+    ``instance._connect_rp(); ...; instance._disconnect_rp()``,
     use::
         async with instance:
             ...
@@ -704,10 +739,11 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
 
     """
     # TODO: Consider inlining this into __aenter__().
-    # A non-async method is potentially useful for debugging, but causes the event loop to block
-    # while waiting for the RP tasks included here. If this continues to be a slow function,
-    # we can wrap the remaining RP calls and let this function be inlined, or stick the whole
-    # function in a separate thread with loop.run_in_executor().
+    # A non-async method is potentially useful for debugging, but causes the event loop
+    # to block while waiting for the RP tasks included here. If this continues to be a
+    # slow function, we can wrap the remaining RP calls and let this function be
+    # inlined, or stick the whole function in a separate thread with
+    # loop.run_in_executor().
 
     # TODO: RP triggers SIGINT in various failure modes.
     #  We should use loop.add_signal_handler() to convert to an exception
@@ -720,12 +756,14 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # Start the Session.
         #
 
-        # Note that we cannot resolve the full _resource config until we have a Session object.
+        # Note that we cannot resolve the full _resource config until we have a Session
+        # object.
         # We cannot get the default session config until after creating the Session,
         # so we don't have a template for allowed, required, or default values.
         # Question: does the provided *cfg* need to be complete? Or will it be merged
         # with default values from some internal definition, such as by dict.update()?
-        # I don't remember what the use cases are for overriding the default session config.
+        # I don't remember what the use cases are for overriding the default session
+        # config.
         session_config = None
         # At some point soon, we need to track Session ID for the workflow metadata.
         # We may also want Session ID to be deterministic (or to be re-used?).
@@ -752,8 +790,8 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         logger.debug('RP dispatcher acquired session {}'.format(session_id))
 
         # We can launch an initial Pilot, but we may have to run further Pilots
-        # during self._queue_runner_task (or while servicing scalems.wait() within the with block)
-        # to handle dynamic work load requirements.
+        # during self._queue_runner_task (or while servicing scalems.wait() within the
+        # with block) to handle dynamic work load requirements.
         # Optionally, we could refrain from launching the pilot here, at all,
         # but it seems like a good chance to start bootstrapping the agent environment.
         logger.debug('Launching PilotManager.')
@@ -791,7 +829,8 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # Where should this actually be coming from?
         # We need to inspect both the HPC allocation and the work load, I think,
         # and combine with user-provided preferences.
-        pilot_description = configuration().rp_resource_params.get('PilotDescription', {}).copy()
+        pilot_description = configuration().rp_resource_params.get('PilotDescription',
+                                                                   {}).copy()
         pilot_description.update({'resource': configuration().execution_target})
         pilot_description.update({
             'resource': execution_manager.execution_target,
@@ -799,24 +838,27 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
             'gpus': 0
         })
         # TODO: Pilot venv (#90, #94).
-        # Currently, Pilot venv must be specified in the JSON file for resource definitions.
+        # Currently, Pilot venv must be specified in the JSON file for resource
+        # definitions.
         execution_manager._pilot_description = rp.PilotDescription(pilot_description)
 
         # How and when should we update pilot description?
-        logger.debug('Submitting PilotDescription {}'.format(repr(execution_manager._pilot_description)))
+        logger.debug('Submitting PilotDescription {}'.format(repr(
+            execution_manager._pilot_description)))
         pilot = pilot_manager.submit_pilots(execution_manager._pilot_description)
         execution_manager.pilot_uid = pilot.uid
         logger.debug('Got Pilot {}'.format(pilot.uid))
 
-        # Note that the task description for the master (and worker) can specify a *named_env* attribute to use
-        # a venv prepared via Pilot.prepare_env
+        # Note that the task description for the master (and worker) can specify a
+        # *named_env* attribute to use a venv prepared via Pilot.prepare_env
         # E.g.         pilot.prepare_env({'numpy_env' : {'type'   : 'virtualenv',
         #                                           'version': '3.6',
         #                                           'setup'  : ['numpy']}})
         #   td.named_env = 'numpy_env'
-        # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg: dict) or
-        # the task will wait indefinitely to be scheduled.
-        # Alternatively, we could use a pre-installed venv by putting `. path/to/ve/bin/activate`
+        # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg:
+        # dict) or the task will wait indefinitely to be scheduled.
+        # Alternatively, we could use a pre-installed venv by putting
+        # `. path/to/ve/bin/activate`
         # in the TaskDescription.pre_exec list.
 
         # TODO: Use archives generated from (acquired through) the local installations.
@@ -832,8 +874,10 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         #             'version': '3.8',
         #             'setup': [
         #                 # TODO: Generalize scalems dependency resolution.
-        #                 # Ideally, we would check the current API version requirement, map that to a package version,
-        #                 # and specify >=min_version, allowing cached archives to satisfy the dependency.
+        #                 # Ideally, we would check the current API version
+        #                 # requirement, map that to a package version,
+        #                 # and specify >=min_version, allowing cached archives to
+        #                 # satisfy the dependency.
         #                 rp_spec,
         #                 scalems_spec
         #             ]}})
@@ -931,10 +975,13 @@ class RPDispatchingExecutor(RuntimeManager):
         self.scheduler = None
 
         if not isinstance(runtime.target_venv, str) or len(runtime.target_venv) == 0:
-            raise ValueError('Caller must specify a venv to be activated by the execution agent for dispatched tasks.')
+            raise ValueError(
+                'Caller must specify a venv to be activated by the execution agent for '
+                'dispatched tasks.')
         else:
             self._target_venv: str = runtime.target_venv
-            self._pre_exec = ['. ' + str(os.path.join(self._target_venv, 'bin', 'activate'))]
+            self._pre_exec = [
+                '. ' + str(os.path.join(self._target_venv, 'bin', 'activate'))]
 
         self.execution_target = runtime.execution_target
         self._rp_resource_params = {}
@@ -975,8 +1022,10 @@ class RPDispatchingExecutor(RuntimeManager):
         # TODO: Make runtime_startup optional. Let it return a resource that is
         #  provided to the normalized run_executor(), or maybe use it to configure the
         #  Submitter that will be provided to the run_executor.
-        runner_task = asyncio.create_task(_context.manage_execution(self,
-                                                       processing_state=runner_started))
+        runner_task = asyncio.create_task(
+            _context.manage_execution(
+                self,
+                processing_state=runner_started))
         return runner_task
 
     def runtime_shutdown(self, session: rp.Session):
@@ -1015,25 +1064,18 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
 
         _target_venv = configuration().target_venv
         if _target_venv is None or len(_target_venv) == 0:
-            raise DispatchError('Currently, tasks cannot be dispatched without a target venv.')
+            raise DispatchError(
+                'Currently, tasks cannot be dispatched without a target venv.')
         self._pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
         # end TODO
 
     async def submit(self, *, item: _context.Task) -> asyncio.Task:
-        # TODO: Optimization: skip tasks that are already done.
-        # TODO: Check task dependencies.
-        ##
-        # Note that we could insert resource management here. We could create
-        # tasks until we run out of free resources, then switch modes to awaiting
-        # tasks until resources become available, then switch back to placing tasks.
-
         # TODO: Ensemble handling
         item_shape = item.description().shape()
         if len(item_shape) != 1 or item_shape[0] != 1:
             raise MissingImplementationError(
                 'Executor cannot handle multidimensional tasks yet.')
 
-        key = item.uid()
         task: asyncio.Task[rp.Task] = await submit(item=item,
                                                    task_manager=self.task_manager,
                                                    pre_exec=self._pre_exec)

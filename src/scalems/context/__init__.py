@@ -342,7 +342,7 @@ class Task:
             raise AttributeError('Problem retrieving "{}"'.format(item)) from e
         return value
 
-    def __init__(self, context: 'WorkflowManager', record: str):
+    def __init__(self, manager: 'WorkflowManager', record: str):
         self._serialized_record = str(record)
         decoded_record = json.loads(self._serialized_record)
 
@@ -353,9 +353,9 @@ class Task:
         self._done = asyncio.Event()
         self._result = None
 
-        # As long as we are storing Tasks in the context, we cannot store contexts in
-        # Tasks.
-        self._context = weakref.ref(context)
+        # As long as we are storing Tasks in the workflow, we cannot store
+        # workflows in Tasks.
+        self._context = weakref.ref(manager)
 
     def set_result(self, result):
         # Not thread-safe.
@@ -365,6 +365,9 @@ class Task:
         self._done.set()
         logger.debug('Result set for {} in {}'.format(self.uid().hex(),
                                                       str(self._context())))
+
+    def manager(self):
+        return self._context()
 
     # @classmethod
     # def deserialize(cls, context, record: str):
@@ -746,6 +749,7 @@ class AbstractWorkflowUpdater(abc.ABC):
         """
         ...
 
+
 def _session_is_closed(session):
     """Generic check for status of a session instance."""
     if not hasattr(session, 'closed'):
@@ -1091,12 +1095,15 @@ class WorkflowManager:
     def add_item(self, task_description) -> ItemView:
         # # TODO: Resolve implementation details for *operation*.
         # if operation != 'scalems.executable':
-        #     raise MissingImplementationError('No implementation for {} in {}'.format(operation, repr(self)))
+        #     raise MissingImplementationError('No implementation for {} in {}'.format(
+        #     operation, repr(self)))
         # # Copy a static copy of the input.
-        # # TODO: Dispatch tasks addition, allowing negotiation of Context capabilities and subscription
+        # # TODO: Dispatch tasks addition, allowing negotiation of Context capabilities
+        #  and subscription
         # #  to resources owned by other Contexts.
         # if not isinstance(bound_input, scalems.subprocess.SubprocessInput):
-        #     raise ValueError('Only scalems.subprocess.SubprocessInput objects supported as input.')
+        #     raise ValueError('Only scalems.subprocess.SubprocessInput objects
+        #     supported as input.')
 
         # TODO: Replace with type-based dispatching or some normative interface test.
         from ..subprocess import Subprocess
@@ -1146,7 +1153,8 @@ class WorkflowManager:
         item = Task(self, serialized_record)
         # TODO: Check for ability to dispatch.
         #  Note module dependencies, etc. and check in target execution environment
-        #  (e.g. https://docs.python.org/3/library/importlib.html#checking-if-a-module-can-be-imported)
+        #  (e.g. https://docs.python.org/3/library/importlib.html#checking-if-a-module
+        #  -can-be-imported)
 
         # TODO: Provide a data descriptor and possibly a more formal Workflow class.
         # We do not yet check that the derived classes actually initialize self.tasks.
@@ -1363,8 +1371,9 @@ class Queuer:
         # Note that this coroutine could take a long time and could be cancelled at
         # several points.
         cancelled_error = None
-        # The dispatching protocol is immature. Initially, we don't expect contention for the lock, and if there is
-        # contention, it probably represents an unintended race condition or systematic dead-lock.
+        # The dispatching protocol is immature. Initially, we don't expect contention
+        # for the lock, and if there is contention, it probably represents an
+        # unintended race condition or systematic dead-lock.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
         assert not self._dispatcher_lock.locked()
         async with self._dispatcher_lock:
@@ -1605,8 +1614,9 @@ async def manage_execution(executor: RuntimeManager,
 
         To avoid dead-locks, we can't have a Lock object for each resource unless
         they are managed by an intermediary that can do some serialization of requests.
-        In other words, we need a Scheduler that tracks the resource pool, packages
-        resource locks only when they can all be acquired without race conditions or blocking,
+        In other words, we need a Scheduler that tracks the resource pool,
+        packages resource locks only when they can all be acquired without race
+        conditions or blocking,
         and which then notifies the Condition for each task that it is allowed to run.
 
         It should not do so until the dependencies of the task are known to have
@@ -1614,7 +1624,8 @@ async def manage_execution(executor: RuntimeManager,
         also running) and, preferably, complete.
 
         Alternatively, the Scheduler can operate in blocks, allocating all resources,
-        offering the locks to tasks, waiting for all resources to be released, then repeating.
+        offering the locks to tasks, waiting for all resources to be released,
+        then repeating.
         We can allow some conditions to "wake up" the scheduler to back fill a block
         of resources, but we should be careful with that.
 
@@ -1623,12 +1634,13 @@ async def manage_execution(executor: RuntimeManager,
         dynamic from those which might be would be with the `def` versus `async def` in
         the implementing function declaration. If we abstract `await` with `scalems.wait`,
         we can throw an exception at execution time after checking a ContextVar.
-        It may be better to just let implementers use `await` for dynamically created tasks,
-        but we need to make the same check if a function calls `.result()` or otherwise
-        tries to create a dependency on an item that was not allocated resources before
-        the function started executing. In a conservative first draft, we can simply
-        throw an exception if a non-`async def` function attempts to call a scalems workflow
-        command like add_item while in an executing context.)
+        It may be better to just let implementers use `await` for dynamically created
+        tasks, but we need to make the same check if a function calls `.result()` or
+        otherwise tries to create a dependency on an item that was not allocated
+        resources before the function started executing.
+        In a conservative first draft, we can simply throw an exception if
+        a non-`async def` function attempts to call a scalems workflow command like
+        "add_item" while in an executing context.)
 
     """
     queue = executor.queue()
@@ -1667,10 +1679,12 @@ async def manage_execution(executor: RuntimeManager,
         #  task_done() call, in case we arrive there without Queue.get() having completed.
         #  However, that could allow a Queue.join() to complete early by accident.
         command: QueueItem = await queue.get()
-        # Developer note: The preceding line and the following try/finally block are coupled!
+        # Developer note: The preceding line and the following try/finally block are
+        # coupled!
         # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
-        # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block with a
-        # `finally` suite. Don't separate these without considering the Queue protocol.
+        # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block
+        # with a `finally` suite. Don't separate these without considering the Queue
+        # protocol.
 
         try:
             if not len(command.items()) == 1:
@@ -1681,7 +1695,8 @@ async def manage_execution(executor: RuntimeManager,
             if 'control' in command:
                 if command['control'] == 'stop':
                     logger.debug('Execution manager received stop command.')
-                    # This effectively breaks the `while True` loop, but may not be obvious.
+                    # This effectively breaks the `while True` loop, but may not be
+                    # obvious.
                     # Consider explicit `break` to clarify that we want to run off the end
                     # of the function.
                     return
@@ -1696,13 +1711,22 @@ async def manage_execution(executor: RuntimeManager,
                 # this (the queue processor) task is awaited, we could insert a
                 # Condition here to alert some sort of previously scheduled special
                 # tear-down task.
-                raise MissingImplementationError('Executor has no implementation for {}'.format(str(command)))
+                raise MissingImplementationError(
+                    f'Executor has no implementation for {str(command)}.')
 
             key = command['add_item']
             with executor.source_context.edit_item(key) as item:
                 if not isinstance(item, Task):
                     raise InternalError(
-                        'Bug: Expected {}.edit_item() to return a _context.Task'.format(repr(executor.source_context)))
+                        'Bug: Expected {}.edit_item() to return a _context.Task'.format(
+                            repr(executor.source_context)))
+
+                # TODO: Check task dependencies.
+                ##
+                # Note that we could insert resource management here. We could create
+                # tasks until we run out of free resources, then switch modes to awaiting
+                # tasks until resources become available, then switch back to placing
+                # tasks.
 
                 # Bind the WorkflowManager item to an RP Task.
                 task = await updater.submit(item=item)
@@ -1726,7 +1750,7 @@ async def manage_execution(executor: RuntimeManager,
             logger.debug('Leaving queue runner due to exception.')
             raise e
         finally:
-            # Warning: there is a tiny chance that we could receive a asyncio.CancelledError at this line
-            # and fail to decrement the queue.
+            # Warning: there is a tiny chance that we could receive a
+            # asyncio.CancelledError at this line and fail to decrement the queue.
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             queue.task_done()

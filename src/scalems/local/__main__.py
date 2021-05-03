@@ -10,4 +10,4 @@ import sys
 import scalems.invocation
 
 if __name__ == '__main__':
-    sys.exit(scalems.invocation.run(scalems.local.AsyncWorkflowManager))
+    sys.exit(scalems.invocation.run(scalems.local.workflow_manager))

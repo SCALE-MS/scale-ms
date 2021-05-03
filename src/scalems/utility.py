@@ -6,7 +6,6 @@ __all__ = [
     'function_wrapper',
     'parser',
     'poll',
-    'run',
     'wait',
     'ScriptEntryPoint'
 ]
@@ -17,14 +16,12 @@ import contextvars
 import functools
 import logging
 import typing
-import warnings
 from typing import Protocol
 
 from scalems import exceptions as _exceptions
 from scalems.context import get_context
-from scalems.context import scope
-from scalems.context import WorkflowManager
 from ._version import get_versions
+from .workflow import WorkflowManager
 
 _scalems_version = get_versions()['version']
 del get_versions
@@ -320,61 +317,6 @@ def wait(ref):
     return _wait(ref, manager=context)
 
 
-def _run(*, work, context, **kwargs):
-    """Run in current scope."""
-    import asyncio
-    from asyncio.coroutines import iscoroutinefunction
-
-    # TODO: Allow custom dispatcher hook.
-    if iscoroutinefunction(context.run):
-
-        # TODO: Rearchitect the handling of *work*.
-        # Don't run function until the dispatcher is active or dispatch on *work* type.
-        # We can't support scalems.wait() in scalems.app as intended if dispatcher is not active.
-        if callable(work):
-            logger.debug('Preprocessing callable *work*.')
-            # This is supposed to either get a coroutine object from *work* or allow
-            # *work* the opportunity to interact with the workflow manager before dispatching begins.
-            try:
-                # Note that with the current scalems.utility.app, we don't have a convention for
-                # the callable to return anything, so *handle* is None (and unused).
-                work(**kwargs)
-            except Exception as e:
-                logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
-                raise e
-        else:
-            raise _exceptions.DispatchError('Asynchronous workflow context expects callable work.')
-
-        logger.debug('Creating coroutine object for workflow dispatcher.')
-        # TODO: Handle in context.run() via full dispatcher implementation.
-        # TODO:
-        # coro = context.run(work, **kwargs)
-        try:
-            coro = context.run()
-        except Exception as e:
-            logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
-            raise e
-
-        logger.debug('Starting asyncio.run()')
-        # Manage event loop directly, since asyncio.run() doesn't seem to always clean it up right.
-        # TODO: Check for existing event loop.
-        loop = asyncio.get_event_loop()
-        try:
-            task = loop.create_task(coro)
-            result = loop.run_until_complete(task)
-        finally:
-            loop.close()
-        assert loop.is_closed()
-
-        logger.debug('Finished asyncio.run()')
-    else:
-        raise NotImplementedError('scalems workflow management requires an active event loop.')
-        # logger.debug('Starting context.run() without asyncio wrapper')
-        # result = context.run(work, **kwargs)
-        # logger.debug('Finished context.run()')
-    return result
-
-
 def deprecated(explanation: str):
     """Mark a deprecated definition.
 
@@ -408,68 +350,6 @@ def deprecated(explanation: str):
         return wrapper
 
     return decorator
-
-
-@deprecated('scalems.run() is not currently supported. See https://github.com/SCALE-MS/scale-ms/issues/82')
-def run(work, context=None, **kwargs):
-    """Execute a workflow and return the results.
-
-    This call is not necessary if an execution manager is already running, such
-    as when a workflow script is invoked with `python -m scalems.<some_executor> workflow.py`,
-    when run in a Jupyter notebook (or other application with a compatible native event loop),
-    or when the execution manager is launched explicitly within the script.
-
-    `scalems.run()` may be useful if you want to embed a ScaleMS application in another
-    application, or as a short-hand for execution management with the Python
-    Context Manager syntax by which ScaleMS execution can be more explicitly directed.
-    `scalems.run()` is analogous to (and may simply wrap a call to) `asyncio.run()`.
-
-    As with `asyncio.run()`, `scalems.run()` is intended to be invoked (from the
-    main thread) exactly once in a Python interpreter process lifetime. It is
-    probably fine to call it more than once, but such a use case probably indicates
-    non-standard ScaleMS software design. Nested calls to `scalems.run()` have
-    unspecified behavior.
-
-    Abstraction for :py:func:`asyncio.run()`
-
-    Note: If we want to go this route, we should integrate with the
-    asyncio event loop policy, or obtain an event loop instance and
-    use it w.r.t. run_in_executor and set_task_factory.
-
-    .. todo:: Coordinate with RP plans for event loop contexts and concurrency module executors.
-
-    See also https://docs.python.org/3/library/asyncio-dev.html#debug-mode
-    """
-    # Cases, likely in appropriate order of resolution:
-    # * work is a SCALEMS ItemView or Future
-    # * work is a asyncio.coroutine
-    # * work is a asyncio.coroutinefunction
-    # * work is a regular Python callable
-    # * work is None (get all work from current and/or parent workflow context)
-
-    # TODO: Check whether coroutine is already executing and where.
-    # if iscoroutine(coroutine):
-    #     return asyncio.run(coroutine, **kwargs)
-
-    # No automatic dispatching yet. Coroutine must be executable
-    # in the current or provided context.
-    try:
-        if context is None:
-            context = get_context()
-        if context is get_context():
-            result = _run(work=work, context=context, **kwargs)
-        else:
-            with scope(context):
-                result = _run(work=work, context=context, **kwargs)
-        return result
-    except Exception as e:
-        message = 'Uncaught exception in scalems.context.run(): {}'.format(str(e))
-        warnings.warn(message)
-        logger.warning(message)
-        return None
-
-    # TODO: Consider generalized coroutines to be dispatched through
-    #     custom event loops or executors.
 
 
 def next_monotonic_integer() -> int:

@@ -577,12 +577,12 @@ async def test_exec_rp(pilot_description, rp_venv):
     )
 
     # Test RPDispatcher context
-    context = scalems.radical.RPWorkflowContext(loop)
-    with scalems.context.scope(context):
+    manager = scalems.radical.workflow_manager(loop)
+    with scalems.context.scope(manager):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         cmd1 = scalems.executable(('/bin/echo',))
-        async with context.dispatch(params=params):
+        async with manager.dispatch(params=params):
             cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.

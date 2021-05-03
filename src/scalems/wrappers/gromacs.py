@@ -13,7 +13,8 @@ __all__ = ['make_input', 'modify_input', 'simulate']
 # Create simple dictionaries and add them to the workflow manager.
 # 0. Write gromacs wrapper in terms of dicts. Processing is done via scalems entry points.
 # 1. Hard-code handling in WorkflowManager.
-# 2. Resume handling of dict and JSON representations in fingerprint and serialization modules.
+# 2. Resume handling of dict and JSON representations in fingerprint and serialization
+# modules.
 # 3. Refine Python data model and build framework.
 ###########################
 import functools
@@ -24,10 +25,10 @@ import pathlib
 import typing
 from typing import Sequence
 
-import scalems
-from scalems.context import WorkflowManager
+import scalems.workflow
 from scalems.exceptions import MissingImplementationError
 from scalems.utility import next_monotonic_integer as _next_int
+from scalems.workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -189,7 +190,7 @@ def scalems_helper(*args, **kwargs):
 
 
 @scalems_helper.register
-def _(task: scalems.context.Task, context: WorkflowManager):
+def _(task: scalems.workflow.Task, context: WorkflowManager):
     sublogger = logger.getChild('scalems_helper')
     sublogger.debug('Serialized task record: {}'.format(task.serialize()))
     command = task.type[-1]

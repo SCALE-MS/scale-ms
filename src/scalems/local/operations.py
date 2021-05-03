@@ -12,6 +12,7 @@ import shutil
 import typing
 
 import scalems.subprocess
+import scalems.workflow
 from scalems.exceptions import InternalError
 from scalems.exceptions import ProtocolError
 from scalems.subprocess._subprocess import OutputFile
@@ -34,7 +35,7 @@ class _ExecutionContext:
 
     Provide local definition of evolving concept from local/__init__.py
     """
-    workflow_manager: scalems.context.WorkflowManager
+    workflow_manager: scalems.workflow.WorkflowManager
     identifier: bytes
 
 

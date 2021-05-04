@@ -114,7 +114,7 @@ def parser(add_help=False):
     return _parser
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class Configuration:
     # Note that the use cases for this dataclass interact with module ContextVars,
     # pending refinement.
@@ -686,6 +686,21 @@ def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
 def _get_scheduler(name: str,
                    pre_exec: typing.Iterable[str],
                    task_manager: rp.TaskManager):
+    """Establish the radical.pilot.raptor.Master task.
+
+    Create a master rp.Task (running the scalems_rp_master script) with the
+    provide *name* to be referenced as the *scheduler* for raptor tasks.
+
+    Returns the rp.Task for the master script once the Master is ready to
+    receive submissions.
+
+    Raises:
+        DispatchError if the master task could not be launched successfully.
+
+    Note:
+        Currently there is no completion condition for the master script.
+        Caller is responsible for canceling the Task returned by this function.
+    """
     # This is the name that should be resolvable in an active venv for the script we
     # install as
     # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
@@ -834,7 +849,7 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
                                                                    {}).copy()
         pilot_description.update({'resource': configuration().execution_target})
         pilot_description.update({
-            'resource': execution_manager.execution_target,
+            'resource': execution_manager._runtime.execution_target,
             'cores': 4,
             'gpus': 0
         })
@@ -942,14 +957,12 @@ class RPDispatchingExecutor(RuntimeManager):
     * pilot config
     * session config?
     """
-    execution_target: str
     pilot_uid: str = None
     scheduler: typing.Union[rp.Task, None]
     session: typing.Union[rp.Session, None] = None
 
     _pilot_description: rp.PilotDescription
     _pilot_manager_uid: str = None
-    _rp_resource_params: typing.Optional[dict]
     _task_description: rp.TaskDescription
     _task_manager_uid: str = None
 
@@ -980,29 +993,28 @@ class RPDispatchingExecutor(RuntimeManager):
                 'Caller must specify a venv to be activated by the execution agent for '
                 'dispatched tasks.')
         else:
-            self._target_venv: str = runtime.target_venv
             self._pre_exec = [
-                '. ' + str(os.path.join(self._target_venv, 'bin', 'activate'))]
+                '. ' + str(os.path.join(runtime.target_venv, 'bin', 'activate'))]
 
-        self.execution_target = runtime.execution_target
-        self._rp_resource_params = {}
-        try:
-            self._rp_resource_params.update(runtime.rp_resource_params)
-        except TypeError as e:
-            raise TypeError(f'RP Resource Parameters are expected to be dict-like. Got '
-                            f'{repr(runtime.rp_resource_params)}') from e
+        # TODO: Consider relying on module ContextVars and contextvars.Context scope.
+        self._runtime = Configuration(**dataclasses.asdict(runtime))
+
+    def configuration(self):
+        return self._runtime
 
     @contextlib.contextmanager
     def runtime_configuration(self):
         # Get default configuration.
-        c = configuration()
+        configuration_dict = dataclasses.asdict(configuration())
         # Update with any internal configuration.
-        if self._target_venv is not None and len(self._target_venv) > 0:
-            c.target_venv = self._target_venv
-        if len(self._rp_resource_params) > 0:
-            c.rp_resource_params.update(self._rp_resource_params)
-        if self.execution_target is not None and len(self.execution_target) > 0:
-            c.execution_target = self.execution_target
+        if self._runtime.target_venv is not None and len(self._runtime.target_venv) > 0:
+            configuration_dict['target_venv'] = self._runtime.target_venv
+        if len(self._runtime.rp_resource_params) > 0:
+            configuration_dict['rp_resource_params'].update(self._runtime.rp_resource_params)
+        if self._runtime.execution_target is not None \
+                and len(self._runtime.execution_target) > 0:
+            configuration_dict['execution_target'] = self._runtime.execution_target
+        c = Configuration(**configuration_dict)
         token = _configuration.set(c)
         try:
             yield c

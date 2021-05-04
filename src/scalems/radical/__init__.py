@@ -39,7 +39,6 @@ import pathlib
 import threading
 import typing
 import warnings
-import weakref
 
 import packaging.version
 from radical import pilot as rp
@@ -51,11 +50,11 @@ from scalems.execution import AbstractWorkflowUpdater
 from scalems.execution import RuntimeManager
 from scalems.workflow import ResourceType
 from .. import utility as _utility
-from ..exceptions import APIError
-from ..exceptions import DispatchError
-from ..exceptions import MissingImplementationError
-from ..exceptions import ProtocolError
-from ..exceptions import ScaleMSError
+from scalems.exceptions import APIError
+from scalems.exceptions import DispatchError
+from scalems.exceptions import MissingImplementationError
+from scalems.exceptions import ProtocolError
+from scalems.exceptions import ScaleMSError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -117,6 +116,15 @@ def parser(add_help=False):
 
 @dataclasses.dataclass(frozen=True)
 class Configuration:
+    """Module configuration information.
+
+    See also:
+        scalems.radical.configuration()
+        scalems.radical.parser()
+        scalems.radical.Runtime
+
+    TODO: Consider merging with module Runtime state container.
+    """
     # Note that the use cases for this dataclass interact with module ContextVars,
     # pending refinement.
     # TODO: Check that the resource is defined.
@@ -209,7 +217,7 @@ def executor_factory(manager: scalems.workflow.WorkflowManager, params: Configur
 
     executor = RPDispatchingExecutor(source=manager,
                                      loop=manager.loop(),
-                                     runtime=params,
+                                     configuration=params,
                                      dispatcher_lock=manager._dispatcher_lock)
     return executor
 
@@ -270,8 +278,17 @@ class RPFinalTaskState:
 
 
 class Runtime:
-    """Container for scalems.radical runtime state data."""
+    """Container for scalems.radical runtime state data.
+
+    TODO: Consider merging with scalems.radical.Configuration
+
+    See Also:
+        scalems.radical.RPDispatchingExecutor.runtime()
+        scalems.radical._connect_rp()
+
+    """
     session: rp.Session
+    scheduler: rp.Task = None
 
     _pilot_manager_uid: str = None
     _pilot_uid: str = None
@@ -296,7 +313,7 @@ class Runtime:
         """Set the current pilot manager as provided."""
         ...
 
-    def pilot_manager(self, pilot_manager = None) -> typing.Union[rp.PilotManager, None]:
+    def pilot_manager(self, pilot_manager=None) -> typing.Union[rp.PilotManager, None]:
         if pilot_manager is None:
             if self._pilot_manager_uid:
                 return self.session.get_pilot_managers(
@@ -408,7 +425,7 @@ class Runtime:
             try:
                 pilot = pmgr.get_pilots(uids=uid)
                 assert isinstance(pilot, rp.Pilot)
-            except (AssertionError, KeyError) as e:
+            except (AssertionError, KeyError, ValueError) as e:
                 raise ValueError(f'{uid} does not describe a valid Pilot') from e
             except Exception as e:
                 # TODO: Track down the expected rp exception.
@@ -884,7 +901,7 @@ def _get_scheduler(name: str,
     return scheduler
 
 
-def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
+def _connect_rp(config: Configuration) -> Runtime:
     """Establish the RP Session.
 
     Acquire as many re-usable resources as possible. The scope established by
@@ -939,8 +956,6 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # will exist at a time. We are further assuming that there will probably only
         # be one Task per the lifetime of the dispatcher object.
         # We could choose another approach and change our assumptions, if appropriate.
-        if execution_manager.session is not None:
-            raise ProtocolError('Dispatching context is not reentrant.')
         logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
 
         # Note: radical.pilot.Session creation causes several deprecation warnings.
@@ -949,8 +964,8 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
             warnings.simplefilter('ignore', category=DeprecationWarning)
             # This would be a good time to `await`, if an event-loop friendly
             # Session creation function becomes available.
-            execution_manager.session = rp.Session(uid=session_id, cfg=session_config)
-        session_id = execution_manager.session.uid
+            runtime = Runtime(session=rp.Session(uid=session_id, cfg=session_config))
+        session_id = runtime.session.uid
         # Do we want to log this somewhere?
         # session_config = copy.deepcopy(self.session.cfg.as_dict())
         logger.debug('RP dispatcher acquired session {}'.format(session_id))
@@ -961,14 +976,14 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # Optionally, we could refrain from launching the pilot here, at all,
         # but it seems like a good chance to start bootstrapping the agent environment.
         logger.debug('Launching PilotManager.')
-        pilot_manager = rp.PilotManager(session=execution_manager.session)
-        execution_manager._pilot_manager_uid = pilot_manager.uid
-        logger.debug('Got PilotManager {}.'.format(execution_manager._pilot_manager_uid))
+        pilot_manager = rp.PilotManager(session=runtime.session)
+        logger.debug('Got PilotManager {}.'.format(pilot_manager.uid))
+        runtime.pilot_manager(pilot_manager)
 
         logger.debug('Launching TaskManager.')
-        task_manager = rp.TaskManager(session=execution_manager.session)
-        execution_manager._task_manager_uid = task_manager.uid
-        logger.debug(('Got TaskManager {}'.format(execution_manager._task_manager_uid)))
+        task_manager = rp.TaskManager(session=runtime.session)
+        logger.debug(('Got TaskManager {}'.format(task_manager.uid)))
+        runtime.task_manager(task_manager)
 
         #
         # Get a Pilot
@@ -995,25 +1010,25 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # Where should this actually be coming from?
         # We need to inspect both the HPC allocation and the work load, I think,
         # and combine with user-provided preferences.
-        pilot_description = configuration().rp_resource_params.get('PilotDescription',
-                                                                   {}).copy()
-        pilot_description.update({'resource': configuration().execution_target})
+        pilot_description = config.rp_resource_params.get('PilotDescription',
+                                                          {}).copy()
+        pilot_description.update({'resource': config.execution_target})
         pilot_description.update({
-            'resource': execution_manager.configuration().execution_target,
+            'resource': config.execution_target,
             'cores': 4,
             'gpus': 0
         })
         # TODO: Pilot venv (#90, #94).
         # Currently, Pilot venv must be specified in the JSON file for resource
         # definitions.
-        execution_manager._pilot_description = rp.PilotDescription(pilot_description)
+        pilot_description = rp.PilotDescription(pilot_description)
 
         # How and when should we update pilot description?
         logger.debug('Submitting PilotDescription {}'.format(repr(
-            execution_manager._pilot_description)))
-        pilot = pilot_manager.submit_pilots(execution_manager._pilot_description)
-        execution_manager.pilot_uid = pilot.uid
+            pilot_description)))
+        pilot = pilot_manager.submit_pilots(pilot_description)
         logger.debug('Got Pilot {}'.format(pilot.uid))
+        runtime.pilot(pilot)
 
         # Note that the task description for the master (and worker) can specify a
         # *named_env* attribute to use a venv prepared via Pilot.prepare_env
@@ -1051,9 +1066,12 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # Question: when should we remove the pilot from the task manager?
         task_manager.add_pilots(pilot)
         logger.debug('Added Pilot {} to task manager {}.'.format(
-            execution_manager.pilot_uid,
-            execution_manager._task_manager_uid))
+            pilot.uid,
+            task_manager.uid))
 
+        pre_exec = get_pre_exec(config)
+        assert isinstance(pre_exec, tuple)
+        assert len(pre_exec) > 0
         # Verify usable SCALEMS RP connector.
         # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
         # TODO: Check for compatible installed scalems API version.
@@ -1061,7 +1079,7 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
             # 'executable': py_venv,
             'executable': 'python3',
             'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
-            'pre_exec': list(get_pre_exec(execution_manager.configuration()))
+            'pre_exec': list(pre_exec)
             # 'named_env': 'scalems_env'
         }))
         logger.debug('Checking RP execution environment.')
@@ -1082,9 +1100,9 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # Get a scheduler task.
         #
 
-        assert execution_manager.scheduler is None
+        assert runtime.scheduler is None
         # TODO: #119 Re-enable raptor.
-        # execution_manager.scheduler = _get_scheduler(
+        # runtime.scheduler = _get_scheduler(
         #     'raptor.scalems',
         #     pre_exec=execution_manager._pre_exec,
         #     task_manager=task_manager)
@@ -1093,13 +1111,17 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         # logger.info('RP scheduler ready.')
         # logger.debug(repr(execution_manager.scheduler))
 
+        return runtime
+
     except asyncio.CancelledError as e:
         raise e
     except Exception as e:
         raise DispatchError('Failed to launch SCALE-MS master task.') from e
 
 
-@cache
+# functools can't cache this function while Configuration is unhashable (due to
+# unhashable dict member).
+# @cache
 def get_pre_exec(conf: Configuration) -> tuple:
     """Get the sequence of pre_exec commands.
 
@@ -1114,7 +1136,8 @@ def get_pre_exec(conf: Configuration) -> tuple:
 
     activate_venv = '. ' + str(os.path.join(conf.target_venv, 'bin', 'activate'))
     # Note: RP may specifically expect a `list` and not a `tuple`.
-    return (activate_venv,)
+    sequence = (activate_venv,)
+    return sequence
 
 
 class RPDispatchingExecutor(RuntimeManager):
@@ -1125,60 +1148,68 @@ class RPDispatchingExecutor(RuntimeManager):
     * pilot config
     * session config?
     """
-    pilot_uid: str = None
-    scheduler: typing.Union[rp.Task, None]
-    session: typing.Union[rp.Session, None] = None
-
-    _pilot_description: rp.PilotDescription
-    _pilot_manager_uid: str = None
-    _task_description: rp.TaskDescription
-    _task_manager_uid: str = None
 
     def __init__(self,
                  source: scalems.workflow.WorkflowManager,
                  *,
                  loop: asyncio.AbstractEventLoop,
-                 runtime: Configuration,
+                 configuration: Configuration,
                  dispatcher_lock=None):
         """Create a client side execution manager.
 
-        Initialization and deinitialization occurs through
+        Initialization and de-initialization occurs through
         the Python (async) context manager protocol.
         """
-        super().__init__(source,
-                         loop=loop,
-                         runtime=runtime,
-                         dispatcher_lock=dispatcher_lock)
-
         if 'RADICAL_PILOT_DBURL' not in os.environ:
             raise DispatchError('RADICAL Pilot environment is not available.')
 
-        self.pilot = None
-        self.scheduler = None
-
-        if not isinstance(runtime.target_venv, str) or len(runtime.target_venv) == 0:
+        if not isinstance(configuration.target_venv, str) \
+                or len(configuration.target_venv) == 0:
             raise ValueError(
                 'Caller must specify a venv to be activated by the execution agent for '
                 'dispatched tasks.')
-
-        # TODO: Consider relying on module ContextVars and contextvars.Context scope.
-        self._runtime = Configuration(**dataclasses.asdict(runtime))
-
-    def configuration(self):
-        return self._runtime
+        super().__init__(source,
+                         loop=loop,
+                         configuration=configuration,
+                         dispatcher_lock=dispatcher_lock)
 
     @contextlib.contextmanager
     def runtime_configuration(self):
+        """Provide scoped Configuration.
+
+        Merge the runtime manager's configuration with the global configuration,
+        update the global configuration, and yield the configuration for a ``with`` block.
+
+        Restores the previous global configuration when exiting the ``with`` block.
+
+        Warning:
+            We do not check for re-entrance, which will cause race conditions w.r.t.
+            which Context state is restored! Moreover, the Configuration object is not
+            currently hashable and does not have an equality test defined.
+
+        TODO:
+            Reconsider this logic.
+
+        Design notes:
+            Do we want two-way interaction between module
+            and instance configuration? Under what circumstances will one or the other
+            change during execution? Should we be providing the configuration through
+            the current Context, through a Context instance (usable for Context.run() or
+            to the task launching command), or simply as a Configuration object?
+        """
+
         # Get default configuration.
         configuration_dict = dataclasses.asdict(configuration())
         # Update with any internal configuration.
-        if self._runtime.target_venv is not None and len(self._runtime.target_venv) > 0:
-            configuration_dict['target_venv'] = self._runtime.target_venv
-        if len(self._runtime.rp_resource_params) > 0:
-            configuration_dict['rp_resource_params'].update(self._runtime.rp_resource_params)
-        if self._runtime.execution_target is not None \
-                and len(self._runtime.execution_target) > 0:
-            configuration_dict['execution_target'] = self._runtime.execution_target
+        if self._runtime_configuration.target_venv is not None and len(
+                self._runtime_configuration.target_venv) > 0:
+            configuration_dict['target_venv'] = self._runtime_configuration.target_venv
+        if len(self._runtime_configuration.rp_resource_params) > 0:
+            configuration_dict['rp_resource_params'].update(
+                self._runtime_configuration.rp_resource_params)
+        if self._runtime_configuration.execution_target is not None \
+                and len(self._runtime_configuration.execution_target) > 0:
+            configuration_dict['execution_target'] = self._runtime_configuration.execution_target
         c = Configuration(**configuration_dict)
         token = _configuration.set(c)
         try:
@@ -1187,13 +1218,10 @@ class RPDispatchingExecutor(RuntimeManager):
             _configuration.reset(token)
 
     def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
-        _connect_rp(self)
-        # Post-conditions of _connect_rp:
-        assert self._task_manager_uid is not None
-        assert self._pilot_manager_uid is not None
-        assert self.pilot_uid is not None
+        configuration: Configuration = self.configuration()
+        self.runtime = _connect_rp(configuration)
 
-        if self.session is None or self.session.closed:
+        if self.runtime is None or self.runtime.session.closed:
             raise ProtocolError('Cannot process queue without a RP Session.')
 
         # Launch queue processor (proxy executor).
@@ -1204,44 +1232,44 @@ class RPDispatchingExecutor(RuntimeManager):
             scalems.execution.manage_execution(
                 self,
                 processing_state=runner_started))
+        # TODO: Note the expected scope of the runner_task lifetime with respect to
+        #  the global state changes (i.e. ContextVars and locks).
         return runner_task
 
-    def runtime_shutdown(self, session: rp.Session):
+    def runtime_shutdown(self, runtime: Runtime):
+        session = getattr(runtime, 'session', None)
         if session is None or session.closed:
             logger.error('Runtime Session is already closed?!')
-        # Cancel the master.
-        logger.debug('Canceling the master scheduling task.')
-        task_manager = session.get_task_managers(tmgr_uids=self._task_manager_uid)
-        if self.scheduler is not None:
-            task_manager.cancel_tasks(uids=self.scheduler.uid)
-        # Cancel blocks until the task is done so the following wait would (currently)
-        # be redundant,
-        # but there is a ticket open to change this behavior.
-        # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-        # tmgr.wait_tasks([scheduler.uid])
-        logger.debug('Master scheduling task complete.')
+        else:
+            # Cancel the master.
+            logger.debug('Canceling the master scheduling task.')
+            task_manager = runtime.task_manager()
+            if runtime.scheduler is not None:
+                task_manager.cancel_tasks(uids=runtime.scheduler.uid)
+                # Cancel blocks until the task is done so the following wait is (currently)
+                # be redundant, but there is a ticket open to change this behavior.
+                # See https://github.com/radical-cybertools/radical.pilot/issues/2336
+                runtime.scheduler.wait(state=rp.FINAL)
+                logger.debug('Master scheduling task complete.')
 
-        pmgr: rp.PilotManager = session.get_pilot_managers(
-            pmgr_uids=self._pilot_manager_uid)
-        # TODO: We may have multiple pilots.
-        # TODO: Check for errors?
-        logger.debug('Canceling Pilot.')
-        pmgr.cancel_pilots(uids=self.pilot_uid)
-        logger.debug('Pilot canceled.')
+            # TODO: We may have multiple pilots.
+            # TODO: Check for errors?
+            logger.debug('Canceling Pilot.')
+            runtime.pilot().cancel()
+            logger.debug('Pilot canceled.')
+            session.close()
 
     def updater(self) -> 'WorkflowUpdater':
-        return WorkflowUpdater(runtime=self)
+        return WorkflowUpdater(executor=self)
 
 
 class WorkflowUpdater(AbstractWorkflowUpdater):
-    def __init__(self, runtime: RPDispatchingExecutor):
-        self.executor = runtime
-        # TODO: Move to Submitter initialization.
-        self.task_manager = self.executor.session.get_task_managers(
-            tmgr_uids=self.executor._task_manager_uid)
-
-        self._pre_exec = list(get_pre_exec(configuration()))
-        # end TODO
+    def __init__(self, executor: RPDispatchingExecutor):
+        self.executor = executor
+        self.task_manager = executor.runtime.task_manager()
+        # TODO: Make sure we are clear about the scope of the configuration and the
+        #  life time of the workflow updater / submitter.
+        self._pre_exec = list(get_pre_exec(executor.configuration()))
 
     async def submit(self, *, item: scalems.workflow.Task) -> asyncio.Task:
         # TODO: Ensemble handling
@@ -1257,7 +1285,7 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
 
 
 class ExecutionContext:
-    """WorkflowManager for the Executor side of workflow session dispatching through RADICAL Pilot."""
+    """WorkflowManager for running tasks when dispatching through RADICAL Pilot."""
 
     def __init__(self):
         self.__rp_cfg = dict()

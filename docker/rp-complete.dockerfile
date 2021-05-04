@@ -19,7 +19,7 @@
 #     docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
 #
 
-FROM mongo:bionic:latest
+FROM mongo:bionic
 # Reference https://github.com/docker-library/mongo/blob/master/4.2/Dockerfile
 
 USER root

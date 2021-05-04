@@ -7,6 +7,7 @@ import typing
 import warnings
 
 from scalems.dispatching import QueueItem
+from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
@@ -54,6 +55,43 @@ class AbstractWorkflowUpdater(abc.ABC):
         ...
 
 
+class RuntimeDescriptor:
+    """Data Descriptor class for (backend-specific) runtime state access.
+
+    TODO: Consider making this class generic in terms of the backend/configuration
+     type. (Maybe only possible if we keep the subclassing model of RuntimeManagers rather
+     than composing type information at instantiation.)
+    """
+
+    # Ref: https://docs.python.org/3/reference/datamodel.html#implementing-descriptors
+    def __set_name__(self, owner, name):
+        # Called by type.__new__ during class creation to allow customization.
+        if getattr(owner, self.private_name, None) is not None:
+            raise ProtocolError(f'Cannot assign {repr(self)} to {owner.__qualname__} '
+                                f'with an existing non-None {self.private_name} member.')
+
+    def __get__(self, instance, owner):
+        # Note that instance==None when called through the *owner* (as a class attribute).
+        if instance is None:
+            return self
+        else:
+            return getattr(instance, self.private_name, None)
+
+    def __set__(self, instance, value):
+        if getattr(instance, self.private_name) is not None:
+            raise APIError('Cannot overwrite an existing runtime state.')
+        setattr(instance, self.private_name, value)
+
+    def __delete__(self, instance):
+        try:
+            delattr(instance, self.private_name)
+        except AttributeError:
+            pass
+
+    def __init__(self):
+        self.private_name = '_runtime_state'
+
+
 _BackendT = typing.TypeVar('_BackendT', contravariant=True)
 
 
@@ -65,35 +103,68 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     source_context: WorkflowManager
     submitted_tasks: typing.List[asyncio.Task]
 
+    _runtime_configuration: _BackendT = None
+    _runtime_state = None
+
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
     _queue_runner_task: asyncio.Task = None
+
+    runtime = RuntimeDescriptor()
+    """Get/set the current runtime state information.
+
+    Attempting to overwrite an existing *runtime* state raises an APIError.
+
+    De-initialize the stored runtime state by calling ``del`` on the attribute.
+
+    To re-initialize, de-initialize and then re-assign.
+
+    Design Note:
+        This pattern allows runtime state objects to be removed from the instance
+        data while potentially still in use (such as during clean-up), allowing
+        clearer scoping of access to the runtime state object.
+
+        In the future, we may find it more practical to use a module-level "ContextVar"
+        and to manage the scope in terms of PEP-567 Contexts. For the initial
+        implementation, though, we are using module-level runtime configuration
+        information, but storing the state information for initialized runtime facilities
+        through this Data Descriptor on the RuntimeManager instance.
+
+    Raises:
+        APIError if *state* is not None and a runtime state already exists.
+
+    """
 
     def __init__(self,
                  source: WorkflowManager,
                  *,
                  loop: asyncio.AbstractEventLoop,
-                 runtime: _BackendT,
+                 configuration: _BackendT,
                  dispatcher_lock=None):
         self.submitted_tasks = []
-        self._finalizer = None
 
         # TODO: Only hold a queue in an active context manager.
         self._command_queue = asyncio.Queue()
         self._exception = None
         self.source_context = source
         self._loop: asyncio.AbstractEventLoop = loop
-        self.configuration = runtime
+
+        # TODO: Consider relying on module ContextVars and contextvars.Context scope.
+        self._runtime_configuration = configuration
+
         if not isinstance(dispatcher_lock, asyncio.Lock):
             raise TypeError('An asyncio.Lock is required to control dispatcher state.')
         self._dispatcher_lock = dispatcher_lock
 
-    def runtime_shutdown(self, session):
-        """Shutdown hook for runtime sessions.
+    def configuration(self) -> _BackendT:
+        return self._runtime_configuration
+
+    def runtime_shutdown(self, runtime):
+        """Shutdown hook for runtime facilities.
 
         Called while exiting the context manager. Allows specialized handling of
         runtime backends in terms of the RuntimeManager instance and an abstract
-        *session* object, presumably acquired while entering the context manager
+        *Runtime* object, presumably acquired while entering the context manager
         through the *runtime_startup* hook.
         """
         pass
@@ -212,10 +283,10 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
         assert not self._dispatcher_lock.locked()
         async with self._dispatcher_lock:
-            session = self.session
+            runtime = self.runtime
             # This method is not thread safe, but we try to make clear as early as
             # possible that instance.session is no longer publicly available.
-            self.session = None
+            del self.runtime
 
             try:
                 # Stop the executor.
@@ -251,8 +322,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                         results = await asyncio.gather(*self.submitted_tasks)
                         # TODO: Log something useful about the results.
                         assert len(results) == len(self.submitted_tasks)
-
-                    self.runtime_shutdown(session)
             except asyncio.CancelledError as e:
                 logger.debug(f'{self.__class__.__qualname__} context manager received '
                              f'cancellation while exiting.')
@@ -264,24 +333,16 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 else:
                     self._exception = e
             finally:
-                # Should we do any other clean-up here?
-                # self.pilot = None
-                # self._pilot_manager = None
-                if session is not None:
-                    if not _session_is_closed(session):
-                        logger.debug(f'Queuer is shutting down {session}.')
-                        try:
-                            # Note: close() is not always fast, and we might want
-                            # to do it asynchronously in the future.
-                            session.close()
-                        except asyncio.CancelledError as e:
-                            cancelled_error = e
-                        except Exception as e:
-                            logger.exception(
-                                'Exception during Session.close().',
-                                exc_info=e)
-                        else:
-                            logger.debug('Runtime Session closed.')
+                try:
+                    self.runtime_shutdown(runtime)
+                except asyncio.CancelledError as e:
+                    cancelled_error = e
+                except Exception as e:
+                    logger.exception(
+                        f'Exception while shutting down {repr(runtime)}.',
+                        exc_info=e)
+                else:
+                    logger.debug('Runtime resources closed.')
         if cancelled_error:
             raise cancelled_error
 

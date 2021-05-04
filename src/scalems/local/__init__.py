@@ -257,7 +257,7 @@ class LocalExecutor(_execution.RuntimeManager):
         """
         super().__init__(source,
                          loop=loop,
-                         runtime=_runtime,
+                         configuration=_runtime,
                          dispatcher_lock=dispatcher_lock)
 
     def updater(self) -> WorkflowUpdater:

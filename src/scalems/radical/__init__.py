@@ -39,6 +39,7 @@ import pathlib
 import threading
 import typing
 import warnings
+import weakref
 
 import packaging.version
 from radical import pilot as rp
@@ -266,6 +267,155 @@ class RPFinalTaskState:
 
     def __bool__(self):
         return self.canceled.is_set() or self.done.is_set() or self.failed.is_set()
+
+
+class Runtime:
+    """Container for scalems.radical runtime state data."""
+    session: rp.Session
+
+    _pilot_manager_uid: str = None
+    _pilot_uid: str = None
+    _task_manager_uid: str = None
+    _scheduler: rp.Task = None
+
+    def __init__(self, session: rp.Session):
+        self.session = session
+
+    @typing.overload
+    def pilot_manager(self) -> typing.Union[rp.PilotManager, None]:
+        """Get the current PilotManager, if any."""
+        ...
+
+    @typing.overload
+    def pilot_manager(self, pilot_manager: str) -> typing.Union[rp.PilotManager, None]:
+        """Set the pilot manager from a UID"""
+        ...
+
+    @typing.overload
+    def pilot_manager(self, pilot_manager: rp.PilotManager) -> typing.Union[rp.PilotManager, None]:
+        """Set the current pilot manager as provided."""
+        ...
+
+    def pilot_manager(self, pilot_manager = None) -> typing.Union[rp.PilotManager, None]:
+        if pilot_manager is None:
+            if self._pilot_manager_uid:
+                return self.session.get_pilot_managers(
+                    pmgr_uids=self._pilot_manager_uid)
+            else:
+                return None
+        elif isinstance(pilot_manager, rp.PilotManager):
+            if not pilot_manager.session.uid == self.session.uid:
+                raise APIError('Cannot accept a PilotManager from a different Session.')
+            self._pilot_manager_uid = pilot_manager.uid
+            return pilot_manager
+        else:
+            uid = pilot_manager
+            try:
+                pmgr = self.session.get_pilot_managers(pmgr_uids=uid)
+                assert isinstance(pmgr, rp.PilotManager)
+            except (AssertionError, KeyError) as e:
+                raise ValueError(f'{uid} does not describe a valid PilotManager') from e
+            except Exception as e:
+                # TODO: Track down the expected rp exception.
+                logger.exception('Unhandled RADICAL Pilot exception.', exc_info=e)
+                raise ValueError(f'{uid} does not describe a valid PilotManager') from e
+            else:
+                return self.pilot_manager(pmgr)
+
+    @typing.overload
+    def task_manager(self) -> typing.Union[rp.TaskManager, None]:
+        """Get the current TaskManager, if any."""
+        ...
+
+    @typing.overload
+    def task_manager(self, task_manager: str) -> typing.Union[rp.TaskManager, None]:
+        """Set the TaskManager from a UID."""
+        ...
+
+    @typing.overload
+    def task_manager(self, task_manager: rp.TaskManager) -> typing.Union[rp.TaskManager, None]:
+        """Set the TaskManager from the provided instance."""
+        ...
+
+    def task_manager(self, task_manager=None) -> typing.Union[rp.TaskManager, None]:
+        if task_manager is None:
+            if self._task_manager_uid:
+                return self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
+            else:
+                return None
+        elif isinstance(task_manager, rp.TaskManager):
+            if not task_manager.session.uid == self.session.uid:
+                raise APIError('Cannot accept a TaskManager from a different Session.')
+            self._task_manager_uid = task_manager.uid
+            return task_manager
+        else:
+            uid = task_manager
+            try:
+                tmgr = self.session.get_task_managers(tmgr_uids=uid)
+                assert isinstance(tmgr, rp.TaskManager)
+            except (AssertionError, KeyError) as e:
+                raise ValueError(f'{uid} does not describe a valid TaskManager') from e
+            except Exception as e:
+                # TODO: Track down the expected rp exception.
+                logger.exception('Unhandled RADICAL Pilot exception.', exc_info=e)
+                raise ValueError(f'{uid} does not describe a valid TaskManager') from e
+            else:
+                return self.task_manager(tmgr)
+
+    @typing.overload
+    def pilot(self) -> typing.Union[rp.Pilot, None]:
+        """Get the current Pilot, if any."""
+        ...
+
+    @typing.overload
+    def pilot(self, pilot: str) -> typing.Union[rp.Pilot, None]:
+        """Set the Pilot according to the provided UID."""
+        ...
+
+    @typing.overload
+    def pilot(self, pilot: rp.Pilot) -> typing.Union[rp.Pilot, None]:
+        """Set the Pilot to the provided instance."""
+        ...
+
+    def pilot(self, pilot=None) -> typing.Union[rp.Pilot, None]:
+        """Get (optionally set) the current Pilot."""
+        if pilot is None:
+            if not self._pilot_uid:
+                return None
+            else:
+                pmgr = self.pilot_manager()
+                if pmgr is None:
+                    return None
+                return pmgr.get_pilots(uids=self._pilot_uid)
+
+        pmgr = self.pilot_manager()
+        if not pmgr:
+            raise APIError('Cannot set Pilot before setting PilotManager.')
+
+        if isinstance(pilot, rp.Pilot):
+            session = pilot.session
+            if not isinstance(session, rp.Session):
+                raise APIError(f'Pilot {repr(pilot)} does not have a valid Session.')
+            if session.uid != self.session.uid:
+                raise APIError('Cannot accept a Pilot from a different Session.')
+            if pilot.pmgr.uid != pmgr.uid:
+                raise APIError('Pilot must be associated with a PilotManager '
+                               'already configured.')
+            self._pilot_uid = pilot.uid
+            return pilot
+        else:
+            uid = pilot
+            try:
+                pilot = pmgr.get_pilots(uids=uid)
+                assert isinstance(pilot, rp.Pilot)
+            except (AssertionError, KeyError) as e:
+                raise ValueError(f'{uid} does not describe a valid Pilot') from e
+            except Exception as e:
+                # TODO: Track down the expected rp exception.
+                logger.exception('Unhandled RADICAL Pilot exception.', exc_info=e)
+                raise ValueError(f'{uid} does not describe a valid Pilot') from e
+            else:
+                return self.pilot(pilot)
 
 
 def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
@@ -849,7 +999,7 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
                                                                    {}).copy()
         pilot_description.update({'resource': configuration().execution_target})
         pilot_description.update({
-            'resource': execution_manager._runtime.execution_target,
+            'resource': execution_manager.configuration().execution_target,
             'cores': 4,
             'gpus': 0
         })
@@ -911,7 +1061,7 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
             # 'executable': py_venv,
             'executable': 'python3',
             'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
-            'pre_exec': execution_manager._pre_exec
+            'pre_exec': list(get_pre_exec(execution_manager.configuration()))
             # 'named_env': 'scalems_env'
         }))
         logger.debug('Checking RP execution environment.')
@@ -947,6 +1097,24 @@ def _connect_rp(execution_manager: 'RPDispatchingExecutor'):
         raise e
     except Exception as e:
         raise DispatchError('Failed to launch SCALE-MS master task.') from e
+
+
+@cache
+def get_pre_exec(conf: Configuration) -> tuple:
+    """Get the sequence of pre_exec commands.
+
+    Warning:
+        Use cases may require a `list` object. Caller is responsible for converting
+        the returned tuple if appropriate.
+
+    """
+    if conf.target_venv is None or len(conf.target_venv) == 0:
+        raise ValueError(
+            'Currently, tasks cannot be dispatched without a target venv.')
+
+    activate_venv = '. ' + str(os.path.join(conf.target_venv, 'bin', 'activate'))
+    # Note: RP may specifically expect a `list` and not a `tuple`.
+    return (activate_venv,)
 
 
 class RPDispatchingExecutor(RuntimeManager):
@@ -992,9 +1160,6 @@ class RPDispatchingExecutor(RuntimeManager):
             raise ValueError(
                 'Caller must specify a venv to be activated by the execution agent for '
                 'dispatched tasks.')
-        else:
-            self._pre_exec = [
-                '. ' + str(os.path.join(runtime.target_venv, 'bin', 'activate'))]
 
         # TODO: Consider relying on module ContextVars and contextvars.Context scope.
         self._runtime = Configuration(**dataclasses.asdict(runtime))
@@ -1075,11 +1240,7 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
         self.task_manager = self.executor.session.get_task_managers(
             tmgr_uids=self.executor._task_manager_uid)
 
-        _target_venv = configuration().target_venv
-        if _target_venv is None or len(_target_venv) == 0:
-            raise DispatchError(
-                'Currently, tasks cannot be dispatched without a target venv.')
-        self._pre_exec = ['. ' + os.path.join(_target_venv, 'bin', 'activate')]
+        self._pre_exec = list(get_pre_exec(configuration()))
         # end TODO
 
     async def submit(self, *, item: scalems.workflow.Task) -> asyncio.Task:

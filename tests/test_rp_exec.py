@@ -45,7 +45,7 @@ def test_rp_static_venv(rp_venv, pilot_description):
     ...
 
 
-def test_rp_usability(pilot_description):
+def test_rp_usability(pilot_description, cleandir):
     """Confirm availability of RADICAL Pilot infrastructure.
 
     Tests here may be too cumbersome to run in every invocation of a
@@ -63,7 +63,7 @@ def test_rp_usability(pilot_description):
             assert resource
 
 
-def test_rp_basic_task_local(rp_task_manager, pilot_description):
+def test_rp_basic_task_local(rp_task_manager, pilot_description, cleandir):
     if pilot_description.access_schema and pilot_description.access_schema != 'local':
         pytest.skip('This test is only for local execution.')
 
@@ -78,7 +78,7 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description):
     assert task.exit_code == 0
 
 
-def test_rp_basic_task_remote(rp_task_manager, pilot_description):
+def test_rp_basic_task_remote(rp_task_manager, pilot_description, cleandir):
     import radical.pilot as rp
 
     if pilot_description.access_schema and pilot_description.access_schema == 'local':
@@ -102,7 +102,7 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert remotename != localname
 
 
-def test_prepare_venv(rp_task_manager, sdist):
+def test_prepare_venv(rp_task_manager, sdist, cleandir):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     This test function specifically tests the local.localhost resource.
@@ -187,7 +187,7 @@ def test_prepare_venv(rp_task_manager, sdist):
 
 
 @pytest.mark.asyncio
-async def test_rp_future(rp_task_manager):
+async def test_rp_future(rp_task_manager, cleandir):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -320,7 +320,7 @@ async def test_rp_future(rp_task_manager):
 
 # @pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 @pytest.mark.skip(reason='Test disabled pending RCT bug fix. See issue #119.')
-def test_rp_raptor_staging(pilot_description, rp_venv):
+def test_rp_raptor_staging(pilot_description, rp_venv, cleandir):
     """Test file staging for raptor Master and Worker tasks.
 
     - upon pilot startup, transfer a file to the pilot sandbox
@@ -558,7 +558,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 
 @pytest.mark.filterwarnings('ignore::DeprecationWarning')
 @pytest.mark.asyncio
-async def test_exec_rp(pilot_description, rp_venv):
+async def test_exec_rp(pilot_description, rp_venv, cleandir):
     """Test that we are able to launch and shut down a RP dispatched execution session.
     """
     # Hopefully, this requirement is temporary.
@@ -640,4 +640,4 @@ if __name__ == '__main__':
                'cores': 1,
                }
     pdesc = rp.PilotDescription(pd_init)
-    test_rp_raptor_staging(pdesc, venv)
+    test_rp_raptor_staging(pdesc, venv, None)

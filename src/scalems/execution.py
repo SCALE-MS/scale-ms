@@ -19,17 +19,6 @@ logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
-def _session_is_closed(session):
-    """Generic check for status of a session instance."""
-    if not hasattr(session, 'closed'):
-        raise TypeError('Bad argument. *session* does not report its open/closed status.')
-    if callable(session.closed):
-        return session.closed()
-    else:
-        # For example, radical.pilot.Session.closed is a `property`.
-        return session.closed
-
-
 class AbstractWorkflowUpdater(abc.ABC):
     @abc.abstractmethod
     async def submit(self, *, item: Task) -> asyncio.Task:
@@ -78,7 +67,7 @@ class RuntimeDescriptor:
             return getattr(instance, self.private_name, None)
 
     def __set__(self, instance, value):
-        if getattr(instance, self.private_name) is not None:
+        if getattr(instance, self.private_name, None) is not None:
             raise APIError('Cannot overwrite an existing runtime state.')
         setattr(instance, self.private_name, value)
 
@@ -97,14 +86,12 @@ _BackendT = typing.TypeVar('_BackendT', contravariant=True)
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """Client side manager for dispatching work loads and managing data flow."""
-    session = None
     # TODO: Address the circular dependency of
     #  WorkflowManager->ExecutorFactory->RuntimeManager->WorkflowManager
     source_context: WorkflowManager
     submitted_tasks: typing.List[asyncio.Task]
 
     _runtime_configuration: _BackendT = None
-    _runtime_state = None
 
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
@@ -172,18 +159,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     def queue(self):
         # TODO: Only expose queue while in an active context manager.
         return self._command_queue
-
-    def active(self) -> bool:
-        session = self.session
-        if session is None:
-            return False
-        else:
-            assert session is not None
-            return not session.closed
-
-    def __del__(self):
-        if self.active():
-            warnings.warn('{} was not explicitly shutdown.'.format(repr(self)))
 
     def exception(self) -> typing.Union[None, Exception]:
         return self._exception
@@ -350,57 +325,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # TODO: Catch internal exceptions for useful logging and user-friendliness.
         if exc_type is not None:
             return False
-
-    # We don't currently have a use for a stand-alone Task.
-    # We use the async context manager and the exception() method.
-    # def __await__(self):
-    #     """Implement the asyncio task represented by this object."""
-    #     # Note that this is not a native coroutine object; we cannot `await`
-    #     # The role of object.__await__() is to return an iterator that will be
-    #     # run to exhaustion in the context of an event loop.
-    #     # We assume that most of the asyncio activity happens through the
-    #     # async context mananager behavior and other async member functions.
-    #     # If we choose to `await instance` at all, we need a light-weight
-    #     # iteration we can perform to surrender control of the event loop,
-    #     # and then just do some sort of tidying or reporting that doesn't fit well
-    #     # into __aexit__(), such as the ability to return a value.
-    #
-    #     # # Note: We can't do this without first wait on some sort of Done event...
-    #     # failures = []
-    #     # for t in self.rp_tasks:
-    #     #     logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-    #     #     if t.state != rp.states.DONE or t.exit_code != 0:
-    #     #         logger.error(f'RP Task unsuccessful: {repr(t)}')
-    #     #         failures.append(t)
-    #     # if len(failures) > 0:
-    #     #     warnings.warn('Unsuccessful tasks: ' + ', '.join([repr(t) for t in
-    #     failures]))
-    #
-    #     yield
-    #     if self._exception:
-    #         raise self._exception
-    #     return self.scheduler
-    #
-    #     # # If we want to provide a "Future-like" interface, we should support the
-    #     callback
-    #     # # protocols and implement the following generator function.
-    #     # if not self.done():
-    #     #     self._asyncio_future_blocking = True
-    #     #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio
-    #     .isfuture
-    #     #
-    #     #     yield self  # This tells Task to wait for completion.
-    #     # if not self.done():
-    #     #     raise RuntimeError("The dispatcher task was not 'await'ed.")
-    #     # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
-    #     # to be raised upon exit from the generator."
-    #     # The Task works like a `result = yield from awaitable` expression.
-    #     # The iterator (generator) yields until exhausted,
-    #     # then raises StopIteration with the value returned in by the generator
-    #     function.
-    #     # return self.result()  # May raise too.
-    #     # # Otherwise, the only allowed value from the iterator is None.
-
 
 async def manage_execution(executor: RuntimeManager,
                            *,

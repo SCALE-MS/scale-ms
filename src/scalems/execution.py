@@ -4,7 +4,6 @@ import asyncio
 import contextlib
 import logging
 import typing
-import warnings
 
 from scalems.dispatching import QueueItem
 from scalems.exceptions import APIError
@@ -325,6 +324,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # TODO: Catch internal exceptions for useful logging and user-friendliness.
         if exc_type is not None:
             return False
+
 
 async def manage_execution(executor: RuntimeManager,
                            *,

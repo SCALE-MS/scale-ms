@@ -102,7 +102,7 @@ def pycharm_debug(request):
 def rmtmp(request):
     """Fixture for the --rm-tmp CLI option."""
     choice = request.config.getoption('--rm-tmp')
-    if not choice in ('always', 'never', 'success'):
+    if choice not in ('always', 'never', 'success'):
         raise RuntimeError('Invalid choice for --rm-tmp.')
     return choice
 

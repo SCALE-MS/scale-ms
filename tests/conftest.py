@@ -76,6 +76,12 @@ def pytest_addoption(parser):
         default=False,
         help='Attempt to connect to PyCharm remote debugging system, where appropriate.'
     )
+    parser.addoption(
+        '--rm-tmp',
+        type=str,
+        default='always',
+        help='Remove temporary test working directory "always", "never", or on "success".'
+    )
 
 
 @pytest.fixture(scope='session', autouse=True)
@@ -90,6 +96,15 @@ def pycharm_debug(request):
             return pydevd_pycharm.settrace('host.docker.internal', port=12345, stdoutToServer=True, stderrToServer=True)
         except ImportError:
             ...
+
+
+@pytest.fixture(scope='session')
+def rmtmp(request):
+    """Fixture for the --rm-tmp CLI option."""
+    choice = request.config.getoption('--rm-tmp')
+    if choice not in ('always', 'never', 'success'):
+        raise RuntimeError('Invalid choice for --rm-tmp.')
+    return choice
 
 
 @contextmanager
@@ -149,7 +164,7 @@ def _cleandir(remove_tempdir: str = 'always'):
 
 
 @pytest.fixture
-def cleandir():
+def cleandir(rmtmp):
     """Provide a clean temporary working directory for a test.
 
     Example usage:
@@ -183,7 +198,7 @@ def cleandir():
 
     Ref: https://docs.pytest.org/en/latest/fixture.html#using-fixtures-from-classes-modules-or-projects
     """
-    with _cleandir() as newdir:
+    with _cleandir(remove_tempdir=rmtmp) as newdir:
         yield newdir
 
 

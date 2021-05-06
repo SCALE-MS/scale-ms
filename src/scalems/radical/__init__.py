@@ -48,13 +48,13 @@ import scalems.subprocess
 import scalems.workflow
 from scalems.execution import AbstractWorkflowUpdater
 from scalems.execution import RuntimeManager
-from scalems.workflow import ResourceType
 from .. import utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
+from ..identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -614,7 +614,7 @@ def _describe_legacy_task(item: scalems.workflow.Task, pre_exec: list) -> rp.Tas
 
     For a "raptor" style task, see _describe_raptor_task()
     """
-    subprocess_type = ResourceType(('scalems', 'subprocess', 'SubprocessTask'))
+    subprocess_type = TypeIdentifier(('scalems', 'subprocess', 'SubprocessTask'))
     assert item.description().type() == subprocess_type
     input_data = item.input
     task_input = scalems.subprocess.SubprocessInput(**input_data)
@@ -795,7 +795,7 @@ async def submit(*,
                and len(scheduler) > 0 \
                and isinstance(task_manager.get_tasks(scheduler), rp.Task)
 
-    subprocess_type = ResourceType(('scalems', 'subprocess', 'SubprocessTask'))
+    subprocess_type = TypeIdentifier(('scalems', 'subprocess', 'SubprocessTask'))
     if item.description().type() == subprocess_type:
         if scheduler is not None:
             raise DispatchError('Raptor not yet supported for scalems.executable.')

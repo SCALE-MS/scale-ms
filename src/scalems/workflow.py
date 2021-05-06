@@ -11,7 +11,6 @@ a particular managed workflow to be specified.
 """
 import abc
 import asyncio
-import collections.abc
 import contextlib
 import dataclasses
 import functools
@@ -33,53 +32,31 @@ from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from scalems.exceptions import ScopeError
+from scalems.identifiers import TypeIdentifier
 from scalems.serialization import encode
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
-class ResourceType:
-    # TODO: Replace by details developed for serialization module.
-    def identifier(self) -> str:
-        """Resource type identifier"""
-        return '.'.join(self._identifier)
-
-    def as_tuple(self) -> tuple:
-        return self._identifier
-
-    def __init__(self, type_identifier: tuple):
-        if not isinstance(type_identifier, tuple):
-            raise TypeError('Expected a tuple of identifier strings.')
-        # TODO: format checking.
-        self._identifier = tuple([element for element in type_identifier])
-
-    def __eq__(self, other):
-        # Warning: This may be too permissive...
-        if isinstance(other, ResourceType):
-            return self._identifier == other._identifier
-        elif isinstance(other, str):
-            return self.identifier() == other
-        elif isinstance(other, collections.abc.Iterable):
-            return all([lhs == rhs] for lhs, rhs in zip(self._identifier, other))
-        else:
-            raise TypeError(f'Cannot compare ResourceType to {repr(other)}.')
-
-
 class Description:
     def shape(self) -> tuple:
         return self._shape
 
-    def type(self) -> ResourceType:
+    def type(self) -> TypeIdentifier:
         return self._type
 
-    def __init__(self, resource_type: ResourceType, *, shape: tuple = (1,)):
-        # TODO: input validation
+    def __init__(self, resource_type: TypeIdentifier, *, shape: tuple = (1,)):
+        type_id = TypeIdentifier.copy_from(resource_type)
+        if type_id is None:
+            raise ValueError(f'Could not create a TypeIdentifier for {repr(resource_type)}')
+        # TODO: Further input validation
         self._shape = shape
-        self._type = resource_type
+        self._type = type_id
 
 
-class CommandResourceType(ResourceType):
+class CommandResourceType:
+    """Hypothetical base class for Command references (outdated and obsolete)."""
     def input_description(self) -> Description:
         return Description(self._input_description.type(),
                            shape=self._result_description.shape())
@@ -255,7 +232,7 @@ class Task:
 
     def description(self) -> Description:
         decoded_record = json.loads(self._serialized_record)
-        resource_type = ResourceType(tuple(decoded_record['type']))
+        resource_type = TypeIdentifier(tuple(decoded_record['type']))
         # TODO: Handle multidimensional references.
         shape = (1,)
         value = Description(resource_type=resource_type, shape=shape)

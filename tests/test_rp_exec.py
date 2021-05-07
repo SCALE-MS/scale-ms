@@ -25,6 +25,7 @@ import pytest
 import scalems
 import scalems.context
 import scalems.radical
+import scalems.radical.runtime
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -571,7 +572,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
-    params = scalems.radical.Configuration(
+    params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}

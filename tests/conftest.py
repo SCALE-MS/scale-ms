@@ -297,13 +297,21 @@ def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskM
     logger.debug('Using resource config: {}'.format(repr(session.get_resource_config(pilot_description.resource))))
     logger.debug('Using PilotDescription: {}'.format(repr(pilot_description)))
 
-    pmgr = rp.PilotManager(session=session)
-    pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
-    tmgr = rp.TaskManager(session=session)
-    tmgr.add_pilots(pilot)
-    with session:
-        yield tmgr
-        pilot.cancel()
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.task_manager')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.db.database')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.session')
+
+        pmgr = rp.PilotManager(session=session)
+        pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
+        tmgr = rp.TaskManager(session=session)
+        tmgr.add_pilots(pilot)
+        with session:
+            yield tmgr
+            pilot.cancel()
 
     assert session.closed
 

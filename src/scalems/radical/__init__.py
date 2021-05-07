@@ -287,16 +287,20 @@ class Runtime:
         scalems.radical._connect_rp()
 
     """
-    session: rp.Session
+    _session: rp.Session
     scheduler: rp.Task = None
 
-    _pilot_manager_uid: str = None
-    _pilot_uid: str = None
-    _task_manager_uid: str = None
+    _pilot_manager: rp.PilotManager = None
+    _pilot: rp.Pilot = None
+    _task_manager: rp.TaskManager = None
     _scheduler: rp.Task = None
 
     def __init__(self, session: rp.Session):
-        self.session = session
+        self._session = session
+
+    @property
+    def session(self) -> rp.Session:
+        return self._session
 
     @typing.overload
     def pilot_manager(self) -> typing.Union[rp.PilotManager, None]:
@@ -315,15 +319,11 @@ class Runtime:
 
     def pilot_manager(self, pilot_manager=None) -> typing.Union[rp.PilotManager, None]:
         if pilot_manager is None:
-            if self._pilot_manager_uid:
-                return self.session.get_pilot_managers(
-                    pmgr_uids=self._pilot_manager_uid)
-            else:
-                return None
+            return self._pilot_manager
         elif isinstance(pilot_manager, rp.PilotManager):
             if not pilot_manager.session.uid == self.session.uid:
                 raise APIError('Cannot accept a PilotManager from a different Session.')
-            self._pilot_manager_uid = pilot_manager.uid
+            self._pilot_manager = pilot_manager
             return pilot_manager
         else:
             uid = pilot_manager
@@ -333,7 +333,6 @@ class Runtime:
             except (AssertionError, KeyError) as e:
                 raise ValueError(f'{uid} does not describe a valid PilotManager') from e
             except Exception as e:
-                # TODO: Track down the expected rp exception.
                 logger.exception('Unhandled RADICAL Pilot exception.', exc_info=e)
                 raise ValueError(f'{uid} does not describe a valid PilotManager') from e
             else:
@@ -356,14 +355,11 @@ class Runtime:
 
     def task_manager(self, task_manager=None) -> typing.Union[rp.TaskManager, None]:
         if task_manager is None:
-            if self._task_manager_uid:
-                return self.session.get_task_managers(tmgr_uids=self._task_manager_uid)
-            else:
-                return None
+            return self._task_manager
         elif isinstance(task_manager, rp.TaskManager):
             if not task_manager.session.uid == self.session.uid:
                 raise APIError('Cannot accept a TaskManager from a different Session.')
-            self._task_manager_uid = task_manager.uid
+            self._task_manager = task_manager
             return task_manager
         else:
             uid = task_manager
@@ -373,7 +369,6 @@ class Runtime:
             except (AssertionError, KeyError) as e:
                 raise ValueError(f'{uid} does not describe a valid TaskManager') from e
             except Exception as e:
-                # TODO: Track down the expected rp exception.
                 logger.exception('Unhandled RADICAL Pilot exception.', exc_info=e)
                 raise ValueError(f'{uid} does not describe a valid TaskManager') from e
             else:
@@ -397,13 +392,7 @@ class Runtime:
     def pilot(self, pilot=None) -> typing.Union[rp.Pilot, None]:
         """Get (optionally set) the current Pilot."""
         if pilot is None:
-            if not self._pilot_uid:
-                return None
-            else:
-                pmgr = self.pilot_manager()
-                if pmgr is None:
-                    return None
-                return pmgr.get_pilots(uids=self._pilot_uid)
+            return self._pilot
 
         pmgr = self.pilot_manager()
         if not pmgr:
@@ -418,7 +407,7 @@ class Runtime:
             if pilot.pmgr.uid != pmgr.uid:
                 raise APIError('Pilot must be associated with a PilotManager '
                                'already configured.')
-            self._pilot_uid = pilot.uid
+            self._pilot = pilot
             return pilot
         else:
             uid = pilot

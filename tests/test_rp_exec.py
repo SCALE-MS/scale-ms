@@ -46,24 +46,6 @@ def test_rp_static_venv(rp_venv, pilot_description):
     ...
 
 
-def test_rp_usability(pilot_description, cleandir):
-    """Confirm availability of RADICAL Pilot infrastructure.
-
-    Tests here may be too cumbersome to run in every invocation of a
-    pytest fixture, so let's just run them once in this unit test.
-    """
-
-    import radical.pilot as rp
-
-    # Note: radical.pilot.Session creation causes several deprecation warnings.
-    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=DeprecationWarning)
-        with rp.Session() as session:
-            resource = session.get_resource_config(pilot_description.resource)
-            assert resource
-
-
 def test_rp_basic_task_local(rp_task_manager, pilot_description, cleandir):
     if pilot_description.access_schema and pilot_description.access_schema != 'local':
         pytest.skip('This test is only for local execution.')

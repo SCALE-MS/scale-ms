@@ -4,11 +4,15 @@ Several custom command line options are added to the pytest configuration,
 but they must be provided *after* all standard pytest options.
 
 Note: https://docs.python.org/3/library/devmode.html#devmode may be enabled
-"using the -X dev command line option or by setting the PYTHONDEVMODE environment variable to 1."
+"using the -X dev command line option or by setting the PYTHONDEVMODE environment
+variable to 1."
 """
 
 import pathlib
 import subprocess
+
+import scalems.radical
+from scalems.radical import Runtime
 
 try:
     # Import radical.pilot early because of interaction with the built-in logging module.
@@ -50,7 +54,8 @@ logger.setLevel(logging.DEBUG)
 def pytest_addoption(parser):
     """Add command-line user options for the pytest invocation."""
     # Automatic venv handling still needs some work. We require the user to
-    # explicitly name a resource (defined in $HOME/.radical/pilot/configs/resource_<name>.json)
+    # explicitly name a resource (defined in
+    # $HOME/.radical/pilot/configs/resource_<name>.json)
     # with virtenv details that are known to be valid.
     parser.addoption(
         '--rp-resource',
@@ -86,14 +91,18 @@ def pytest_addoption(parser):
 
 @pytest.fixture(scope='session', autouse=True)
 def pycharm_debug(request):
-    """If requested, try to connect to a PyCharm remote debugger at host.docker.internal:12345.
+    """If requested, try to connect to a PyCharm remote debugger at
+    host.docker.internal:12345.
 
     Note: the IDE run configuration must be started before launching pytest.
     """
     if request.config.getoption('--pycharm'):
         try:
             import pydevd_pycharm
-            return pydevd_pycharm.settrace('host.docker.internal', port=12345, stdoutToServer=True, stderrToServer=True)
+            return pydevd_pycharm.settrace('host.docker.internal',
+                                           port=12345,
+                                           stdoutToServer=True,
+                                           stderrToServer=True)
         except ImportError:
             ...
 
@@ -156,7 +165,8 @@ def _cleandir(remove_tempdir: str = 'always'):
             yield newpath
         # If we get to this line, the `with` block using _cleandir did not throw.
         # Clean up the temporary directory unless the user specified `--rm never`.
-        # I.e. If the user specified `--rm success`, then we need to toggle from `warn` to `remove`.
+        # I.e. If the user specified `--rm success`, then we need to toggle from `warn`
+        # to `remove`.
         if remove_tempdir != 'never':
             callback = remove
     finally:
@@ -196,7 +206,8 @@ def cleandir(rmtmp):
                 with open("myfile", "w") as f:
                     f.write("hello")
 
-    Ref: https://docs.pytest.org/en/latest/fixture.html#using-fixtures-from-classes-modules-or-projects
+    Ref: https://docs.pytest.org/en/latest/fixture.html#using-fixtures-from-classes
+    -modules-or-projects
     """
     with _cleandir(remove_tempdir=rmtmp) as newdir:
         yield newdir
@@ -214,8 +225,11 @@ def pilot_description(request) -> rp.PilotDescription:
         ru = None
 
     resource = request.config.getoption('--rp-resource')
-    if rp is None or ru is None or resource is None or not os.environ.get('RADICAL_PILOT_DBURL'):
-        pytest.skip("Test requires RADICAL environment. Provide target resource and RADICAL_PILOT_DBURL")
+    if rp is None or ru is None or resource is None or not os.environ.get(
+            'RADICAL_PILOT_DBURL'):
+        pytest.skip(
+            "Test requires RADICAL environment. Provide target resource and "
+            "RADICAL_PILOT_DBURL")
 
     pilot_description = {
         'resource': resource,
@@ -239,30 +253,64 @@ def rp_venv(request):
     if path is None:
         # pytest.skip('This test only runs for static RP venvs.')
         # return
-        warnings.warn('RP tests should be explicitly provided with a venv using --rp-venv.')
+        warnings.warn(
+            'RP tests should be explicitly provided with a venv using --rp-venv.')
     return path
 
 
-@pytest.fixture(scope='session')
-def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskManager:
-    """Provide a task_manager using the indicated resource."""
-    # Note: Session creation will fail with a FileNotFound error unless venv
-    #       is explicitly `activate`d (or the scripts installed with RADICAL components
-    #       are otherwise made available on the PATH).
-
+def _new_session():
     # Note: radical.pilot.Session creation causes several deprecation warnings.
     # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
     with warnings.catch_warnings():
         warnings.simplefilter('ignore', category=DeprecationWarning)
         session = rp.Session()
+        logger.info(f'Created {session.uid}')
+    return session
 
-    resource = session.get_resource_config(pilot_description.resource)
 
+def _new_runtime():
+    session = _new_session()
+    runtime = scalems.radical.Runtime(session)
+    return runtime
+
+
+def _new_pilotmanager(session: rp.Session):
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.task_manager')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.db.database')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.session')
+
+        return rp.PilotManager(session=session)
+
+
+def _new_taskmanager(session: rp.Session, pilot: rp.Pilot):
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.task_manager')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.db.database')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.session')
+
+        tmgr = rp.TaskManager(session=session)
+        tmgr.add_pilots(pilot)
+    return tmgr
+
+
+def _new_pilot(session: rp.Session,
+               pilot_manager: rp.PilotManager,
+               pilot_description: rp.PilotDescription,
+               venv: str):
     # Note: we can't manipulate the resource definition after creating the Session,
     # but we could check whether the resource is using the same venv that the user
     # is requesting.
-    if rp_venv is None:
+    if venv is None:
         pytest.skip('This test requires a user-provided static RP venv.')
+
+    resource = session.get_resource_config(pilot_description.resource)
 
     if pilot_description.access_schema == 'ssh':
         ssh_target = resource['ssh']['job_manager_endpoint']
@@ -285,7 +333,8 @@ def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskM
             timeout=5,
             encoding='utf-8')
         if process.returncode != 0 or process.stdout.rstrip() != 'success':
-            pytest.skip(f'Could not ssh to target computing resource with {" ".join(ssh)}.')
+            pytest.skip(f'Could not ssh to target computing resource with '
+                        f'{" ".join(ssh)}.')
             return
 
     else:
@@ -294,9 +343,9 @@ def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskM
             pilot_description.access_schema = 'local'
         assert pilot_description.access_schema == 'local'
 
-    logger.debug('Using resource config: {}'.format(repr(session.get_resource_config(pilot_description.resource))))
+    logger.debug('Using resource config: {}'.format(repr(session.get_resource_config(
+        pilot_description.resource))))
     logger.debug('Using PilotDescription: {}'.format(repr(pilot_description)))
-
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', category=DeprecationWarning,
                                 module='radical.pilot.task_manager')
@@ -305,15 +354,121 @@ def rp_task_manager(pilot_description: rp.PilotDescription, rp_venv) -> rp.TaskM
         warnings.filterwarnings('ignore', category=DeprecationWarning,
                                 module='radical.pilot.session')
 
-        pmgr = rp.PilotManager(session=session)
-        pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
-        tmgr = rp.TaskManager(session=session)
-        tmgr.add_pilots(pilot)
-        with session:
-            yield tmgr
-            pilot.cancel()
+        pilot = pilot_manager.submit_pilots(rp.PilotDescription(pilot_description))
+    return pilot
 
-    assert session.closed
+
+@pytest.fixture(scope='module')
+def rp_runtime() -> Runtime:
+    runtime: Runtime = _new_runtime()
+    try:
+        yield runtime
+    finally:
+        scheduler: rp.Task = runtime.scheduler
+        if scheduler is not None:
+            if isinstance(scheduler, rp.Task):
+                if scheduler.state not in rp.FINAL:
+                    scheduler.cancel()
+            else:
+                logger.error('Expect runtime.schedule to be a Task or None. '
+                             f'Found {repr(scheduler)}')
+        # pilot = runtime.pilot()
+        # if pilot is not None:
+        #   pilot.cancel()
+        # task_manager = runtime.task_manager()
+        # if task_manager is not None:
+        #     task_manager.close()
+        # pilot_manager = runtime.pilot_manager()
+        # if pilot_manager is not None:
+        #     pilot_manager.close()
+        runtime.session.close()
+    assert runtime.session.closed
+
+
+def _check_pilot_manager(runtime: Runtime):
+    # Caller should destroy and recreate Pilot if this call has to replace PilotManager.
+    session = runtime.session
+    original_pilot_manager: rp.PilotManager = runtime.pilot_manager()
+    if session.closed:
+        logger.info(f'{session.uid} is closed. Creating new Session.')
+        session: rp.Session = _new_session()
+        runtime.reset(session)
+    if original_pilot_manager is None or original_pilot_manager is not runtime.pilot_manager():
+        # Is there a way to check whether the PilotManager is healthy?
+        logger.info(f'Creating a new PilotManager for {runtime.session.uid}')
+        pilot_manager = _new_pilotmanager(runtime.session)
+        runtime.pilot_manager(pilot_manager)
+
+
+def _check_pilot(runtime: Runtime,
+                 pilot_description: rp.PilotDescription,
+                 venv):
+    pilot_manager = runtime.pilot_manager()
+    pilot = runtime.pilot()
+    _check_pilot_manager(runtime=runtime)
+    if runtime.pilot_manager() is not pilot_manager \
+            or pilot is None \
+            or pilot.state in rp.FINAL:
+        if runtime.pilot_manager() is not pilot_manager:
+            logger.info('PilotManager refreshed. Now refreshing Pilot.')
+        if pilot is None:
+            logger.info(f'Creating a Pilot for {runtime.session.uid}')
+        if isinstance(pilot, rp.Pilot) and pilot.state in rp.FINAL:
+            logger.info(f'Getting a new Pilot because old Pilot is {pilot.state}')
+        pilot = _new_pilot(session=runtime.session,
+                           pilot_manager=runtime.pilot_manager(),
+                           pilot_description=pilot_description,
+                           venv=venv)
+        runtime.pilot(pilot)
+    else:
+        assert pilot is runtime.pilot()
+
+
+def _check_task_manager(runtime: Runtime,
+                        pilot_description: rp.PilotDescription,
+                        venv):
+    task_manager = runtime.task_manager()
+    original_pilot = runtime.pilot()
+    _check_pilot(runtime=runtime,
+                 pilot_description=pilot_description,
+                 venv=venv)
+    pilot = runtime.pilot()
+    if task_manager is None or pilot is not original_pilot:
+        if pilot is not original_pilot and original_pilot is not None:
+            logger.info('Pilot has changed. Creating and binding a new TaskManager.')
+        if task_manager is None:
+            logger.info(f'Creating new TaskManager for {runtime.session.uid}')
+        task_manager = _new_taskmanager(session=runtime.session, pilot=pilot)
+
+    if runtime.task_manager() is not task_manager:
+        runtime.task_manager(task_manager)
+
+
+@pytest.fixture(scope='function')
+def rp_pilot_manager(rp_runtime: Runtime):
+    _check_pilot_manager(runtime=rp_runtime)
+    yield rp_runtime.pilot_manager()
+
+
+@pytest.fixture(scope='function')
+def rp_pilot(rp_runtime: Runtime,
+             rp_pilot_manager: rp.PilotManager,
+             pilot_description: rp.PilotDescription,
+             rp_venv):
+    _check_pilot(runtime=rp_runtime, pilot_description=pilot_description, venv=rp_venv)
+    pilot = rp_runtime.pilot()
+    assert pilot is not None
+    assert pilot.state not in rp.FINAL
+    yield pilot
+
+
+@pytest.fixture(scope='function')
+def rp_task_manager(rp_runtime: Runtime, pilot_description, rp_venv):
+    _check_task_manager(runtime=rp_runtime,
+                        pilot_description=pilot_description,
+                        venv=rp_venv)
+    task_manager: rp.TaskManager = rp_runtime.task_manager()
+    yield task_manager
 
 
 @pytest.fixture(scope='session')
@@ -323,5 +478,6 @@ def sdist():
     src_dir = pathlib.Path(__file__).parent.parent
     assert os.path.exists(src_dir / 'tests' / 'conftest.py')
     with tempfile.TemporaryDirectory() as dir:
-        dist = build.ProjectBuilder(str(src_dir)).build(distribution='sdist', output_directory=dir)
+        dist = build.ProjectBuilder(str(src_dir)).build(distribution='sdist',
+                                                        output_directory=dir)
         yield dist

@@ -32,6 +32,8 @@ TODO:
       chances of unexpected extension of reference lifetimes, and the RuntimeState
       object itself raises ScopeError if accessed after `close()` (such as by leaving the
       context manager).
+    * Add some locking for state changes until we are clearer about multithread use
+      cases and safe state maintenance.
 
 Deferred:
     Runtime can avoid providing direct access to RP interface, and instead run an
@@ -89,14 +91,35 @@ class Runtime:
 
     """
     _session: rp.Session
-    scheduler: rp.Task = None
+    scheduler: typing.Optional[rp.Task] = None
 
-    _pilot_manager: rp.PilotManager = None
-    _pilot: rp.Pilot = None
-    _task_manager: rp.TaskManager = None
-    _scheduler: rp.Task = None
+    _pilot_manager: typing.Optional[rp.PilotManager] = None
+    _pilot: typing.Optional[rp.Pilot] = None
+    _task_manager: typing.Optional[rp.TaskManager] = None
 
     def __init__(self, session: rp.Session):
+        if not isinstance(session, rp.Session) or session.closed:
+            raise ValueError('*session* must be an active RADICAL Pilot Session.')
+        self._session = session
+
+    def reset(self, session: rp.Session):
+        """Reset the runtime state.
+
+        Close any existing resources and revert to a new Runtime state containing only
+        the provided *session*.
+        """
+        if not isinstance(session, rp.Session) or session.closed:
+            raise ValueError('*session* must be an active RADICAL Pilot Session.')
+        self._session.close()
+        # Warning: This is not quite right.
+        # The attribute values are deferred to the class dict from initialization. The
+        # following lines actually leave the instance members in place with None values
+        # rather than removing them, but the logic of checking for and removing the
+        # instance values seems a little harder to read.
+        self.scheduler = None
+        self._pilot = None
+        self._task_manager = None
+        self._pilot_manager = None
         self._session = session
 
     @property
@@ -114,7 +137,8 @@ class Runtime:
         ...
 
     @typing.overload
-    def pilot_manager(self, pilot_manager: rp.PilotManager) -> typing.Union[rp.PilotManager, None]:
+    def pilot_manager(self, pilot_manager: rp.PilotManager) \
+            -> typing.Union[rp.PilotManager, None]:
         """Set the current pilot manager as provided."""
         ...
 
@@ -150,7 +174,8 @@ class Runtime:
         ...
 
     @typing.overload
-    def task_manager(self, task_manager: rp.TaskManager) -> typing.Union[rp.TaskManager, None]:
+    def task_manager(self, task_manager: rp.TaskManager) \
+            -> typing.Union[rp.TaskManager, None]:
         """Set the TaskManager from the provided instance."""
         ...
 
@@ -369,9 +394,6 @@ def _connect_rp(config: Configuration) -> Runtime:
         # TODO: Use archives generated from (acquired through) the local installations.
         # # Could we stage in archive distributions directly?
         # # self.pilot.stage_in()
-        # rp_spec = 'radical.pilot@git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems'
-        # rp_spec = shlex.quote(rp_spec)
-        # scalems_spec = shlex.quote('scalems@git+https://github.com/SCALE-MS/scale-ms.git@sms-54')
         # pilot.prepare_env(
         #     {
         #         'scalems_env': {

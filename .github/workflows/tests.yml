@@ -12,6 +12,7 @@ jobs:
   simple_local:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     strategy:
       matrix:
         python-version: [3.8, 3.9]
@@ -53,6 +54,7 @@ jobs:
   containerized_rp:
 
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       mongodb:
         image: mongo
@@ -74,6 +76,7 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
+      timeout-minutes: 10
       run: |
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
@@ -84,6 +87,7 @@ jobs:
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
     - name: Test with pytest
+      timeout-minutes: 10
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -92,6 +96,7 @@ jobs:
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
     - name: Command line tests
+      timeout-minutes: 3
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -110,6 +115,7 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 2
     strategy:
       matrix:
         python-version: [3.9]

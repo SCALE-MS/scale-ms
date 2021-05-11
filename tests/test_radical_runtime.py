@@ -127,9 +127,10 @@ def test_runtime_mismatch(pilot_description):
             tmgr.add_pilots(pilot)
 
         assert session.closed
-        assert pilot.state in rp.FINAL
-
-        # pmgr, pilot, and tmgr are now stale.
+        # This assertion may not be true:
+        # assert pilot.state in rp.FINAL
+        # Note that Pilot and other components may still be shutting down, but the
+        # intention is that, from this point, pmgr, pilot, and tmgr are now "stale".
 
         session = rp.Session()
 
@@ -156,6 +157,7 @@ def test_runtime_mismatch(pilot_description):
             with pytest.raises(APIError):
                 state.pilot(pilot)
 
+            # Presumably the old pilot is FINAL by now, right? ...
             assert pilot.state in rp.FINAL
             tmgr.close()
             pmgr.close()

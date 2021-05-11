@@ -68,6 +68,8 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
         pytest.skip('This test is only for remote execution.')
 
     tmgr = rp_task_manager
+    session = tmgr.session
+    assert not session.closed
 
     td = rp.TaskDescription({'executable': '/usr/bin/hostname',
                              'cpu_processes': 1})
@@ -462,6 +464,10 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
             with open(outfile, 'r') as outfh:
                 assert outfh.readline().rstrip() == data
             os.unlink(outfile)
+
+        pilot.cancel()
+        tmgr.close()
+        pmgr.close()
 
     finally:
         session.close(download=False)

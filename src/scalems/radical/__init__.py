@@ -844,7 +844,16 @@ class RPDispatchingExecutor(RuntimeManager):
             logger.debug('Canceling Pilot.')
             runtime.pilot().cancel()
             logger.debug('Pilot canceled.')
+            runtime.task_manager().close()
+            logger.debug('TaskManager closed.')
+            runtime.pilot_manager().close()
+            logger.debug('PilotManager closed.')
             session.close()
+            if session.closed:
+                logger.debug('Session closed.')
+            else:
+                logger.error('Session not closed!')
+        logger.debug('Runtime shut down.')
 
     def updater(self) -> 'WorkflowUpdater':
         return WorkflowUpdater(executor=self)

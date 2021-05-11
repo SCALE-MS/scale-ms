@@ -6,6 +6,9 @@ but they must be provided *after* all standard pytest options.
 Note: https://docs.python.org/3/library/devmode.html#devmode may be enabled
 "using the -X dev command line option or by setting the PYTHONDEVMODE environment
 variable to 1."
+
+Note: Enable more radical.pilot debugging information by exporting
+RADICAL_LOG_LVL=DEBUG before invocation.
 """
 
 import pathlib
@@ -134,9 +137,11 @@ def _cleandir(remove_tempdir: str = 'always'):
     """
     remove_tempdir = str(remove_tempdir)
 
-    newpath = tempfile.mkdtemp()
+    newpath = tempfile.mkdtemp(prefix='pytest_cleandir_')
+    logger.debug(f'_cleandir created {newpath}')
 
     def remove():
+        logger.debug(f'_cleandir removing {newpath}')
         shutil.rmtree(newpath)
 
     def warn():
@@ -151,6 +156,7 @@ def _cleandir(remove_tempdir: str = 'always'):
     try:
         with scoped_chdir(newpath):
             yield newpath
+        logger.debug('_cleandir "with" block successful.')
         # If we get to this line, the `with` block using _cleandir did not throw.
         # Clean up the temporary directory unless the user specified `--rm never`.
         # I.e. If the user specified `--rm success`, then we need to toggle from `warn`
@@ -158,7 +164,16 @@ def _cleandir(remove_tempdir: str = 'always'):
         if remove_tempdir != 'never':
             callback = remove
     finally:
-        callback()
+        logger.debug('Finalizing _cleandir context.')
+        try:
+            callback()
+        except OSError as e:
+            logger.exception('Exception while exiting _cleandir.', exc_info=e)
+            logger.error(f'{newpath} may not have been successfully removed.')
+            # pytest.exit(msg='Unrecoverable error. Stopping pytest.',
+            #             returncode=e.errno)
+        else:
+            logger.debug('_cleandir exited after removing dir.')
 
 
 @pytest.fixture(scope='function')
@@ -359,7 +374,7 @@ def _new_pilot(session: rp.Session,
     return pilot
 
 
-@pytest.fixture(scope='module')
+@pytest.fixture(scope='session')
 def rp_runtime() -> Runtime:
     runtime: Runtime = _new_runtime()
     try:
@@ -373,15 +388,15 @@ def rp_runtime() -> Runtime:
             else:
                 logger.error('Expect runtime.schedule to be a Task or None. '
                              f'Found {repr(scheduler)}')
-        # pilot = runtime.pilot()
-        # if pilot is not None:
-        #   pilot.cancel()
-        # task_manager = runtime.task_manager()
-        # if task_manager is not None:
-        #     task_manager.close()
-        # pilot_manager = runtime.pilot_manager()
-        # if pilot_manager is not None:
-        #     pilot_manager.close()
+        pilot = runtime.pilot()
+        if pilot is not None:
+            pilot.cancel()
+        task_manager = runtime.task_manager()
+        if task_manager is not None:
+            task_manager.close()
+        pilot_manager = runtime.pilot_manager()
+        if pilot_manager is not None:
+            pilot_manager.close()
         runtime.session.close()
     assert runtime.session.closed
 
@@ -397,7 +412,11 @@ def _check_pilot_manager(runtime: Runtime):
     if original_pilot_manager is None or original_pilot_manager is not runtime.pilot_manager():
         # Is there a way to check whether the PilotManager is healthy?
         logger.info(f'Creating a new PilotManager for {runtime.session.uid}')
+        if isinstance(original_pilot_manager, rp.PilotManager):
+            logger.info('Closing old PilotManager')
+            original_pilot_manager.close()
         pilot_manager = _new_pilotmanager(runtime.session)
+        logger.info(f'New PilotManager is {pilot_manager.uid}')
         runtime.pilot_manager(pilot_manager)
 
 
@@ -412,14 +431,21 @@ def _check_pilot(runtime: Runtime,
             or pilot.state in rp.FINAL:
         if runtime.pilot_manager() is not pilot_manager:
             logger.info('PilotManager refreshed. Now refreshing Pilot.')
+            assert pilot is None or isinstance(pilot, rp.Pilot) and pilot.state in rp.FINAL
         if pilot is None:
             logger.info(f'Creating a Pilot for {runtime.session.uid}')
-        if isinstance(pilot, rp.Pilot) and pilot.state in rp.FINAL:
-            logger.info(f'Getting a new Pilot because old Pilot is {pilot.state}')
+        if isinstance(pilot, rp.Pilot):
+            if pilot.state in rp.FINAL:
+                logger.info(f'Old Pilot is {pilot.state}')
+            else:
+                logger.warning(f'Canceling old pilot {pilot.uid}, which should have '
+                               'already been canceled.')
+                pilot.cancel()
         pilot = _new_pilot(session=runtime.session,
                            pilot_manager=runtime.pilot_manager(),
                            pilot_description=pilot_description,
                            venv=venv)
+        logger.info(f'New Pilot is {pilot.uid}')
         runtime.pilot(pilot)
     else:
         assert pilot is runtime.pilot()
@@ -437,8 +463,11 @@ def _check_task_manager(runtime: Runtime,
     if task_manager is None or pilot is not original_pilot:
         if pilot is not original_pilot and original_pilot is not None:
             logger.info('Pilot has changed. Creating and binding a new TaskManager.')
-        if task_manager is None:
-            logger.info(f'Creating new TaskManager for {runtime.session.uid}')
+        if task_manager is not None:
+            assert isinstance(task_manager, rp.TaskManager)
+            logger.info('Closing old TaskManager.')
+            task_manager.close()
+        logger.info(f'Creating new TaskManager for {runtime.session.uid}')
         task_manager = _new_taskmanager(session=runtime.session, pilot=pilot)
 
     if runtime.task_manager() is not task_manager:

@@ -103,6 +103,11 @@ def test_runtime_bad_uid(pilot_description):
             with pytest.raises(ValueError):
                 state.pilot_manager('spam')
 
+            tmgr.close()
+            pmgr.close()
+
+        assert session.closed
+
 
 def test_runtime_mismatch(pilot_description):
     with warnings.catch_warnings():
@@ -120,6 +125,9 @@ def test_runtime_mismatch(pilot_description):
             pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
             tmgr = rp.TaskManager(session=session)
             tmgr.add_pilots(pilot)
+
+        assert session.closed
+        assert pilot.state in rp.FINAL
 
         # pmgr, pilot, and tmgr are now stale.
 
@@ -147,3 +155,8 @@ def test_runtime_mismatch(pilot_description):
             # The Pilot is detectably invalid.
             with pytest.raises(APIError):
                 state.pilot(pilot)
+
+            assert pilot.state in rp.FINAL
+            tmgr.close()
+            pmgr.close()
+        assert session.closed

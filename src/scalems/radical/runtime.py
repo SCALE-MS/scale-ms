@@ -462,6 +462,7 @@ def _connect_rp(config: Configuration) -> Runtime:
     except asyncio.CancelledError as e:
         raise e
     except Exception as e:
+        logger.exception('Exception while connecting RADICAL Pilot.', exc_info=e)
         raise DispatchError('Failed to launch SCALE-MS master task.') from e
 
 

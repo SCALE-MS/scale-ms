@@ -41,8 +41,8 @@ jobs:
       run: |
         . $HOME/testenv/bin/activate
         coverage run -m scalems.local --version
-        coverage run -m scalems.local --help
-        coverage run -m scalems.local --log-level=info examples/basic/echo.py hi there
+        coverage run --append -m scalems.local --help
+        coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
         coverage xml -o coverage2.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
     - name: "Upload coverage to Codecov"
@@ -87,6 +87,7 @@ jobs:
         python -m pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        python -m pip freeze
         radical-stack
     - name: Test with pytest
       timeout-minutes: 10
@@ -97,8 +98,15 @@ jobs:
         export RADICAL_LOG_LVL=DEBUG
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         for file in tests/test*py; do
-        python -X dev -m pytest --cov=scalems --cov-report=xml --cov-append -rA -l --log-cli-level=info $file --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report= -rA -l --log-cli-level=info $file --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        echo "Coverage report for $file:"
+        COVERAGE_FILE=$PWD/.coverage coverage report
+        echo "Adding to accumulated coverage..."
+        COVERAGE_FILE=$PWD/pytest-cov/.coverage coverage combine --append $PWD/.coverage
+        echo "Accumulated coverage:"
+        COVERAGE_FILE=$PWD/pytest-cov/.coverage coverage report
         done
+        COVERAGE_FILE=$PWD/pytest-cov/.coverage coverage xml -o coverage1.xml
     - name: Command line tests
       timeout-minutes: 3
       env:
@@ -106,14 +114,15 @@ jobs:
       run: |
         . $HOME/testenv/bin/activate
         coverage run -m scalems.radical --version
-        coverage run -m scalems.radical --help
-        coverage run -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local examples/basic/echo.py hello world
+        coverage run --append -m scalems.radical --help
+        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
         fail_ci_if_error: true
+        files: ./coverage1.xml,./coverage2.xml
         name: codecov-radical-${{ matrix.python-version }}
 
   lint:

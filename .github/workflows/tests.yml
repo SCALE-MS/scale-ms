@@ -31,6 +31,7 @@ jobs:
         python -m pip install -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pytest-cov
+        radical-stack
     - name: Test with pytest
       run: |
         . $HOME/testenv/bin/activate
@@ -86,6 +87,7 @@ jobs:
         python -m pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        radical-stack
     - name: Test with pytest
       timeout-minutes: 10
       env:

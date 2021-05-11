@@ -20,26 +20,25 @@ def test_runtime_normal_instance(rp_task_manager, pilot_description):
 
         session: rp.Session = rp_task_manager.session
 
-        with session:
-            state = Runtime(session=session)
+        state = Runtime(session=session)
 
-            state.task_manager(rp_task_manager)
+        state.task_manager(rp_task_manager)
 
-            # We only expect one pilot
-            pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
-            # We get a dictionary...
-            # assert isinstance(pilot, rp.Pilot)
-            # But it looks like it has the pilot id in it.
-            pilot_uid = typing.cast(dict, pilot)['uid']
-            pmgr_uid = typing.cast(dict, pilot)['pmgr']
-            pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
-            assert isinstance(pmgr, rp.PilotManager)
+        # We only expect one pilot
+        pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
+        # We get a dictionary...
+        # assert isinstance(pilot, rp.Pilot)
+        # But it looks like it has the pilot id in it.
+        pilot_uid = typing.cast(dict, pilot)['uid']
+        pmgr_uid = typing.cast(dict, pilot)['pmgr']
+        pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
+        assert isinstance(pmgr, rp.PilotManager)
 
-            state.pilot_manager(pmgr)
+        state.pilot_manager(pmgr)
 
-            pilot = pmgr.get_pilots(uids=pilot_uid)
-            assert isinstance(pilot, rp.Pilot)
-            state.pilot(pilot)
+        pilot = pmgr.get_pilots(uids=pilot_uid)
+        assert isinstance(pilot, rp.Pilot)
+        state.pilot(pilot)
 
 
 def test_runtime_normal_uid(rp_task_manager, pilot_description):
@@ -53,27 +52,26 @@ def test_runtime_normal_uid(rp_task_manager, pilot_description):
 
         session: rp.Session = rp_task_manager.session
 
-        with session:
-            state = Runtime(session=session)
+        state = Runtime(session=session)
 
-            state.task_manager(rp_task_manager.uid)
+        state.task_manager(rp_task_manager.uid)
 
-            # We only expect one pilot
-            pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
-            # We get a dictionary...
-            # assert isinstance(pilot, rp.Pilot)
-            # But it looks like it has the pilot id in it.
-            pilot_uid = typing.cast(dict, pilot)['uid']
+        # We only expect one pilot
+        pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
+        # We get a dictionary...
+        # assert isinstance(pilot, rp.Pilot)
+        # But it looks like it has the pilot id in it.
+        pilot_uid = typing.cast(dict, pilot)['uid']
 
-            # It is an error to set a Pilot before the PilotManager has been set.
-            with pytest.raises(APIError):
-                state.pilot(pilot_uid)
-
-            pmgr_uid = typing.cast(dict, pilot)['pmgr']
-
-            state.pilot_manager(pmgr_uid)
-
+        # It is an error to set a Pilot before the PilotManager has been set.
+        with pytest.raises(APIError):
             state.pilot(pilot_uid)
+
+        pmgr_uid = typing.cast(dict, pilot)['pmgr']
+
+        state.pilot_manager(pmgr_uid)
+
+        state.pilot(pilot_uid)
 
 
 def test_runtime_bad_uid(pilot_description):

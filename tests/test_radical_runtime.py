@@ -160,7 +160,7 @@ def test_runtime_mismatch(pilot_description):
                 state.pilot(pilot)
 
             # Even here, the old Pilot may still be in 'PMGR_ACTIVE_PENDING'
-            if not pilot.state in rp.FINAL:
+            if pilot.state not in rp.FINAL:
                 pilot.cancel()
             tmgr.close()
             pmgr.close()

@@ -375,7 +375,7 @@ def _new_pilot(session: rp.Session,
 
 
 @pytest.fixture(scope='session')
-def rp_runtime() -> Runtime:
+def rp_runtime(pilot_description) -> Runtime:
     runtime: Runtime = _new_runtime()
     try:
         yield runtime

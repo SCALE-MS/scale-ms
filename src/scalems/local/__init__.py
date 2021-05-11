@@ -12,16 +12,15 @@ Example:
 #  implementation.
 
 import asyncio
-import contextlib
 import importlib
 import logging
 import os
 import pathlib
-import typing
 
 from .. import execution as _execution
 from .. import workflow as _workflow
 from . import operations
+from ..context import scoped_chdir
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
@@ -210,25 +209,6 @@ async def _execute_item(task_type: _workflow.ResourceType,  # noqa: C901
         except Exception as e:
             logger.exception(f'Badly handled exception: {e}')
             raise e
-
-
-@contextlib.contextmanager
-def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
-    """Restore original working directory when exiting the context manager.
-
-    Not thread safe.
-
-    Not compatible with concurrency patterns.
-    """
-    path = pathlib.Path(directory)
-    if not path.exists() or not path.is_dir():
-        raise ValueError(f'Not a valid directory: {directory}')
-    original_dir = os.getcwd()
-    try:
-        os.chdir(path)
-        yield path
-    finally:
-        os.chdir(original_dir)
 
 
 def executor_factory(manager: _workflow.WorkflowManager, params=None):

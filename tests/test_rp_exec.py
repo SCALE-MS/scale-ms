@@ -46,7 +46,7 @@ def test_rp_static_venv(rp_venv, pilot_description):
     ...
 
 
-def test_rp_basic_task_local(rp_task_manager, pilot_description, cleandir):
+def test_rp_basic_task_local(rp_task_manager, pilot_description):
     if pilot_description.access_schema and pilot_description.access_schema != 'local':
         pytest.skip('This test is only for local execution.')
 
@@ -61,7 +61,7 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description, cleandir):
     assert task.exit_code == 0
 
 
-def test_rp_basic_task_remote(rp_task_manager, pilot_description, cleandir):
+def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
     if pilot_description.access_schema and pilot_description.access_schema == 'local':
@@ -85,7 +85,8 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description, cleandir):
     assert remotename != localname
 
 
-def test_prepare_venv(rp_task_manager, sdist, cleandir):
+@pytest.mark.skip('Disabled pending progress on #89 and #90.')
+def test_prepare_venv(rp_task_manager, sdist):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     This test function specifically tests the local.localhost resource.
@@ -170,7 +171,7 @@ def test_prepare_venv(rp_task_manager, sdist, cleandir):
 
 
 @pytest.mark.asyncio
-async def test_rp_future(rp_task_manager, cleandir):
+async def test_rp_future(rp_task_manager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -303,7 +304,7 @@ async def test_rp_future(rp_task_manager, cleandir):
 
 # @pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 @pytest.mark.skip(reason='Test disabled pending RCT bug fix. See issue #119.')
-def test_rp_raptor_staging(pilot_description, rp_venv, cleandir):
+def test_rp_raptor_staging(pilot_description, rp_venv):
     """Test file staging for raptor Master and Worker tasks.
 
     - upon pilot startup, transfer a file to the pilot sandbox

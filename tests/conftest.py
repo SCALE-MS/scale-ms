@@ -12,6 +12,8 @@ import pathlib
 import subprocess
 
 import scalems.radical
+from scalems.context import cwd_lock
+from scalems.context import scoped_chdir
 from scalems.radical import Runtime
 
 try:
@@ -117,20 +119,6 @@ def rmtmp(request):
 
 
 @contextmanager
-def scoped_chdir(dir):
-    oldpath = os.getcwd()
-    os.chdir(dir)
-    try:
-        yield dir
-        # If the `with` block using scoped_chdir produces an exception, it will
-        # be raised at this point in this function. We want the exception to
-        # propagate out of the `with` block, but first we want to restore the
-        # original working directory, so we skip `except` but provide a `finally`.
-    finally:
-        os.chdir(oldpath)
-
-
-@contextmanager
 def _cleandir(remove_tempdir: str = 'always'):
     """Context manager for a clean temporary working directory.
 
@@ -173,9 +161,13 @@ def _cleandir(remove_tempdir: str = 'always'):
         callback()
 
 
-@pytest.fixture
+@pytest.fixture(scope='function')
 def cleandir(rmtmp):
     """Provide a clean temporary working directory for a test.
+
+    WARNING:
+        Use sparingly. Some modules launch new threads or processes which could be
+        disrupted by the changing working directory associated with this fixture.
 
     Example usage:
 
@@ -206,11 +198,20 @@ def cleandir(rmtmp):
                 with open("myfile", "w") as f:
                     f.write("hello")
 
-    Ref: https://docs.pytest.org/en/latest/fixture.html#using-fixtures-from-classes
-    -modules-or-projects
+    Ref:
+    https://docs.pytest.org/en/latest/fixture.html#using-fixtures-from-classes-modules-or-projects
     """
     with _cleandir(remove_tempdir=rmtmp) as newdir:
+        if not cwd_lock.locked():
+            raise RuntimeError('Logic error: we released the cwd_lock too early.')
+        if not os.path.exists(newdir):
+            raise RuntimeError("Logic error. We didn't keep the dir alive long enough.")
+        logger.info(f'cleandir context entered: {newdir}')
         yield newdir
+        if not os.path.exists(newdir):
+            logger.error("Possible logic error: we may have removed the temp dir too soon.")
+        logger.info('cleandir context is ready to finish. Releasing nested _cleandir.')
+    logger.info(f'cleandir left {newdir}. Returned to {os.getcwd()}')
 
 
 @pytest.fixture(scope='session')

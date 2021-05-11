@@ -96,7 +96,9 @@ jobs:
         . $HOME/testenv/bin/activate
         export RADICAL_LOG_LVL=DEBUG
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
-        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        for file in tests/test*py; do
+        python -X dev -m pytest --cov=scalems --cov-report=xml --cov-append -rA -l --log-cli-level=info $file --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        done
     - name: Command line tests
       timeout-minutes: 3
       env:
@@ -112,7 +114,6 @@ jobs:
       uses: codecov/codecov-action@v1
       with:
         fail_ci_if_error: true
-        files: ./coverage1.xml,./coverage2.xml
         name: codecov-radical-${{ matrix.python-version }}
 
   lint:

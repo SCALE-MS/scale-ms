@@ -121,10 +121,10 @@ def test_runtime_mismatch(pilot_description):
         session = rp.Session()
 
         with session:
-            pmgr = rp.PilotManager(session=session)
-            pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
-            tmgr = rp.TaskManager(session=session)
-            tmgr.add_pilots(pilot)
+            original_pmgr = rp.PilotManager(session=session)
+            pilot = original_pmgr.submit_pilots(rp.PilotDescription(pilot_description))
+            original_tmgr = rp.TaskManager(session=session)
+            original_tmgr.add_pilots(pilot)
 
         assert session.closed
         # This assertion may not be true:
@@ -138,16 +138,18 @@ def test_runtime_mismatch(pilot_description):
             state = Runtime(session=session)
 
             with pytest.raises(APIError):
-                state.pilot_manager(pmgr)
-
-            pmgr = rp.PilotManager(session=session)
-            state.pilot_manager(pmgr)
-
-            with pytest.raises(APIError):
-                state.task_manager(tmgr)
+                state.task_manager(original_tmgr)
+            original_tmgr.close()
 
             tmgr = rp.TaskManager(session=session)
             state.task_manager(tmgr)
+
+            with pytest.raises(APIError):
+                state.pilot_manager(original_pmgr)
+            original_pmgr.close()
+
+            pmgr = rp.PilotManager(session=session)
+            state.pilot_manager(pmgr)
 
             # The UID will not resolve in the stored PilotManager.
             with pytest.raises(ValueError):
@@ -157,8 +159,9 @@ def test_runtime_mismatch(pilot_description):
             with pytest.raises(APIError):
                 state.pilot(pilot)
 
-            # Presumably the old pilot is FINAL by now, right? ...
-            assert pilot.state in rp.FINAL
+            # Even here, the old Pilot may still be in 'PMGR_ACTIVE_PENDING'
+            if not pilot.state in rp.FINAL:
+                pilot.cancel()
             tmgr.close()
             pmgr.close()
         assert session.closed

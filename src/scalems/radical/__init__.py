@@ -29,7 +29,6 @@ Executor:
 import argparse
 import asyncio
 import contextlib
-import contextvars
 import dataclasses
 import functools
 import json
@@ -44,27 +43,24 @@ from radical import pilot as rp
 import scalems.execution
 import scalems.subprocess
 import scalems.workflow
-from scalems.execution import AbstractWorkflowUpdater
-from scalems.execution import RuntimeManager
-from scalems.workflow import ResourceType
-from .runtime import _connect_rp
-from .runtime import Configuration
-from .runtime import get_pre_exec
-from .runtime import Runtime
-from .. import utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
+from scalems.execution import AbstractWorkflowUpdater
+from scalems.execution import RuntimeManager
+from scalems.workflow import ResourceType
+from .runtime import _configuration
+from .runtime import _connect_rp
+from .runtime import _set_configuration
+from .runtime import Configuration
+from .runtime import get_pre_exec
+from .runtime import parser as _runtime_parser
+from .runtime import Runtime
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-# TODO: Consider scoping for these Workflow context variables.
-# Need to review PEP-567 and PEP-568 to consider where and how to scope the Context
-# with respect to the dispatching scope.
-_configuration = contextvars.ContextVar('_configuration')
 
 try:
     cache = functools.cache
@@ -87,82 +83,9 @@ def parser(add_help=False):
     See Also:
          https://docs.python.org/3/library/argparse.html#parents
     """
-    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
-
-    # We could consider inferring a default venv from the VIRTUAL_ENV environment
-    # variable,
-    # but we currently have very poor error handling regarding venvs. For now, this needs
-    # to be explicit.
-    # Ref https://github.com/SCALE-MS/scale-ms/issues/89
-    # See also https://github.com/SCALE-MS/scale-ms/issues/90
-    # TODO: Set module variables rather than carry around an args namespace?
-    _parser.add_argument('--venv',
-                         metavar='PATH',
-                         type=str,
-                         required=True,
-                         help='Full path to a (pre-configured) venv to use for RP tasks.')
-
-    _parser.add_argument(
-        '--resource',
-        type=str,
-        required=True,
-        help='Specify a *resource* for the radical.pilot.PilotDescription.'
-    )
-
-    _parser.add_argument(
-        '--access',
-        type=str,
-        help='Explicitly specify the access_schema to use from the RADICAL resource.'
-    )
+    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_runtime_parser()])
+    # We don't yet have anything to add...
     return _parser
-
-
-@functools.singledispatch
-def _set_configuration(*args, **kwargs) -> Configuration:
-    """Initialize or retrieve the module configuration.
-
-    This module and the RADICAL infrastructure have various stateful aspects
-    that require clearly-scoped module-level configuration. Module configuration
-    should be initialized exactly once per Python process.
-
-    Recommended usage is to derive an ArgumentParser from the *parser()* module
-    function and use the resulting namespace to initialize the module configuration
-    using this function.
-    """
-    assert len(args) != 0 or len(kwargs) != 0
-    # Caller has provided arguments.
-    # Not thread-safe
-    if _configuration.get(None):
-        raise APIError(f'configuration() cannot accept arguments when {__name__} is '
-                       f'already configured.')
-    c = Configuration(*args, **kwargs)
-    _configuration.set(c)
-    return _configuration.get()
-
-
-@_set_configuration.register
-def _(config: Configuration) -> Configuration:
-    # Not thread-safe
-    if _configuration.get(None):
-        raise APIError(f'configuration() cannot accept arguments when {__name__} is '
-                       f'already configured.')
-    _configuration.set(config)
-    return _configuration.get()
-
-
-@_set_configuration.register
-def _(namespace: argparse.Namespace) -> Configuration:
-    config = Configuration(
-        execution_target=namespace.resource,
-        target_venv=namespace.venv,
-        rp_resource_params={
-            'PilotDescription':
-                {
-                    'access_schema': namespace.access
-                }
-        }
-    )
-    return _set_configuration(config)
 
 
 def configuration(*args, **kwargs) -> Configuration:
@@ -192,7 +115,8 @@ def configuration(*args, **kwargs) -> Configuration:
     return _configuration.get()
 
 
-def executor_factory(manager: scalems.workflow.WorkflowManager, params: Configuration = None):
+def executor_factory(manager: scalems.workflow.WorkflowManager,
+                     params: Configuration = None):
     if params is not None:
         _set_configuration(params)
     params = configuration()
@@ -433,7 +357,8 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     return wrapped_task
 
 
-def _describe_legacy_task(item: scalems.workflow.Task, pre_exec: list) -> rp.TaskDescription:
+def _describe_legacy_task(item: scalems.workflow.Task,
+                          pre_exec: list) -> rp.TaskDescription:
     """Derive a RADICAL Pilot TaskDescription from a scalems workflow item.
 
     For a "raptor" style task, see _describe_raptor_task()
@@ -613,6 +538,7 @@ async def submit(*,
         has some degree of data flow management capabilities.
 
     """
+
     # TODO: Optimization: skip tasks that are already done (cached results available).
     def scheduler_is_ready(scheduler):
         return isinstance(scheduler, str) \
@@ -794,7 +720,8 @@ class RPDispatchingExecutor(RuntimeManager):
                 self._runtime_configuration.rp_resource_params)
         if self._runtime_configuration.execution_target is not None \
                 and len(self._runtime_configuration.execution_target) > 0:
-            configuration_dict['execution_target'] = self._runtime_configuration.execution_target
+            configuration_dict[
+                'execution_target'] = self._runtime_configuration.execution_target
         c = Configuration(**configuration_dict)
         token = _configuration.set(c)
         try:
@@ -831,8 +758,9 @@ class RPDispatchingExecutor(RuntimeManager):
             task_manager = runtime.task_manager()
             if runtime.scheduler is not None:
                 task_manager.cancel_tasks(uids=runtime.scheduler.uid)
-                # Cancel blocks until the task is done so the following wait is (currently)
-                # be redundant, but there is a ticket open to change this behavior.
+                # Cancel blocks until the task is done so the following wait is
+                # (currently) redundant, but there is a ticket open to change this
+                # behavior.
                 # See https://github.com/radical-cybertools/radical.pilot/issues/2336
                 runtime.scheduler.wait(state=rp.FINAL)
                 logger.debug('Master scheduling task complete.')

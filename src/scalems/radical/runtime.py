@@ -44,8 +44,11 @@ Deferred:
     pursue this.
 
 """
+import argparse
 import asyncio
+import contextvars
 import dataclasses
+import functools
 import logging
 import os
 import typing
@@ -54,11 +57,67 @@ import warnings
 import packaging.version
 from radical import pilot as rp
 
+import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
+
+# TODO: Consider scoping for these context variables.
+# Need to review PEP-567 and PEP-568 to consider where and how to scope the Context
+# with respect to the dispatching scope.
+_configuration = contextvars.ContextVar('_configuration')
+
+try:
+    cache = functools.cache
+except AttributeError:
+    # Note: functools.cache does not appear until Python 3.9
+    cache = functools.lru_cache(maxsize=None)
+
+
+@cache
+def parser(add_help=False):
+    """Get the module-specific argument parser.
+
+    Provides a base argument parser for scripts using the scalems.radical backend.
+
+    By default, the returned ArgumentParser is created with ``add_help=False``
+    to avoid conflicts when used as a *parent* for a parser more local to the caller.
+    If *add_help* is provided, it is passed along to the ArgumentParser created
+    in this function.
+
+    See Also:
+         https://docs.python.org/3/library/argparse.html#parents
+    """
+    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
+
+    # We could consider inferring a default venv from the VIRTUAL_ENV environment
+    # variable,
+    # but we currently have very poor error handling regarding venvs. For now, this needs
+    # to be explicit.
+    # Ref https://github.com/SCALE-MS/scale-ms/issues/89
+    # See also https://github.com/SCALE-MS/scale-ms/issues/90
+    # TODO: Set module variables rather than carry around an args namespace?
+    _parser.add_argument('--venv',
+                         metavar='PATH',
+                         type=str,
+                         required=True,
+                         help='Full path to a (pre-configured) venv to use for RP tasks.')
+
+    _parser.add_argument(
+        '--resource',
+        type=str,
+        required=True,
+        help='Specify a *resource* for the radical.pilot.PilotDescription.'
+    )
+
+    _parser.add_argument(
+        '--access',
+        type=str,
+        help='Explicitly specify the access_schema to use from the RADICAL resource.'
+    )
+    return _parser
 
 
 @dataclasses.dataclass(frozen=True)
@@ -481,3 +540,51 @@ def get_pre_exec(conf: Configuration) -> tuple:
     # Note: RP may specifically expect a `list` and not a `tuple`.
     sequence = (activate_venv,)
     return sequence
+
+
+@functools.singledispatch
+def _set_configuration(*args, **kwargs) -> Configuration:
+    """Initialize or retrieve the module configuration.
+
+    This module and the RADICAL infrastructure have various stateful aspects
+    that require clearly-scoped module-level configuration. Module configuration
+    should be initialized exactly once per Python process.
+
+    Recommended usage is to derive an ArgumentParser from the *parser()* module
+    function and use the resulting namespace to initialize the module configuration
+    using this function.
+    """
+    assert len(args) != 0 or len(kwargs) != 0
+    # Caller has provided arguments.
+    # Not thread-safe
+    if _configuration.get(None):
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is '
+                       f'already configured.')
+    c = Configuration(*args, **kwargs)
+    _configuration.set(c)
+    return _configuration.get()
+
+
+@_set_configuration.register
+def _(config: Configuration) -> Configuration:
+    # Not thread-safe
+    if _configuration.get(None):
+        raise APIError(f'configuration() cannot accept arguments when {__name__} is '
+                       f'already configured.')
+    _configuration.set(config)
+    return _configuration.get()
+
+
+@_set_configuration.register
+def _(namespace: argparse.Namespace) -> Configuration:
+    config = Configuration(
+        execution_target=namespace.resource,
+        target_venv=namespace.venv,
+        rp_resource_params={
+            'PilotDescription':
+                {
+                    'access_schema': namespace.access
+                }
+        }
+    )
+    return _set_configuration(config)

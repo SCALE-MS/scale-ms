@@ -60,6 +60,7 @@ from radical import pilot as rp
 import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
+from scalems.exceptions import InternalError
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -74,6 +75,14 @@ try:
 except AttributeError:
     # Note: functools.cache does not appear until Python 3.9
     cache = functools.lru_cache(maxsize=None)
+
+
+def _parse_option(arg: str) -> tuple:
+    if not isinstance(arg, str):
+        raise InternalError('Bug: This function should only be called with a str.')
+    if arg.count('=') != 1:
+        raise argparse.ArgumentTypeError('Expected a key/value pair delimited by "=".')
+    return tuple(arg.split('='))
 
 
 @cache
@@ -116,6 +125,15 @@ def parser(add_help=False):
         '--access',
         type=str,
         help='Explicitly specify the access_schema to use from the RADICAL resource.'
+    )
+
+    _parser.add_argument(
+        '--pilot-option',
+        action='append',
+        type=_parse_option,
+        nargs=1,
+        metavar='<key>=<value>',
+        help='Add a key value pair to the pilot description.'
     )
     return _parser
 
@@ -577,14 +595,18 @@ def _(config: Configuration) -> Configuration:
 
 @_set_configuration.register
 def _(namespace: argparse.Namespace) -> Configuration:
-    config = Configuration(
-        execution_target=namespace.resource,
-        target_venv=namespace.venv,
-        rp_resource_params={
+    rp_resource_params = {
             'PilotDescription':
                 {
                     'access_schema': namespace.access
                 }
         }
+    if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:
+        rp_resource_params.update(namespace.pilot_option)
+
+    config = Configuration(
+        execution_target=namespace.resource,
+        target_venv=namespace.venv,
+        rp_resource_params=rp_resource_params
     )
     return _set_configuration(config)

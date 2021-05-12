@@ -17,13 +17,14 @@ import logging
 import os
 import pathlib
 
+from . import operations
 from .. import execution as _execution
 from .. import workflow as _workflow
-from . import operations
 from ..context import scoped_chdir
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
+from ..identifiers import TypeIdentifier
 from ..subprocess._subprocess import SubprocessTask
 
 logger = logging.getLogger(__name__)
@@ -107,7 +108,7 @@ async def submit(item: _workflow.Task) -> asyncio.Task:
     else:
         assert not item.done()
         assert not item.manager().item(key).done()
-        task_type: _workflow.ResourceType = item.description().type()
+        task_type: TypeIdentifier = item.description().type()
         task = asyncio.create_task(_execute_item(task_type=task_type,
                                                  item=item,
                                                  execution_context=execution_context))
@@ -115,10 +116,10 @@ async def submit(item: _workflow.Task) -> asyncio.Task:
 
 
 # TODO: return an execution status object?
-async def _execute_item(task_type: _workflow.ResourceType,  # noqa: C901
+async def _execute_item(task_type: TypeIdentifier,  # noqa: C901
                         item: _workflow.Task, execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
-    if task_type.identifier() == 'scalems.subprocess.SubprocessTask':
+    if task_type == TypeIdentifier(('scalems', 'subprocess', 'SubprocessTask')):
         task_type = SubprocessTask()
 
         # TODO: Use abstract input factory.
@@ -175,11 +176,11 @@ async def _execute_item(task_type: _workflow.ResourceType,  # noqa: C901
             with scoped_chdir(task_dir):
                 # TODO: Use implementation registry.
                 # We should have already checked for this...
-                namespace_end = len(task_type.as_tuple())
+                namespace_end = len(task_type.scoped_name())
                 implementation = None
                 while namespace_end >= 1:
                     try:
-                        module = '.'.join(task_type.as_tuple()[:namespace_end])
+                        module = '.'.join(task_type.scoped_name()[:namespace_end])
                         logger.debug(f'Looking for importable module: {module}')
                         implementation = importlib.import_module(module)
                     except ImportError:

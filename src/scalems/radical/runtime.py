@@ -131,7 +131,6 @@ def parser(add_help=False):
         '--pilot-option',
         action='append',
         type=_parse_option,
-        nargs=1,
         metavar='<key>=<value>',
         help='Add a key value pair to the pilot description.'
     )
@@ -602,6 +601,7 @@ def _(namespace: argparse.Namespace) -> Configuration:
             }
     }
     if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:
+        logger.info(f'Pilot options: {repr(namespace.pilot_option)}')
         rp_resource_params.update(namespace.pilot_option)
 
     config = Configuration(

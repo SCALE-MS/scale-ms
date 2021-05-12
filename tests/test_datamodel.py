@@ -14,7 +14,7 @@ from scalems.serialization import BasicSerializable
 from scalems.serialization import decode
 from scalems.serialization import encode
 from scalems.serialization import Shape
-from scalems.serialization import TypeIdentifier
+from scalems.identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -223,9 +223,9 @@ def test_shape():
 def test_resource_type():
     scoped_name = ['scalems', 'subprocess', 'SubprocessTask']
     description = scalems.workflow.Description(
-        resource_type=scalems.workflow.ResourceType(tuple(scoped_name)),
+        resource_type=TypeIdentifier(tuple(scoped_name)),
         shape=(1,))
-    assert description.type() == scalems.workflow.ResourceType(tuple(scoped_name))
+    assert description.type() == TypeIdentifier(tuple(scoped_name))
 
 
 def test_encoding_str():

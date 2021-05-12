@@ -85,8 +85,8 @@ RUN rp-venv/bin/pip install --upgrade \
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-#ARG RPREF="v1.6.5"
-ARG RPREF="project/scalems"
+ARG RPREF="v1.6.5"
+#ARG RPREF="project/scalems"
 # Note: radical.pilot does not work properly with an "editable install"
 RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     . ~rp/rp-venv/bin/activate && \

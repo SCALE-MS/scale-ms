@@ -158,9 +158,7 @@ def _(namespace: argparse.Namespace) -> Configuration:
         rp_resource_params={
             'PilotDescription':
                 {
-                    'access_schema': namespace.access,
-                    'cores': 4,
-                    'gpus': 0
+                    'access_schema': namespace.access
                 }
         }
     )

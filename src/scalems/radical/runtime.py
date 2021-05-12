@@ -359,14 +359,13 @@ def _connect_rp(config: Configuration) -> Runtime:
         # Where should this actually be coming from?
         # We need to inspect both the HPC allocation and the work load, I think,
         # and combine with user-provided preferences.
-        pilot_description = config.rp_resource_params.get('PilotDescription',
-                                                          {}).copy()
-        pilot_description.update({'resource': config.execution_target})
-        pilot_description.update({
-            'resource': config.execution_target,
+        pilot_description = {
             'cores': 4,
             'gpus': 0
-        })
+        }
+        pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
+        pilot_description.update({'resource': config.execution_target})
+
         # TODO: Pilot venv (#90, #94).
         # Currently, Pilot venv must be specified in the JSON file for resource
         # definitions.

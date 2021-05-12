@@ -596,11 +596,11 @@ def _(config: Configuration) -> Configuration:
 @_set_configuration.register
 def _(namespace: argparse.Namespace) -> Configuration:
     rp_resource_params = {
-            'PilotDescription':
-                {
-                    'access_schema': namespace.access
-                }
-        }
+        'PilotDescription':
+            {
+                'access_schema': namespace.access
+            }
+    }
     if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:
         rp_resource_params.update(namespace.pilot_option)
 

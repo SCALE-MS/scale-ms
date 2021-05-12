@@ -25,6 +25,7 @@ import pytest
 import scalems
 import scalems.context
 import scalems.radical
+import scalems.radical.runtime
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -45,25 +46,7 @@ def test_rp_static_venv(rp_venv, pilot_description):
     ...
 
 
-def test_rp_usability(pilot_description, cleandir):
-    """Confirm availability of RADICAL Pilot infrastructure.
-
-    Tests here may be too cumbersome to run in every invocation of a
-    pytest fixture, so let's just run them once in this unit test.
-    """
-
-    import radical.pilot as rp
-
-    # Note: radical.pilot.Session creation causes several deprecation warnings.
-    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-    with warnings.catch_warnings():
-        warnings.simplefilter('ignore', category=DeprecationWarning)
-        with rp.Session() as session:
-            resource = session.get_resource_config(pilot_description.resource)
-            assert resource
-
-
-def test_rp_basic_task_local(rp_task_manager, pilot_description, cleandir):
+def test_rp_basic_task_local(rp_task_manager, pilot_description):
     if pilot_description.access_schema and pilot_description.access_schema != 'local':
         pytest.skip('This test is only for local execution.')
 
@@ -78,13 +61,15 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description, cleandir):
     assert task.exit_code == 0
 
 
-def test_rp_basic_task_remote(rp_task_manager, pilot_description, cleandir):
+def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
     if pilot_description.access_schema and pilot_description.access_schema == 'local':
         pytest.skip('This test is only for remote execution.')
 
     tmgr = rp_task_manager
+    session = tmgr.session
+    assert not session.closed
 
     td = rp.TaskDescription({'executable': '/usr/bin/hostname',
                              'cpu_processes': 1})
@@ -102,7 +87,8 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description, cleandir):
     assert remotename != localname
 
 
-def test_prepare_venv(rp_task_manager, sdist, cleandir):
+@pytest.mark.skip('Disabled pending progress on #89 and #90.')
+def test_prepare_venv(rp_task_manager, sdist):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     This test function specifically tests the local.localhost resource.
@@ -187,7 +173,7 @@ def test_prepare_venv(rp_task_manager, sdist, cleandir):
 
 
 @pytest.mark.asyncio
-async def test_rp_future(rp_task_manager, cleandir):
+async def test_rp_future(rp_task_manager):
     """Check our Future implementation.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -320,7 +306,7 @@ async def test_rp_future(rp_task_manager, cleandir):
 
 # @pytest.mark.skipif(condition=bool(os.getenv('CI')), reason='Skipping slow test in CI environment.')
 @pytest.mark.skip(reason='Test disabled pending RCT bug fix. See issue #119.')
-def test_rp_raptor_staging(pilot_description, rp_venv, cleandir):
+def test_rp_raptor_staging(pilot_description, rp_venv):
     """Test file staging for raptor Master and Worker tasks.
 
     - upon pilot startup, transfer a file to the pilot sandbox
@@ -479,6 +465,10 @@ def test_rp_raptor_staging(pilot_description, rp_venv, cleandir):
                 assert outfh.readline().rstrip() == data
             os.unlink(outfile)
 
+        pilot.cancel()
+        tmgr.close()
+        pmgr.close()
+
     finally:
         session.close(download=False)
 
@@ -571,7 +561,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
-    params = scalems.radical.Configuration(
+    params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}

@@ -65,7 +65,8 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description):
 def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
-    if pilot_description.access_schema and pilot_description.access_schema == 'local':
+    if (pilot_description.access_schema and pilot_description.access_schema == 'local') \
+            or pilot_description.resource.startswith('local'):
         pytest.skip('This test is only for remote execution.')
 
     tmgr = rp_task_manager

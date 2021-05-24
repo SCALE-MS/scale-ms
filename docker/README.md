@@ -18,6 +18,10 @@ Containerized RADICAL Pilot testing can be performed two ways.
 Either the (required) MongoDB server can run in the same container
 as RP, or in a separate service container.
 
+The `scalems/radicalpilot` image includes additional resource definitions
+`local.github`, `local.tunnel`, `docker.login`, and `docker.compute`.
+See the `resource_*.json` files in this directory for details.
+
 ## Monolithic container
 
 `rp-complete.dockerfile` provides a recipe for a complete container

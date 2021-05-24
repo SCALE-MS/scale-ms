@@ -3,8 +3,13 @@
     "description": "GitHub Actions workflow with a `testenv` venv preconfigured.",
     "notes": "To use the ssh schema, make sure that ssh access to localhost is enabled.",
     "schemas": [
-      "local"
+      "local",
+      "ssh"
     ],
+    "ssh": {
+      "job_manager_endpoint": "ssh://127.0.0.1/",
+      "filesystem_endpoint": "sftp://127.0.0.1/"
+    },
     "local": {
       "job_manager_endpoint": "fork://localhost/",
       "filesystem_endpoint": "file://localhost/"

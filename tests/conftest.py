@@ -346,9 +346,12 @@ def _new_pilot(session: rp.Session,
         process = subprocess.run(
             ssh + ['/bin/echo', 'success'],
             stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=5,
             encoding='utf-8')
         if process.returncode != 0 or process.stdout.rstrip() != 'success':
+            logger.error('Failed ssh stdout: ' + str(process.stdout))
+            logger.error('Failed ssh stderr: ' + str(process.stderr))
             pytest.skip(f'Could not ssh to target computing resource with '
                         f'{" ".join(ssh)}.')
             return

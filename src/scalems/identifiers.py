@@ -10,6 +10,7 @@ __all__ = ['NAMESPACE_SCALEMS', 'FingerprintHash', 'Identifier', 'NamedIdentifie
            'TypeDataDescriptor', 'EphemeralIdentifier']
 
 import abc
+import builtins
 import logging
 import os
 import typing
@@ -45,16 +46,15 @@ class Identifier(typing.Hashable, typing.Protocol):
 
     Concrete data warrants a 128-bit or 256-bit checksum.
 
+    Design note:
+        Several qualifications may be necessary regarding the use of an identifier,
+        which may warrant annotation accessible through the Identifier instance.
+        Additional proposed data members include:
+        * scope: Scope in which the Identifier is effective and unique.
+        * reproducible: Whether results will have the same identity if re-executed.
+                        Relates to behaviors in situations such as missing cache data.
+        * concrete: Is this a concrete object or something more abstract?
 
-    """
-    scope: str
-    """Scope in which the Identifier is effective and unique."""
-    # TODO: Use an enum that is part of the API specification.
-
-    reproducible: bool
-    """Whether results will have the same identity if re-executed.
-
-    Relates to behaviors in situations such as missing cache data.
     """
 
     concrete: bool
@@ -108,7 +108,7 @@ class Identifier(typing.Hashable, typing.Protocol):
         path = os.fsencode(str(self))
         return str(path)
 
-    def __bytes__(self) -> bytes:
+    def __bytes__(self) -> builtins.bytes:
         """Get the network ordered byte sequence for the raw identifier."""
         return bytes(self.bytes())
 
@@ -180,7 +180,7 @@ class TypeIdentifier(NamedIdentifier):
     def name(self):
         return '.'.join(self._name_tuple)
 
-    def scoped_name(self) -> typing.Tuple[str]:
+    def scoped_name(self) -> typing.Tuple[str, ...]:
         return self._name_tuple
 
     @classmethod
@@ -193,10 +193,10 @@ class TypeIdentifier(NamedIdentifier):
         if isinstance(typeid, NamedIdentifier):
             # Copy from a compatible object.
             return cls(typeid._name_tuple)
-        if isinstance(typeid, (list, tuple)):
+        elif isinstance(typeid, (list, tuple)):
             # Create from the usual initialization parameter type.
             return cls(typeid)
-        if isinstance(typeid, type):
+        elif isinstance(typeid, type):
             # Try to generate an identifier based on a defined class.
             #
             # Consider disallowing TypeIdentifiers for non-importable types.
@@ -207,13 +207,15 @@ class TypeIdentifier(NamedIdentifier):
             else:
                 fully_qualified_name = str(typeid.__qualname__)
             return cls.copy_from(fully_qualified_name)
-        if isinstance(typeid, str):
+        elif isinstance(typeid, str):
             # Conveniently try to convert string representations back into
             # the namespace sequence representation.
             # TODO: First check if the string is a UUID or other reference form
             #  for a registered type.
             return cls.copy_from(tuple(typeid.split('.')))
         # TODO: Is there a dictionary form that we should allow?
+        else:
+            raise TypeError(f'Cannot create a TypeIdentifier from {repr(typeid)}')
 
 
 class TypeDataDescriptor:
@@ -255,6 +257,8 @@ class TypeDataDescriptor:
     ``TypeIdentifier(('scalems', 'BasicSerializable'))``.)
     The mapping is updated whenever BasicSerializable is subclassed.
     """
+    base: typing.MutableMapping[type, TypeIdentifier]
+    _original_owner_type: typing.Optional[TypeIdentifier]
 
     @property
     def attr_name(self):
@@ -298,8 +302,7 @@ class TypeDataDescriptor:
                 [str(owner.__module__)] + owner.__qualname__.split('.'))
         self.base[owner] = TypeIdentifier.copy_from(self._original_owner_type)
 
-    def __get__(self, instance, owner) -> typing.Union[
-            'TypeDataDescriptor', TypeIdentifier]:
+    def __get__(self, instance, owner):
         # Note that instance==None when called through the *owner* (as a class attribute).
         if instance is None:
             if owner is self._original_owner():

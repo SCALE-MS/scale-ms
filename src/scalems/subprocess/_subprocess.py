@@ -29,6 +29,7 @@ from scalems.serialization import encode
 from scalems.utility import next_monotonic_integer
 from .. import context as _context
 from ..exceptions import APIError
+from ..exceptions import MissingImplementationError
 from ..workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
@@ -210,7 +211,8 @@ class Subprocess:
 
         # The record may or may not have a bound result.
         # If there is a bound result, it should be added to the workgraph first.
-        return cls()
+        # return cls()
+        raise MissingImplementationError()
 
     # def __await__(self) -> typing.Generator[typing.Any, None, SubprocessResult]:
     #     """Implements the asyncio protocol for a coroutine object.

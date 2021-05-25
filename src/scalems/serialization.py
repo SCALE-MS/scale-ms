@@ -23,6 +23,7 @@ import collections.abc
 import json
 import logging
 import os
+import pathlib
 import typing
 import weakref
 
@@ -93,7 +94,7 @@ class FieldDict(typing.TypedDict):
     """Members of the *fields* member of a ResourceType."""
     schema: SchemaDict
     type: typing.List[str]
-    shape: typing.List[ShapeElement, ...]
+    shape: typing.List[ShapeElement]
 
 
 FieldsType = typing.Mapping[str, FieldDict]
@@ -140,7 +141,7 @@ class Serializable(abc.ABC):
     """
 
     @abc.abstractmethod
-    def encode(self) -> typing.Union[dict, list, tuple, str, int, float, bool, type(None)]:
+    def encode(self) -> typing.Union[dict, list, tuple, str, int, float, bool, None]:
         ...
 
     @classmethod
@@ -180,7 +181,7 @@ class PythonEncoder:
     # We use WeakKeyDictionary because the keys are likely to be classes,
     # and we don't intend to extend the life of the type objects (which might be temporary).
     _dispatchers: typing.ClassVar[typing.MutableMapping[
-        typing.Type[DispatchT], typing.Callable[[DispatchT], BaseEncodable]]] = weakref.WeakKeyDictionary()
+        type, typing.Callable[[DispatchT], BaseEncodable]]] = weakref.WeakKeyDictionary()
 
     @classmethod
     def register(cls, dtype: typing.Type[DispatchT], handler: typing.Callable[[DispatchT], BaseEncodable]):
@@ -273,7 +274,8 @@ class PythonDecoder:
     def get_decoder(cls, typeid) -> typing.Union[None, typing.Callable]:
         # Normalize the type identifier.
         try:
-            identifier = TypeIdentifier.copy_from(typeid)
+            identifier: typing.Optional[TypeIdentifier] = TypeIdentifier.copy_from(typeid)
+            assert isinstance(identifier, TypeIdentifier)
             typename = identifier.name()
         except TypeError:
             try:
@@ -335,7 +337,7 @@ class PythonDecoder:
         # Just return un-recognized objects unaltered.
         return obj
 
-    def __call__(self, obj) -> UnboundObject:
+    def __call__(self, obj) -> typing.Union[UnboundObject, BaseDecoded]:
         return self.decode(obj)
 
 
@@ -344,6 +346,9 @@ decode = PythonDecoder()
 
 # TODO: use stronger check for UID, or bytes-based objects.
 encode.register(dtype=bytes, handler=bytes.hex)
+encode.register(dtype=pathlib.Path, handler=os.fsdecode)
+# TODO: Check that this dispatches correctly and update the type hinting.
+# mypy gives "error: Only concrete class can be given where "Type[_PathLike[_AnyStr_co]]" is expected"
 encode.register(dtype=os.PathLike, handler=os.fsdecode)
 
 
@@ -354,7 +359,7 @@ encode.register(dtype=os.PathLike, handler=os.fsdecode)
 
 # A SCALE-MS "Serializable Type".
 # TODO: use a Protocol or other constraint.
-ST = typing.TypeVar('ST')
+ST = typing.TypeVar('ST', bound='BasicSerializable')
 
 
 class BasicSerializable(UnboundObject):

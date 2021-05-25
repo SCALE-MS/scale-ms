@@ -29,11 +29,8 @@ del get_versions
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
-try:
-    cache = functools.cache
-except AttributeError:
-    # TODO: (Python 3.9) Use functools.cache instead of lru_cache when Py 3.9 is required.
-    cache = functools.lru_cache(maxsize=None)
+# TODO: (Python 3.9) Use functools.cache instead of lru_cache when Py 3.9 is required.
+cache = getattr(functools, 'cache', functools.lru_cache(maxsize=None))
 
 
 @cache

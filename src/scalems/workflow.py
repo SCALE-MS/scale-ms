@@ -55,22 +55,6 @@ class Description:
         self._type = type_id
 
 
-class CommandResourceType:
-    """Hypothetical base class for Command references (outdated and obsolete)."""
-    def input_description(self) -> Description:
-        return Description(self._input_description.type(),
-                           shape=self._result_description.shape())
-
-    def result_description(self) -> Description:
-        return Description(self._result_description.type(),
-                           shape=self._result_description.shape())
-
-    def __init__(self, *args, inputs: Description, results: Description, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._input_description = Description(inputs.type(), shape=inputs.shape())
-        self._result_description = Description(results.type(), shape=results.shape())
-
-
 class ItemView:
     """Standard object returned by a WorkflowContext when adding details to the workflow.
 
@@ -87,6 +71,9 @@ class ItemView:
     .. todo:: Allows proxied access to future results through attribute access.
 
     """
+    # TODO: Update once we require Python 3.9
+    # _workflow_manager: weakref.ReferenceType['WorkflowManager']
+    _workflow_manager: weakref.ReferenceType
 
     def uid(self) -> bytes:
         """Get the canonical unique identifier for this task.
@@ -100,6 +87,16 @@ class ItemView:
         """
         return bytes(self._uid)
 
+    def manager(self) -> 'WorkflowManager':
+        manager = self._workflow_manager()
+        if manager is None:
+            raise ScopeError('Out of scope. Managing context no longer exists!')
+        else:
+            if not isinstance(manager, WorkflowManager):
+                raise APIError('Bug: ItemView._workflow_manager must weakly reference '
+                               'a WorkflowManager.')
+        return manager
+
     def done(self) -> bool:
         """Check the status of the task.
 
@@ -107,9 +104,7 @@ class ItemView:
             true if the task has finished.
 
         """
-        manager: WorkflowManager = self._workflow_manager()
-        if manager is None:
-            raise ScopeError('Out of scope. Managing context no longer exists!')
+        manager = self.manager()
         return manager.tasks[self.uid()].done()
 
     def result(self):
@@ -118,9 +113,7 @@ class ItemView:
         .. todo:: Forces dependency resolution.
 
         """
-        manager: WorkflowManager = self._workflow_manager()
-        if manager is None:
-            raise ScopeError('Out of scope. Managing context no longer exists!')
+        manager = self.manager()
         # TODO: What is the public interface to the tasks or completion status?
         # Note: We want to keep the View object as lightweight as possible, such
         # as storing just the weak ref to the manager, and the item identifier.
@@ -128,9 +121,7 @@ class ItemView:
 
     def description(self) -> Description:
         """Get a description of the resource type."""
-        manager: WorkflowManager = self._workflow_manager()
-        if manager is None:
-            raise ScopeError('Out of scope. Managing context no longer exists!')
+        manager = self.manager()
         return manager.tasks[self.uid()].description()
 
     def __getattr__(self, item):
@@ -143,9 +134,7 @@ class ItemView:
         # We don't actually want to do this check here, but this is essentially what
         # needs to happen:
         #     assert hasattr(self.description().type().result_description().type(), item)
-        manager: WorkflowManager = self._workflow_manager()
-        if manager is None:
-            raise ScopeError('Out of scope. Managing context no longer available!')
+        manager: WorkflowManager = self.manager()
         task = manager.tasks[self.uid()]  # type: Task
         try:
             return getattr(task, item)
@@ -158,7 +147,7 @@ class ItemView:
             self._uid = uid
         else:
             raise ProtocolError('uid should be a 32-byte binary digest (bytes). '
-                                f'Got {uid}')
+                                f'Got {repr(uid)}')
 
 
 class WorkflowView:
@@ -397,7 +386,7 @@ class WorkflowManager:
         # TODO: Tasks should only writable within a WorkflowEditor context.
         self.tasks = TaskMap()  # Map UIDs to task Futures.
 
-        self._dispatcher: typing.Union[weakref.ref, None] = None
+        self._dispatcher: typing.Optional[Queuer] = None
         self._dispatcher_lock = asyncio.Lock()
 
         self._event_hooks: typing.Mapping[str, typing.MutableSet[AddItemCallback]] = {
@@ -446,13 +435,13 @@ class WorkflowManager:
             ', '.join(key.hex() for key in self.tasks.keys())
         ))
         if identifier not in self.tasks:
-            raise KeyError(f'WorkflowManager does not have item {identifier}')
+            raise KeyError(f'WorkflowManager does not have item {str(identifier)}')
         item_view = ItemView(manager=self, uid=identifier)
 
         return item_view
 
     @contextlib.contextmanager
-    def edit_item(self, identifier) -> Task:
+    def edit_item(self, identifier) -> typing.Generator[Task, None, None]:
         """Scoped workflow item editor.
 
         Grant the caller full access to the managed task.
@@ -548,7 +537,7 @@ class WorkflowManager:
             # re-enter through this call structure.
             if self._dispatcher is not None:
                 raise ProtocolError(
-                    f'Already dispatching through {repr(self._dispatcher())}.')
+                    f'Already dispatching through {repr(self._dispatcher)}.')
             if dispatcher is None:
                 dispatcher = Queuer(source=self,
                                     command_queue=executor.queue(),
@@ -658,7 +647,8 @@ class WorkflowManager:
         if not isinstance(task_description, (Subprocess, dict)):
             raise MissingImplementationError('Operation not supported.')
 
-        if hasattr(task_description, 'uid'):
+        # TODO: Generalize interface check.
+        if isinstance(task_description, Subprocess):
             uid: bytes = task_description.uid()
             if uid in self.tasks:
                 # TODO: Consider decreasing error level to `warning`.
@@ -820,6 +810,8 @@ class Queuer:
 
     _dispatcher_lock: asyncio.Lock
     """Provided by caller to allow safe transitions of dispatching state."""
+
+    _dispatcher_queue: _queue.SimpleQueue
 
     _queue_runner_task: asyncio.Task
     """Queue, owned by this object, of Workflow Items being processed for dispatch."""

@@ -35,7 +35,7 @@ logger.debug('Importing {}'.format(__name__))
 # 2. set itself as the dispatcher in the new Context.
 # 3. run within the new Context.
 # 4. ensure the Context is destroyed (remove circular references)
-_dispatcher = contextvars.ContextVar('_dispatcher')
+_dispatcher: contextvars.ContextVar = contextvars.ContextVar('_dispatcher')
 
 # If we require an event loop to be provided to the WorkflowManager, then
 # we should not instantiate a default context on module import. We don't really
@@ -56,7 +56,7 @@ _dispatcher = contextvars.ContextVar('_dispatcher')
 # I think we have to make sure not to nest scopes without a combination of copy_context
 # and context managers, so we don't need to track the parent scope. We should also be
 # able to use weakrefs.
-current_scope = contextvars.ContextVar('current_scope')
+current_scope: contextvars.ContextVar = contextvars.ContextVar('current_scope')
 
 
 def get_context():
@@ -163,9 +163,11 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         but we cannot make this behavior thread-safe.
 
     """
+    if isinstance(directory, bytes):
+        directory = os.fsdecode(directory)
     path = pathlib.Path(directory)
     if not path.exists() or not path.is_dir():
-        raise ValueError(f'Not a valid directory: {directory}')
+        raise ValueError(f'Not a valid directory: {str(directory)}')
     if cwd_lock.locked():
         warnings.warn('Another call has already used scoped_chdir. Waiting for lock...')
     with cwd_lock:

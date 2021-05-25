@@ -390,7 +390,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
 
         # Confirm that Master script is running (and ready to receive raptor tasks)
         # WARNING: rp.Task.wait() *state* parameter does not handle tuples,
-        #  but does not check type (RP issue tracking?).
+        #  but does not check type.
         master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
         assert master.state not in {rp.CANCELED, rp.FAILED}
 

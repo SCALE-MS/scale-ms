@@ -225,8 +225,9 @@ async def test_rp_future(rp_task_manager):
     assert wrapper.cancelled()
     assert future.cancelled()
 
-    # WARNING: rp.Task.wait() never completes with no arguments.
     # WARNING: This blocks. Don't do it in the event loop thread.
+    # TODO: Check whether the following is still true.
+    # WARNING: rp.Task.wait() never completes with no arguments (issue #87).
     task.wait(state=rp.states.CANCELED, timeout=120)
     # Note that if the test is paused by a debugger, the rp task may
     # have a chance to complete before being canceled.
@@ -252,8 +253,9 @@ async def test_rp_future(rp_task_manager):
     assert not wrapper.cancelled()
     assert future.cancelled()
 
-    # WARNING: rp.Task.wait() never completes with no arguments.
     # WARNING: This blocks. Don't do it in the event loop thread.
+    # TODO: Check whether the following is still true.
+    # WARNING: rp.Task.wait() never completes with no arguments (issue #87).
     task.wait(state=rp.states.CANCELED, timeout=120)
     # Note that if the test is paused by a debugger, the rp task may
     # have a chance to complete before being canceled.
@@ -387,7 +389,8 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
         # (see https://docs.google.com/drawings/d/1q5ehxIVdln5tXEn34mJyWAmxBk_DqZ5wwkl3En-t5jo/)
 
         # Confirm that Master script is running (and ready to receive raptor tasks)
-        # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not check type.
+        # WARNING: rp.Task.wait() *state* parameter does not handle tuples,
+        #  but does not check type (RP issue tracking?).
         master.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
         assert master.state not in {rp.CANCELED, rp.FAILED}
 

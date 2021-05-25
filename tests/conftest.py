@@ -25,7 +25,7 @@ try:
 except ImportError:
     # It is not an error to run tests without RP, but when RP is available, we
     # need to import it before pytest imports the logging module.
-    ...
+    rp = None
 
 import logging
 import os
@@ -43,14 +43,7 @@ from importlib import metadata
 from packaging import version
 
 ru_version = version.parse(metadata.version('radical.utils'))
-if ru_version < version.parse('1.6.6'):
-    import radical.utils
-    import socket
-
-    radical.utils.misc._hostname = socket.gethostname()
-else:
-    assert ru_version >= version.parse('1.6.6')
-    warnings.warn('Unnecessary monkey-patch of radical.utils.misc.', DeprecationWarning)
+assert ru_version >= version.parse('1.6.6')
 
 logger = logging.getLogger('pytest_config')
 logger.setLevel(logging.DEBUG)

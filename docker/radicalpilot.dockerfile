@@ -85,11 +85,13 @@ WORKDIR /home/rp
 # $HOME/Library/Application\ Support/JetBrains/Toolbox/apps/PyCharm-P/ch-0/211.7142.13/PyCharm.app/Contents/debug-eggs/
 RUN mkdir /tmp/scalems_dev
 
+RUN ~rp/rp-venv/bin/python -m pip install \
+    --no-cache-dir --no-build-isolation --upgrade 'radical.saga==1.6.6' 'radical.utils==1.6.6'
 #ARG RPREF="project/scalems"
 #RUN . ~rp/rp-venv/bin/activate && \
 #    pip install --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --no-cache-dir --no-build-isolation --upgrade 'radical.pilot==1.6.5'
+RUN ~rp/rp-venv/bin/python -m pip install \
+    --no-cache-dir --no-build-isolation --upgrade "https://github.com/radical-cybertools/radical.pilot/archive/53e85ea99345b6f50f3adfd975385be3200b750f.tar.gz"
 
 # WARNING!!! Security risk!
 # Allow rp user to trivially ssh into containers created from this image.

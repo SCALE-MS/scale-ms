@@ -87,6 +87,11 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """Client side manager for dispatching work loads and managing data flow."""
     # TODO: Address the circular dependency of
     #  WorkflowManager->ExecutorFactory->RuntimeManager->WorkflowManager
+    # Really, RuntimeManager should depend on a separate interface than the user-facing
+    # WorkflowManager. We should be able to let WorkflowManager provide a callable to
+    # ExecutorFactory such that it can initialize RuntimeManager with a WorkflowEditor
+    # that provides the edit_item() facility. Or we could just provide a ref to the
+    # edit_item() callable.
     source_context: WorkflowManager
     submitted_tasks: typing.List[asyncio.Task]
 

@@ -40,6 +40,18 @@ logger.debug('Importing {}'.format(__name__))
 
 
 class Description:
+    """Describe data managed in the workflow.
+
+    The workflow is a directed acyclic graph in which Commands and Data constitute
+    nodes, and data flow occurs on edges.
+
+    Data flow has type and topology (shape), so workflow objects (nodes) self-describe
+    the type and shape of data they can produce or consume.
+
+    A Description instance provides the type and shape information for an edge or
+    workflow item reference. References may be to an entire node or a nested subset of
+    node output.
+    """
     def shape(self) -> tuple:
         return self._shape
 
@@ -309,9 +321,11 @@ class WorkflowManager:
     """Composable context for SCALE-MS workflow management.
 
     A workflow manager includes a strategy for dispatching a workflow
-    for execution. Instances provide the concurrent.futures.Executor
-    interface with support and semantics that depend on the Executor
-    implementation and execution environment.
+    for execution. This requires an *executor_factory* to be provided at instantiation.
+
+    TODO: Executor instances provide the concurrent.futures.Executor
+     interface with support and semantics that depend on the Executor
+     implementation and execution environment.
 
     Notably, we rely on the Python contextmanager protocol to regulate
     the acquisition and release of resources, so SCALE-MS workflow

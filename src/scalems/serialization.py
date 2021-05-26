@@ -16,7 +16,7 @@ JSON, such as the CWL schema.
 """
 from __future__ import annotations
 
-__all__ = ['BasicSerializable', 'decode', 'encode', 'Shape']
+__all__ = ['BasicSerializable', 'decode', 'encode']
 
 import abc
 import collections.abc
@@ -26,6 +26,7 @@ import os
 import pathlib
 import typing
 import weakref
+from scalems._object import Shape
 
 from scalems._types import BaseDecoded
 from scalems._types import BaseEncodable
@@ -39,25 +40,6 @@ from scalems.identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-
-class Shape(tuple):
-    """Describe the data shape of a SCALEMS object."""
-
-    def __new__(cls, elements: typing.Iterable):
-        return super().__new__(cls, elements)
-
-    def __init__(self, elements: typing.Iterable):
-        """Initial implementation requires a sequence of integers.
-
-        Software requirements include symbolic elements, TBD.
-        """
-        try:
-            es = tuple(e for e in elements)
-        except TypeError as e:
-            raise e
-        if len(es) < 1 or any(not isinstance(e, int) for e in es):
-            raise TypeError('Shape is a sequence of 1 or more integers.')
 
 
 # It could make sense to split the codec for native-Python encoding from the

@@ -57,9 +57,6 @@ class Identifier(typing.Hashable, typing.Protocol):
 
     """
 
-    concrete: bool
-    """Is this a concrete object or something more abstract?"""
-
     @abc.abstractmethod
     def bytes(self) -> typing.SupportsBytes:
         """A consistent bytes representation of the identity.

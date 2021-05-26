@@ -13,7 +13,7 @@ from scalems.exceptions import ProtocolError
 from scalems.serialization import BasicSerializable
 from scalems.serialization import decode
 from scalems.serialization import encode
-from scalems.serialization import Shape
+from scalems._object import Shape
 from scalems.identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
@@ -22,6 +22,30 @@ logger.debug('Importing {}'.format(__name__))
 record = """{
     "version"= "scalems_workflow_1",
     "types"= {
+        "scalems.IntegerLiteral" = {
+            "schema" = {
+                "scalems.v0",
+                "name" = "Literal"
+            },
+            "implementation" = ["builtins", "int"]
+        },
+        "scalems.Integer" = {
+            "schema" = {
+                "spec" = "scalems.v0",
+                "name" = "DataType"
+            },
+            "implementation: = [],
+            "fields" = {
+                "value" = {
+                    "schema" = {
+                        "spec" = "scalems.v0",
+                        "name" = "DataField"
+                    },
+                    "type" = ["scalems", "IntegerLiteral"],
+                    "shape" = ["constraints.OneOrMore"]
+                }
+            }
+        }
         "scalems.SubprocessInput" = {
             "schema" = {
                 "spec" = "scalems.v0",
@@ -123,14 +147,14 @@ record = """{
         "scalems.Subprocess" = {
             "schema" = {
                 "spec" = "scalems.v0",
-                "name" = "DataType"
+                "name" = "CommandType"
             },
-            "implementation" = ["scalems", "subprocess", "SubprocessResult"],
+            "implementation" = ["scalems", "subprocess", "Subprocess"],
             "fields" = {
                 "input" = {
                     "schema" = {
                         "spec" = "scalems.v0",
-                        "name" = "DataField"
+                        "name" = "InputField"
                     },
                     "type"= ["scalems", "SubprocessInput"],
                     "shape"= [1]
@@ -138,7 +162,7 @@ record = """{
                 "result" = {
                     "schema" = {
                         "spec" = "scalems.v0",
-                        "name" = "DataField"
+                        "name" = "OutputField"
                     },
                     "type"= ["scalems", "SubprocessResult"],
                     "shape"= [1]
@@ -147,6 +171,18 @@ record = """{
         },
     },
     "items"= [
+        {
+            "label"= "my_int_array",
+            "type" = ["scalems", "Integer"],
+            "shape" = [3, 2],
+            "data" = {
+                "value" = [
+                    [1, 2],
+                    [3, 4],
+                    [5, 6]
+                ]
+            }
+        },
         {
             "label"= "input_files",
             "identity"= "832df1a2-1f0b-4024-a4ab-4160717b8a8c",
@@ -166,7 +202,7 @@ record = """{
             "identity"= "34dfc648-27b3-47db-b6a8-a10c9ae58f09",
             "type"= ["scalems", "Mapping"],
             "shape"= [1],
-            "data"= {"ncpus"= 8, "launch_method"= ["exec"]}
+            "data"= {"ncpus"= [8], "launch_method"= ["exec"]}
         },
         {
             "label"= "subprocess_input",
@@ -320,6 +356,7 @@ def test_basic_decoding():
         'identity': uuid.uuid4().hex,
         'type': ['test', 'Spam'],
         'shape': [1],
+        # TODO: Fix shape/data mismatch!
         'data': ['spam', 'eggs', 'spam', 'spam']
     }
     instance = decode(encoded)

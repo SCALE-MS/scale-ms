@@ -18,12 +18,16 @@ import json
 import logging
 import queue as _queue
 import typing
+import warnings
 import weakref
 
 from scalems.context import _dispatcher
 from scalems.dispatching import _CommandQueueAddItem
 from scalems.dispatching import _CommandQueueControlItem
 from scalems.dispatching import QueueItem
+from scalems.encoding import EncodedRecordDict
+from scalems.encoding import ItemsRecord
+from scalems.encoding import TypesRecord
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import DuplicateKeyError
@@ -359,6 +363,13 @@ class WorkflowManager:
 
     """
     tasks: TaskMap
+    """Map byte-sequence uid keys to Task objects.
+    
+    The task map is built with calls to add_item, which accepts either Subprocess 
+    objects or *dict* objects representing a poorly specified "task description".
+    
+    The TaskMap will soon be replaced by a more strongly specified DAG container.
+    """
 
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during
@@ -737,6 +748,47 @@ class WorkflowManager:
             callback(_CommandQueueAddItem({'add_item': uid}))
 
         return task_view
+
+    def encode(self) -> EncodedRecordDict:
+        """Export the workflow record, encoded in a Python dictionary.
+
+        TODO: Provide a facility to directly transcode without producing an
+         intermediate dict.
+        The record could be large or expensive to transcode to a dictionary. This is
+        probably not a sustainable interface.
+        """
+        types_record: TypesRecord = {}
+        items_record: ItemsRecord = []
+        record = EncodedRecordDict(version='scalems_workflow_1', types=types_record,
+                                   items=items_record)
+        return record
+
+    def load(self, record: EncodedRecordDict):
+        """Load a Python-encoded workflow record into the current managed record.
+
+        TODO: Allow record to be loaded piece-wise.
+        A single Python dictionary could be unwieldy to store or process. We should
+        have something similar to the JSONDecoder object_pairs_hook, or a callback
+        pluggable into the JSONDecoder hooks.
+        """
+        # Check schema
+        if 'version' not in record or record['version'] != 'scalems_workflow_1':
+            raise APIError('Unrecognized Workflow record schema.')
+        if 'types' in record:
+            warnings.warn('Types record is not yet handled.')
+        if 'items' not in record:
+            warnings.warn('No workflow items in record.')
+        else:
+            for i, item in enumerate(record['items']):
+                try:
+                    label = item['label']
+                    recorded_identity = item['identity']
+                    # TODO: Validate identity.
+                    item_type = item['type']
+                    item_shape = item['shape']
+                    item_data = item['data']
+                except Exception as e:
+                    raise APIError(f'Could not process item {i} in record.') from e
 
 
 @functools.singledispatch

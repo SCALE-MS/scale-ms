@@ -5,7 +5,7 @@ terms of native Python objects) that is unambiguously serializable and deseriali
 using the `json` package. We avoid strongly specifying JSON as the actual serialization
 format.
 """
-__all__ = ['EncodedRecordDict']
+__all__ = ['EncodedRecordDict', 'TypesRecord', 'ItemsRecord']
 
 import typing
 

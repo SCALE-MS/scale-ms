@@ -226,9 +226,7 @@ async def test_rp_future(rp_task_manager):
     assert future.cancelled()
 
     # WARNING: This blocks. Don't do it in the event loop thread.
-    # TODO: Check whether the following is still true.
-    # WARNING: rp.Task.wait() never completes with no arguments (issue #87).
-    task.wait(state=rp.states.CANCELED, timeout=120)
+    task.wait()
     # Note that if the test is paused by a debugger, the rp task may
     # have a chance to complete before being canceled.
     # Ordinarily, that will not happen in this test.
@@ -254,9 +252,7 @@ async def test_rp_future(rp_task_manager):
     assert future.cancelled()
 
     # WARNING: This blocks. Don't do it in the event loop thread.
-    # TODO: Check whether the following is still true.
-    # WARNING: rp.Task.wait() never completes with no arguments (issue #87).
-    task.wait(state=rp.states.CANCELED, timeout=120)
+    task.wait()
     # Note that if the test is paused by a debugger, the rp task may
     # have a chance to complete before being canceled.
     # Ordinarily, that will not happen in this test.

@@ -89,7 +89,6 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert remotename != localname
 
 
-@pytest.mark.skip('Disabled pending progress on #89 and #90.')
 def test_prepare_venv(rp_task_manager, sdist):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
@@ -99,10 +98,8 @@ def test_prepare_venv(rp_task_manager, sdist):
     a task with ``named_env`` matching the *prepare_env* key to implicitly depend on
     successful creation.
     """
-    # NOTE: *sdist* is a path of an sdist archive that we could stage for the venv installation.
-    # QUESTION: Can't we use the radical.pilot package archive that was already placed for bootstrapping the pilot?
-
-    # TODO: Merge with test_rp_raptor_local but use the installed scalems_rp_master and scalems_rp_worker files
+    # TODO: Merge with test_rp_raptor_local but use the installed scalems_rp_master and
+    #  scalems_rp_worker scripts.
 
     import radical.pilot as rp
     import radical.saga as rs
@@ -171,6 +168,7 @@ def test_prepare_venv(rp_task_manager, sdist):
     task = tmgr.submit_tasks(td)
     tmgr.wait_tasks()
     logger.debug(f'RP version details and scalems location: {task.stdout}')
+    logger.debug(f'Task stderr: {task.stderr}')
     assert task.exit_code == 0
 
 

@@ -55,7 +55,7 @@ import typing
 import warnings
 
 import packaging.version
-from radical import pilot as rp
+from radical import pilot as rp  # type: ignore
 
 import scalems.utility as _utility
 from scalems.exceptions import APIError
@@ -68,13 +68,10 @@ logger.debug('Importing {}'.format(__name__))
 # TODO: Consider scoping for these context variables.
 # Need to review PEP-567 and PEP-568 to consider where and how to scope the Context
 # with respect to the dispatching scope.
-_configuration = contextvars.ContextVar('_configuration')
+_configuration: contextvars.ContextVar = contextvars.ContextVar('_configuration')
 
-try:
-    cache = functools.cache
-except AttributeError:
-    # Note: functools.cache does not appear until Python 3.9
-    cache = functools.lru_cache(maxsize=None)
+cache = getattr(functools, 'cache', functools.lru_cache(maxsize=None))
+# Note: functools.cache does not appear until Python 3.9
 
 
 def _parse_option(arg: str) -> tuple:
@@ -153,7 +150,7 @@ class Configuration:
     # TODO: Check that the resource is defined.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
-    target_venv: str = None
+    target_venv: typing.Optional[str] = None
 
 
 class Runtime:
@@ -582,7 +579,7 @@ def _set_configuration(*args, **kwargs) -> Configuration:
     return _configuration.get()
 
 
-@_set_configuration.register
+@_set_configuration.register  # type: ignore[no-redef]
 def _(config: Configuration) -> Configuration:
     # Not thread-safe
     if _configuration.get(None):
@@ -592,7 +589,7 @@ def _(config: Configuration) -> Configuration:
     return _configuration.get()
 
 
-@_set_configuration.register
+@_set_configuration.register  # type: ignore[no-redef]
 def _(namespace: argparse.Namespace) -> Configuration:
     rp_resource_params = {
         'PilotDescription':

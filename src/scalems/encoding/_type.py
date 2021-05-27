@@ -1,5 +1,7 @@
 """Specify the schema for encoded type descriptions."""
-__all__ = ['EncodedObjectType']
+__all__ = ['EncodedObjectType',
+           'EncodedShape',
+           'EncodedTypeIdentifier']
 
 import typing
 
@@ -26,7 +28,8 @@ EncodedShapeElement = typing.NewType('EncodedShapeElement', int)
 # EncodedShapeElement = typing.NewType('EncodedShapeElement', typing.Union[int, str])
 
 
-EncodedShape = typing.Tuple[EncodedShapeElement, ...]
+# Note that JSON does not have a separate encoding for *tuple*
+EncodedShape = typing.List[EncodedShapeElement]
 
 
 class EncodedFieldType(typing.TypedDict):

@@ -8,6 +8,7 @@ Usage:
 import sys
 
 import scalems.invocation
+import scalems.local
 
 if __name__ == '__main__':
-    sys.exit(scalems.invocation.run(scalems.local.workflow_manager))
+    sys.exit(scalems.invocation.run(backend=scalems.local))

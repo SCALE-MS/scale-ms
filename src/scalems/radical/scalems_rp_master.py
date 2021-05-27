@@ -4,9 +4,9 @@ import logging
 import sys
 import typing
 
-import radical.pilot as rp
-import radical.utils as ru
-from radical.pilot.raptor.request import Request
+import radical.pilot as rp  # type: ignore
+import radical.utils as ru  # type: ignore
+from radical.pilot.raptor.request import Request  # type: ignore
 
 logger = logging.getLogger('scalems_rp_master')
 
@@ -18,6 +18,7 @@ The first two elements are cast to output and error strings, respectively.
 The third is cast to an integer return code.
 """
 
+_RaptorWorkData_contra = typing.TypeVar('_RaptorWorkData_contra', contravariant=True)
 _RaptorWorkData = typing.TypeVar('_RaptorWorkData')
 """Argument type for a Raptor task implementation.
 
@@ -35,8 +36,8 @@ A dict-like object with at least a *uid* key.
 """
 
 
-class RaptorWorkCallable(typing.Protocol[_RaptorWorkData]):
-    def __call__(self, data: _RaptorWorkData) -> _RaptorReturnType:
+class RaptorWorkCallable(typing.Protocol[_RaptorWorkData_contra]):
+    def __call__(self, data: _RaptorWorkData_contra) -> _RaptorReturnType:
         ...
 
 
@@ -45,9 +46,6 @@ class RaptorWorkDescription(typing.Protocol[_RaptorWorkData]):
 
     A dictionary resembling this structure is converted to radical.pilot.raptor.Request
     by the Master in radical.pilot.raptor.Master.request().
-
-    Attributes:
-        mode (str): Dispatching key for raptor.Worker._dispatch()
 
     Note that some keys may be added or overwritten during Master._receive_tasks
     (e.g. *is_task*, *uid*, *task*).

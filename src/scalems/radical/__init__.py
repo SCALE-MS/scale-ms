@@ -38,7 +38,7 @@ import pathlib
 import threading
 import typing
 
-from radical import pilot as rp
+import radical.pilot as rp  # type: ignore
 
 import scalems.execution
 import scalems.subprocess
@@ -62,11 +62,8 @@ from ..identifiers import TypeIdentifier
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
-try:
-    cache = functools.cache
-except AttributeError:
-    # Note: functools.cache does not appear until Python 3.9
-    cache = functools.lru_cache(maxsize=None)
+cache = getattr(functools, 'cache', functools.lru_cache(maxsize=None))
+# Note: functools.cache does not appear until Python 3.9
 
 
 @cache
@@ -651,7 +648,7 @@ def _get_scheduler(name: str,
     return scheduler
 
 
-class RPDispatchingExecutor(RuntimeManager):
+class RPDispatchingExecutor(RuntimeManager[Configuration]):
     """Client side manager for work dispatched through RADICAL Pilot.
 
     Configuration points::

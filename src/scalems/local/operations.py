@@ -83,8 +83,14 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
         # Alternative: Mark task as "done" if no exception was raised.
         if returncode == 0:
             # TODO: How to do the output file staging?
-            stdout = pathlib.Path(os.path.abspath(signature.stdout.name))
-            stderr = pathlib.Path(os.path.abspath(signature.stderr.name))
+            if signature.stdout is not None:
+                stdout = pathlib.Path(os.path.abspath(signature.stdout.name))
+            else:
+                stdout = None
+            if signature.stderr is not None:
+                stderr = pathlib.Path(os.path.abspath(signature.stderr.name))
+            else:
+                stderr = None
             # What do we return for a failed task? Maybe raise?
             result = scalems.subprocess.SubprocessResult(exitcode=returncode, stdout=stdout, stderr=stderr, file={})
             return result
@@ -115,17 +121,21 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
     # TODO: What sort of validation or normalization do we want to do for the executable name?
     if not isinstance(task_input, scalems.subprocess.SubprocessInput):
         raise InternalError('Unexpected input type.')
-    path = shutil.which(task_input.argv[0])
-    if path is None or not os.path.exists(path):
-        raise InternalError('Could not find executable. Input should be vetted before this point.')
-    program = pathlib.Path(shutil.which(task_input.argv[0]))
+    try:
+        program = pathlib.Path(shutil.which(task_input.argv[0]))
+    except TypeError as e:
+        raise InternalError('Bug: Invalid data in *task_input*.') from e
+    else:
+        if not program.exists():
+            #  Input should be vetted before this point.
+            raise InternalError('Executable not found.')
     args = list(str(arg) for arg in task_input.argv[1:])
 
-    task_directory = os.path.abspath(context.identifier.hex())
-    if os.path.exists(task_directory):
+    task_directory = pathlib.Path(context.identifier.hex()).absolute()
+    if task_directory.exists():
         # check if done
-        done_file = os.path.join(task_directory, 'done')
-        if os.path.exists(done_file):
+        done_file = task_directory / 'done'
+        if done_file.exists():
             raise InternalError('Refusing to prepare input resource scope for a completed task.')
         # check if clean
         # currently deferred to specific files below.
@@ -166,8 +176,8 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
                 # TODO: Handle working directory.
                 filename = _next_int().to_bytes(32, 'big').hex() + value.suffix
 
-                path = os.path.join(task_directory, filename)
-                if os.path.exists(path):
+                path = task_directory / filename
+                if path.exists():
                     raise ProtocolError('Output file already exists but reexecution has not been considered.')
                 # There is obviously a race condition / security hole between the time
                 # that we check an output file name and execute the command. This is
@@ -176,8 +186,8 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
                 try:
                     path = pathlib.Path(str(value))
                     if not path.is_absolute():
-                        path = os.path.join(task_directory, path)
-                    if os.path.exists(path):
+                        path = task_directory / path
+                    if path.exists():
                         raise ValueError('Output file already exists: {}'.format(path))
                 except Exception as e:
                     raise TypeError('Invalid input (expected file path): {}'.format(repr(value))) from e

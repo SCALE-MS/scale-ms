@@ -10,11 +10,11 @@ import pytest
 
 import scalems.workflow
 from scalems.exceptions import ProtocolError
+from scalems.identifiers import TypeIdentifier
 from scalems.serialization import BasicSerializable
 from scalems.serialization import decode
 from scalems.serialization import encode
-from scalems._object import Shape
-from scalems.identifiers import TypeIdentifier
+from scalems.workflow import Shape
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -278,7 +278,8 @@ def test_encoding_str():
 def test_encoding_scalars():
     """Confirm that scalar data is encoded and decoded as expected.
 
-    Note: We may choose not to support certain forms of data for the full round trip, particularly bare scalars.
+    Note: We may choose not to support certain forms of data for the full round trip,
+    particularly bare scalars.
     """
     scalar = 42
     serialized = json.dumps(scalar, default=encode)
@@ -299,7 +300,8 @@ def test_encoding_scalars():
 def test_encoding_int():
     """Confirm that integer data is encoded and decoded as expected.
 
-    Note: We may choose not to support certain forms of integer data for the full round trip.
+    Note: We may choose not to support certain forms of integer data for the full round
+    trip.
     """
     series = [1, 1, 2, 3, 5]
     # length = len(series)
@@ -310,7 +312,8 @@ def test_encoding_int():
     round_trip = json.loads(serialized)
     assert all([a == b for a, b in zip(series, round_trip)])
 
-    # We may expect structured data to be automatically translated to SCALE-MS representation.
+    # We may expect structured data to be automatically translated to SCALE-MS
+    # representation.
     # assert round_trip.shape() == shape
     # assert round_trip.dtype() == ('scalems', 'Integer')
 

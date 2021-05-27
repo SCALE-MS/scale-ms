@@ -26,7 +26,6 @@ import os
 import pathlib
 import typing
 import weakref
-from scalems._object import Shape
 
 from scalems._types import BaseDecoded
 from scalems._types import BaseEncodable
@@ -37,6 +36,7 @@ from scalems.identifiers import EphemeralIdentifier
 from scalems.identifiers import Identifier
 from scalems.identifiers import TypeDataDescriptor
 from scalems.identifiers import TypeIdentifier
+from scalems.workflow import Shape
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -54,9 +54,10 @@ class SchemaDict(typing.TypedDict):
 
     Notes:
         * Python 3.9 provides a "frozenmap"
-        * Consider a namedtuple, dataclass, or similar and make dict interconversion secondary.
-        * We should clarify object model policies such as the invariance/covariance/contravariance
-          of members through subtyping.
+        * Consider a namedtuple, dataclass, or similar and make dict interconversion
+          secondary.
+        * We should clarify object model policies such as the
+          invariance/covariance/contravariance of members through subtyping.
 
     TODO: Allow equality check
     TODO: Actually integrate with object support metaprogramming in the package.
@@ -133,7 +134,8 @@ class Serializable(abc.ABC):
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        # Create a weakref and add to Encoder._encoders with a finalizer to remove from same.
+        # Create a weakref and add to Encoder._encoders with a finalizer to remove from
+        # same.
         # Similarly add to the Decoder dispatcher...
 
 
@@ -145,13 +147,17 @@ class PythonEncoder:
     but note that it will only be used for objects that JSONEncoder does not already
     resolve.
 
-    Note that json.dump and json.dumps only use the *default* call-back when the *cls* encoder does not
-    have an implementation for an object type. To preempt standard processing by the JSONEncoder,
-    you must provide a *cls* that overrides the encoding methods as documented at
-    https://docs.python.org/3/library/json.html#json.JSONEncoder.encode to produce a string.
+    Note that json.dump and json.dumps only use the *default* call-back when the *cls*
+    encoder does not have an implementation for an object type. To preempt standard
+    processing by the JSONEncoder, you must provide a *cls* that overrides the encoding
+    methods as documented at
+    https://docs.python.org/3/library/json.html#json.JSONEncoder.encode to produce a
+    string.
+
     This is _not_ what the *encode* method of this class does.
 
-    Alternatively, encode object(s) first, and pass the resulting Python object to a regular call to json.dumps.
+    Alternatively, encode object(s) first, and pass the resulting Python object to a
+    regular call to json.dumps.
     """
     # Note that the following are equivalent.
     #     json.loads(s, *, cls=None, **kw)
@@ -161,33 +167,42 @@ class PythonEncoder:
     #     json.JSONEncoder(**kw).encode(obj)
 
     # We use WeakKeyDictionary because the keys are likely to be classes,
-    # and we don't intend to extend the life of the type objects (which might be temporary).
+    # and we don't intend to extend the life of the type objects (which might be
+    # temporary).
     _dispatchers: typing.ClassVar[typing.MutableMapping[
         type, typing.Callable[[DispatchT], BaseEncodable]]] = weakref.WeakKeyDictionary()
 
     @classmethod
-    def register(cls, dtype: typing.Type[DispatchT], handler: typing.Callable[[DispatchT], BaseEncodable]):
-        # Note that we don't expect references to bound methods to extend the life of the type.
+    def register(cls,
+                 dtype: typing.Type[DispatchT],
+                 handler: typing.Callable[[DispatchT], BaseEncodable]):
+        # Note that we don't expect references to bound methods to extend the life of
+        # the type.
         # TODO: confirm this assumption in a unit test.
         if not isinstance(dtype, type):
-            raise TypeError('We use `isinstance(obj, dtype)` for dispatching, so *dtype* must be a `type` object.')
+            raise TypeError(
+                'We use `isinstance(obj, dtype)` for dispatching, so *dtype* must be a '
+                '`type` object.')
         if dtype in cls._dispatchers:
-            raise ProtocolError(f'Encodable type {dtype} appears to be registered already.')
+            raise ProtocolError(f'Encodable type {dtype} appears to be registered '
+                                'already.')
         cls._dispatchers[dtype] = handler
 
     @classmethod
     def unregister(cls, dtype: typing.Type[DispatchT]):
-        # As long as we use a WeakKeyDictionary, explicit unregistration should not be necessary.
+        # As long as we use a WeakKeyDictionary, explicit unregistration should not be
+        # necessary.
         del cls._dispatchers[dtype]
 
     @classmethod
     def encode(cls, obj) -> BaseEncodable:
-        """Convert an object of a registered type to a representation as a basic Python object."""
+        """Convert an Object to a representation as a basic Python object."""
         # Currently, we iterate because we may be using abstract types for encoding.
         # If we find that we are using concrete types and/or we need more performance,
         # or if we just find that the list gets enormous, we can inspect the object first
         # to derive a dtype key that we can look up directly.
-        # Warning: we should be careful not to let objects unexpectedly match multiple entries.
+        # Warning: we should be careful not to let objects unexpectedly match multiple
+        # entries.
         for dtype, dispatch in cls._dispatchers.items():
             if isinstance(obj, typing.cast(type, dtype)):
                 return dispatch(obj)
@@ -216,20 +231,23 @@ class UnboundObject(typing.Protocol):
 class PythonDecoder:
     """Convert dictionary representations to SCALE-MS objects for registered types.
 
-    Dictionaries are recognized as SCALE-MS object representations with a minimal heuristic.
+    Dictionaries are recognized as SCALE-MS object representations with a minimal
+    heuristic.
 
     If the object (dict) contains a *'schema'* key, and the value
-    is a dict, the *'spec'* member of the dict is retrieved. If the *'spec'* member exists and
-    names a recognized schema specification, the object is dispatched according to the schema
-    specification.
+    is a dict, the *'spec'* member of the dict is retrieved. If the *'spec'* member
+    exists and names a recognized schema specification, the object is dispatched
+    according to the
+    schema specification.
 
-    Otherwise, if the object contains a *'type'* key, identifying a recognizable registered type,
-    the object is dispatched to the decoder registered for that type.
+    Otherwise, if the object contains a *'type'* key, identifying a recognizable
+    registered type, the object is dispatched to the decoder registered for that type.
 
-    For more information, refer to the :doc:`serialization` and :doc:`datamodel` documentation.
+    For more information, refer to the :doc:`serialization` and :doc:`datamodel`
+    documentation.
 
-    .. todo:: Consider specifying a package metadata resource group to allow packages to register
-              additional schema through an idiomatic plugin system.
+    .. todo:: Consider specifying a package metadata resource group to allow packages
+              to register additional schema through an idiomatic plugin system.
     Refs:
      * https://packaging.python.org/guides/creating-and-discovering-plugins/
      * https://setuptools.readthedocs.io/en/latest/userguide/entry_point.html#dynamic-discovery-of-services-and-plugins
@@ -238,7 +256,8 @@ class PythonDecoder:
         TypeIdentifier,
         typing.Callable] = dict()
 
-    # Depending on what the callables are, we may want a weakref.WeakValueDictionary() or we may not!
+    # Depending on what the callables are, we may want a weakref.WeakValueDictionary()
+    # or we may not!
 
     @classmethod
     def register(cls, typeid: TypeIdentifier, handler: typing.Callable):
@@ -281,10 +300,12 @@ class PythonDecoder:
 
         .. todo:: Consider where to register transcoders for compatible/virtual types.
                   E.g. Infer np.array(..., dtype=int) -> scalems.Integer
-                  This is a small number of cases, since we can lean on the descriptors in the buffer protocol.
+                  This is a small number of cases, since we can lean on the descriptors
+                  in the buffer protocol.
         """
         if not isinstance(obj, dict):
-            # Probably don't have any special handling for such objects until we know what they are nested in.
+            # Probably don't have any special handling for such objects until we know
+            # what they are nested in.
             ...
         else:
             assert isinstance(obj, dict)
@@ -298,7 +319,8 @@ class PythonDecoder:
                     # That's fine...
                     logger.info('Unrecognized *schema* when decoding object.')
                     return obj
-                if 'name' not in obj['schema'] or not isinstance(obj['schema']['name'], str):
+                if 'name' not in obj['schema'] or not isinstance(obj['schema']['name'],
+                                                                 str):
                     raise InternalError('Invalid schema.')
                 else:
                     # schema = obj['schema']['name']
@@ -306,7 +328,8 @@ class PythonDecoder:
                 # Dispatch the object...
                 ...
                 raise MissingImplementationError(
-                    'We do not yet support dynamic type registration through the work record.')
+                    'We do not yet support dynamic type registration through the work '
+                    'record.')
 
             if 'type' in obj:
                 # Dispatch the decoding according to the type.
@@ -330,12 +353,12 @@ decode = PythonDecoder()
 encode.register(dtype=bytes, handler=bytes.hex)
 encode.register(dtype=pathlib.Path, handler=os.fsdecode)
 # TODO: Check that this dispatches correctly and update the type hinting.
-# mypy gives "error: Only concrete class can be given where "Type[_PathLike[_AnyStr_co]]" is expected"
+# mypy gives "error: Only concrete class can be given
+# where "Type[_PathLike[_AnyStr_co]]" is expected"
 encode.register(dtype=os.PathLike, handler=os.fsdecode)
 
-
-# Note that the low-level encoding/decoding is not necessarily symmetric because nested objects may be decoded
-# according to the schema of a parent object.
+# Note that the low-level encoding/decoding is not necessarily symmetric because nested
+# objects may be decoded according to the schema of a parent object.
 # decode.register()
 
 
@@ -353,12 +376,15 @@ class BasicSerializable(UnboundObject):
     _data_encoder: typing.Callable
     _data_decoder: typing.Callable
 
-    _dtype = TypeDataDescriptor(base_type=TypeIdentifier(('scalems', 'BasicSerializable')))
+    _dtype = TypeDataDescriptor(
+        base_type=TypeIdentifier(('scalems', 'BasicSerializable'))
+    )
 
     def dtype(self) -> TypeIdentifier:
         # Part of the decision of whether to use a property or a method
         # is whether we want to normalize on dtype as an instance or class characteristic.
-        # Initially, we are using inheritance to get registration behavior through metaprogramming.
+        # Initially, we are using inheritance to get registration behavior through
+        # metaprogramming.
         # In other words, the real question may be how we want to handle registration.
         return self._dtype
 
@@ -377,7 +403,8 @@ class BasicSerializable(UnboundObject):
         self._shape = Shape(shape)
         # TODO: validate data dtype and shape.
         # TODO: Ensure that we retain a reference to read-only data.
-        # TODO: Allow a secondary localized / optimized / implementation-specific version of data.
+        # TODO: Allow a secondary localized / optimized / implementation-specific
+        #  version of data.
         self.data = data
 
     def identity(self):
@@ -402,7 +429,8 @@ class BasicSerializable(UnboundObject):
     @classmethod
     def decode(cls: typing.Type[ST], encoded: dict) -> ST:
         if not isinstance(encoded, collections.abc.Mapping) or 'type' not in encoded:
-            raise TypeError('Expected a dictionary with a *type* specification for decoding.')
+            raise TypeError(
+                'Expected a dictionary with a *type* specification for decoding.')
         dtype = TypeIdentifier.copy_from(encoded['type'])
         label = encoded.get('label', None)
         identity = encoded.get('identity')  # TODO: verify and use type schema to decode.
@@ -427,13 +455,18 @@ class BasicSerializable(UnboundObject):
             typeid = [str(cls.__module__)] + cls.__qualname__.split('.')
         registry = BasicSerializable._dtype.base
         if cls in registry and registry[cls] is not None:
-            # This may be a customization or extension point in the future, but not today...
-            raise ProtocolError('Subclassing BasicSerializable for a Type that is already registered.')
+            # This may be a customization or extension point in the future, but not
+            # today...
+            raise ProtocolError(
+                'Subclassing BasicSerializable for a Type that is already registered.')
         BasicSerializable._dtype.base[cls] = typeid
 
-        # Register encoder for all subclasses. Register the default encoder if not overridden.
-        # Note: This does not allow us to retain the identity of *cls* for when we call the helpers.
-        # We may require such information for encoder functions to know why they are being called.
+        # Register encoder for all subclasses. Register the default encoder if not
+        # overridden.
+        # Note: This does not allow us to retain the identity of *cls* for when we call
+        # the helpers.
+        # We may require such information for encoder functions to know why they are
+        # being called.
         encoder = getattr(cls, 'encode', BasicSerializable.encode)
         PythonEncoder.register(cls, encoder)
 
@@ -448,7 +481,8 @@ class BasicSerializable(UnboundObject):
             def _decode(encoded: dict):
                 decoder = _decoder()
                 if decoder is None:
-                    raise ProtocolError('Decoding a type that has already been de-registered.')
+                    raise ProtocolError(
+                        'Decoding a type that has already been de-registered.')
                 return decoder(encoded)
 
             PythonDecoder.register(cls._dtype, _decode)
@@ -465,7 +499,8 @@ class BasicSerializable(UnboundObject):
         # TODO: Register result dispatcher(s).
         # An AbstractDataSource must register a dispatcher to an implementation
         # that produces a ConcreteDataSource that provides the registered Result type.
-        # A ConcreteDataSource must provide support for checksum calculation and verification.
+        # A ConcreteDataSource must provide support for checksum calculation and
+        # verification.
         # Optionally, ConcreteDataSource may provide facilities to convert to/from
         # native Python objects or other types (such as .npz files).
 
@@ -475,7 +510,8 @@ class BasicSerializable(UnboundObject):
 
 def compact_json(obj) -> str:
     """Produce the compact JSON string for the encodable object."""
-    # Use the extensible Encoder from the serialization module, but apply some output formatting.
+    # Use the extensible Encoder from the serialization module, but apply some output
+    # formatting.
     string = json.dumps(obj,
                         default=encode,
                         ensure_ascii=True,
@@ -502,23 +538,27 @@ class JsonObjectPairsDispatcher:
         ...
 
 
-# def object_pair_decoder(context, object_pairs: typing.Iterable[typing.Tuple[str, typing.Any]])\
+# def object_pair_decoder(context, object_pairs: typing.Iterable[typing.Tuple[str,
+# typing.Any]])\
 #         -> typing.Iterable[ItemView]:
 #     """Decode named objects, updating the managed workflow as appropriate.
 #
-#     For object pairs representing complete workflow items, get a handle to a managed workflow item.
-#     If the key is already managed, update the the managed item or raise an error if the managed item
-#     is not consistent with the received item.
+#     For object pairs representing complete workflow items, get a handle to a managed
+#     workflow item. If the key is already managed, update the the managed item or raise
+#     an error if the managed item is not consistent with the received item.
 #
-#     Note that responsibilities for validating work graphs, data flow, and compatibility are delegated to the
-#     WorkflowManager and the registered data and command types. It does not make sense to call this function without
-#     a proper WorkflowManager. For low-level testing or other use cases, consider directly using PythonDecoder.
+#     Note that responsibilities for validating work graphs, data flow, and compatibility
+#     are delegated to the WorkflowManager and the registered data and command types. It
+#     does not make sense to call this function without a proper WorkflowManager. For
+#     low-level testing or other use cases, consider directly using PythonDecoder.
 #
-#     To extend json.load() or json.loads(), use functools.partial to bind a workflow context, and pass the
-#     partially bound function as the *object_pairs_hook* argument to the json deserializer.
+#     To extend json.load() or json.loads(), use functools.partial to bind a workflow
+#     context, and pass the partially bound function as the *object_pairs_hook* argument
+#     to the json deserializer.
 #     """
-#     # We would generally want to deserialize directly into a WorkflowManager. We could write this as a free function
-#     # and optionally bind it as a method. We could also make it a singledispatch function or a singledispatchmethod.
+#     # We would generally want to deserialize directly into a WorkflowManager.
+#     # We could write this as a free function and optionally bind it as a method.
+#     # We could also make it a singledispatch function or a singledispatchmethod.
 #     # These are probably not mutually exclusive.
 #     for key, value in object_pairs:
 #         # dispatch decoding for value

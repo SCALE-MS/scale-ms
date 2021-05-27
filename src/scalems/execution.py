@@ -95,11 +95,11 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     source_context: WorkflowManager
     submitted_tasks: typing.List[asyncio.Task]
 
-    _runtime_configuration: _BackendT = None
+    _runtime_configuration: _BackendT
 
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
-    _queue_runner_task: asyncio.Task = None
+    _queue_runner_task: typing.Optional[asyncio.Task] = None
 
     runtime = RuntimeDescriptor()
     """Get/set the current runtime state information.
@@ -477,7 +477,7 @@ async def manage_execution(executor: RuntimeManager,
                         return
                     elif task.exception():
                         logger.error(f'Task failed: {task}')
-                        raise task.exception()
+                        raise typing.cast(BaseException, task.exception())
                     else:
                         logger.debug(f'Task {task} already done. Continuing.')
                 else:

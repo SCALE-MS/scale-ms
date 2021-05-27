@@ -200,10 +200,12 @@ def _(task: scalems.workflow.Task, context: WorkflowManager):
     # TODO: Typing on the Task data proxy.
     command_message = task.input['message'][command]
     # kwargs = command_message['kwargs']
-    input_ref: str = command_message['input']
-    logger.debug(f'Decoding reference {input_ref}')
-    input_ref: bytes = bytes.fromhex(input_ref)
-    task_map = context.task_map
+    if 'input' in command_message:
+        logger.debug(f'Decoding reference {command_message["input"]}')
+        input_ref: bytes = bytes.fromhex(command_message["input"])
+    else:
+        raise TypeError(f'Missing input in {repr(command_message)}')
+    task_map = context.tasks
     logger.debug('Items done: {}'.format(
         ', '.join([': '.join([key.hex(), str(value.done())]) for key, value in task_map.items()])
     ))

@@ -10,15 +10,21 @@ Supports invocation of the following form with minimal `backend/__main__.py`
 
 import argparse
 import asyncio
+import importlib
+import logging
 import os
 import runpy
 import sys
 import threading
 import typing
+from types import ModuleType
 
 import scalems.exceptions
 import scalems.workflow
 from scalems.utility import parser as base_parser
+
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
 
 _reentrance_guard = threading.Lock()
 
@@ -51,18 +57,81 @@ def run_dispatch(work, context: scalems.workflow.WorkflowManager):
     return _result
 
 
-def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C901
+def get_backend_tuple(backend) -> typing.Tuple[str, ModuleType]:
+    module = None
+    module_name = 'backend'
+    if isinstance(backend, str):
+        module_name = backend
+        logger.debug(f'Looking for module {module_name}.')
+        try:
+            module = sys.modules[module_name]
+        except KeyError:
+            logger.debug(f'Not in sys.modules. Attempting to import {module_name}.')
+            try:
+                module = importlib.import_module(module_name)
+            except ImportError:
+                logger.debug(f'Could not import {module_name}.')
+                module = None
+    else:
+        required_attributes = ('workflow_manager', '__name__')
+        if all([hasattr(backend, attr) for attr in required_attributes]):
+            module = backend
+            module_name = backend.__name__
+        else:
+            for attr in required_attributes:
+                if not hasattr(backend, attr):
+                    logger.debug(f'{repr(backend)} does not have required attribute {attr}.')
+            logger.debug(f'{repr(backend)} does not appear to be a valid SCALE-MS backend.')
+    if module is None:
+        raise TypeError('Invalid backend.')
+    return module_name, module
+
+
+def _setup_debugger(args: argparse.Namespace):
+    if args.pycharm:
+        try:
+            import pydevd_pycharm  # type: ignore
+        except ImportError:
+            pydevd_pycharm = None
+        if pydevd_pycharm is not None:
+            pydevd_pycharm.settrace('host.docker.internal',
+                                    port=12345,
+                                    stdoutToServer=True,
+                                    stderrToServer=True)
+
+
+def _get_logger(args: argparse.Namespace, backend: ModuleType) -> logging.Logger:
+    level = args.log_level
+    if level is not None:
+        import logging
+        character_stream = logging.StreamHandler()
+        # Optional: Set log level.
+        logging.getLogger('scalems').setLevel(level)
+        character_stream.setLevel(level)
+        # Optional: create formatter and add to character stream handler
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        character_stream.setFormatter(formatter)
+        # add handler to logger
+        logging.getLogger('scalems').addHandler(character_stream)
+    _logger = getattr(backend, 'logger', logger)
+    return _logger
+
+
+def run(*,
+        backend,
         _loop: asyncio.AbstractEventLoop = None):
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:
         raise RuntimeError('scalems launcher is not reentrant.')
     try:
-        module = sys.modules[manager_type.__module__]
+        module_name, module = get_backend_tuple(backend)
 
         get_parser = getattr(module, 'parser', base_parser)
 
         parser = argparse.ArgumentParser(
-            usage=f'python -m {module.__name__} <{module.__name__} args> myscript.py <script args>',
+            usage=f'python -m {module_name} <{module_name} args> '
+                  'myscript.py <script args>',
             parents=[get_parser()]
         )
 
@@ -76,37 +145,24 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
         # and for the called script.
         args, script_args = parser.parse_known_args(sys.argv[1:])
 
-        if args.pycharm:
-            try:
-                import pydevd_pycharm
-                pydevd_pycharm.settrace('host.docker.internal', port=12345, stdoutToServer=True, stderrToServer=True)
-            except ImportError:
-                ...
+        _setup_debugger(args)
 
         if not os.path.exists(args.script):
             # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
             raise RuntimeError('Need a script to execute.')
 
-        level = args.log_level
-        if level is not None:
-            import logging
-            character_stream = logging.StreamHandler()
-            # Optional: Set log level.
-            logging.getLogger('scalems').setLevel(level)
-            character_stream.setLevel(level)
-            # Optional: create formatter and add to character stream handler
-            formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-            character_stream.setFormatter(formatter)
-            # add handler to logger
-            logging.getLogger('scalems').addHandler(character_stream)
-        logger = getattr(module, 'logger')
+        logger = _get_logger(args, module)
 
         configure_module = getattr(module, '_set_configuration', None)
         if configure_module is not None:
             configure_module(args)
-        if hasattr(module, 'configuration'):
-            config = module.configuration()
+        config = getattr(module, 'configuration', None)
+        if config is not None and callable(config):
+            config = config()
             logger.debug(f'Configuration: {config}')
+
+        workflow_manager: typing.Callable[..., scalems.workflow.WorkflowManager]
+        workflow_manager = getattr(module, 'workflow_manager')
 
         sys.argv = [args.script] + script_args
 
@@ -131,9 +187,9 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
         exitcode = 0
 
         try:
-            with scalems.context.scope(manager_type(loop)) as manager:
+            with scalems.context.scope(workflow_manager(loop=loop)) as manager:
                 try:
-                    globals_namespace = runpy.run_path(args.script)
+                    globals_namespace = runpy.run_path(args.script)  # type: ignore
 
                     main = None
                     for name, ref in globals_namespace.items():

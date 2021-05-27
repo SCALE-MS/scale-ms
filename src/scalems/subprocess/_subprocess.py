@@ -264,7 +264,7 @@ class Subprocess:
 
 # Register a director for Subprocess workflow items.
 # TODO: Wrap this in the decorator or metaclass used for TaskTypes.
-@scalems.workflow.workflow_item_director_factory.register
+@scalems.workflow.workflow_item_director_factory.register  # type: ignore[no-redef]
 def _(item: Subprocess, *, manager: scalems.workflow.WorkflowManager, label: str = None):
     if not isinstance(manager, scalems.workflow.WorkflowManager):
         raise APIError(f'No director for {repr(manager)}')

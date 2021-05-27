@@ -58,7 +58,7 @@ class Identifier(typing.Hashable, typing.Protocol):
     """
 
     @abc.abstractmethod
-    def bytes(self) -> typing.SupportsBytes:
+    def bytes(self) -> builtins.bytes:
         """A consistent bytes representation of the identity.
 
         The core interface provided by Identifiers.
@@ -158,7 +158,7 @@ class NamedIdentifier(Identifier):
         return self._name_tuple
 
 
-class ResourceIdentifier(Identifier):
+class ResourceIdentifier(Identifier, abc.ABC):
     # TODO: facility to annotate scope
     # TODO: facility to annotate reproducibility
     # TODO: facility to indicate whether this is a reference to concrete data or not.
@@ -224,6 +224,8 @@ class TypeDataDescriptor:
     Attributes:
         name: Name of the attribute provided by the data descriptor.
         base: TypeIdentifier associated with the Python class.
+
+    Properties:
         attr_name: the name of the instance data member used by this descriptor
                    for storage.
 

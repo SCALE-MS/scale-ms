@@ -1,9 +1,16 @@
 """Basic Python support for the SCALE-MS workflow object model."""
+__all__ = [
+    'Data',
+    'Object',
+    'Shape',
+]
+
 import abc
 import typing
 
-from scalems.identifiers import TypeIdentifier
 from scalems.identifiers import Identifier
+from scalems.identifiers import ResourceIdentifier
+from scalems.identifiers import TypeIdentifier
 
 
 class Shape(tuple):
@@ -23,6 +30,7 @@ class Shape(tuple):
             raise e
         if len(es) < 1 or any(not isinstance(e, int) for e in es):
             raise TypeError('Shape is a sequence of 1 or more integers.')
+
 
 # ``MetaField[_InfoT]`` isn't useful without some additional metaprogramming,
 # which seems unnecessary at this point.
@@ -132,17 +140,18 @@ class Object(typing.Protocol):
 
     Proxy attributes (Futures) for data fields are according to the specific object type.
     """
+
     def label(self) -> typing.Optional[str]:
-        ...
+        raise NotImplementedError
 
     def identity(self) -> Identifier:
-        ...
+        raise NotImplementedError
 
     def type(self) -> TypeIdentifier:
-        ...
+        raise NotImplementedError
 
     def shape(self) -> Shape:
-        ...
+        raise NotImplementedError
 
 
 class CommandType(ObjectType):
@@ -158,4 +167,26 @@ class DataType(ObjectType):
 
 
 class Data(Object):
-    ...
+    """Concrete data available in the context of the workflow.
+
+    Actual stored data represented by a Data instance is not necessarily contained
+    within or owned by the instance, but is guaranteed to be locally available to the
+    WorkflowManager with a unique, verifiable, and reproducible identity.
+
+    The method of fingerprinting and the data schema are details of the DataType
+    implementation.
+
+    TODO: Do we need a base class? Or a common class for composed instances?
+    """
+
+    def label(self) -> typing.Optional[str]:
+        pass
+
+    def identity(self) -> ResourceIdentifier:
+        pass
+
+    def type(self) -> TypeIdentifier:
+        pass
+
+    def shape(self) -> Shape:
+        pass

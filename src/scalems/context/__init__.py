@@ -24,18 +24,11 @@ import typing
 import warnings
 
 from scalems.exceptions import ProtocolError
+from scalems.workflow import WorkflowManager
+from scalems.workflow._manager import _dispatcher
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
-# Identify an asynchronous Context. Non-asyncio-aware functions may need to behave
-# differently when we know that asynchronous context switching could happen.
-# We allow multiple dispatchers to be active, but each dispatcher must
-# 1. contextvars.copy_context()
-# 2. set itself as the dispatcher in the new Context.
-# 3. run within the new Context.
-# 4. ensure the Context is destroyed (remove circular references)
-_dispatcher: contextvars.ContextVar = contextvars.ContextVar('_dispatcher')
 
 # If we require an event loop to be provided to the WorkflowManager, then
 # we should not instantiate a default context on module import. We don't really
@@ -73,7 +66,6 @@ def get_context():
     # Async coroutines can safely use get_context(), but should not use the
     # non-async workflow_scope() context manager for nested scopes without wrapping
     # in a contextvars.run().
-    from scalems.workflow import Scope
 
     try:
         _scope: Scope = current_scope.get()
@@ -99,7 +91,6 @@ def scope(context):
     Not thread-safe. In general, this context manage should only be used in the
     root thread.
     """
-    from scalems.workflow import Scope
 
     parent = get_context()
     dispatcher = _dispatcher.get(None)
@@ -184,3 +175,14 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
             logger.debug(f'Changing working directory back to {oldpath}')
             os.chdir(oldpath)
     logger.info('scoped_chdir exited.')
+
+
+class Scope(typing.NamedTuple):
+    """Backward-linked list (potentially branching) to track nested context.
+
+    There is not much utility to tracking the parent except for introspection
+    during debugging. The previous state is more appropriately held within the
+    closure of the context manager. This structure may be simplified without warning.
+    """
+    parent: typing.Union[None, WorkflowManager]
+    current: WorkflowManager

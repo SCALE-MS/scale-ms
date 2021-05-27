@@ -4,8 +4,8 @@ import logging
 import sys
 import time
 
-import radical.pilot as rp
-import radical.pilot.raptor as rpt
+import radical.pilot as rp  # type: ignore
+import radical.pilot.raptor as rpt  # type: ignore
 
 logger = logging.getLogger('scalems_rp_worker')
 

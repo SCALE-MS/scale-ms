@@ -1,17 +1,8 @@
-"""WorkflowManager and Item interfaces.
+__all__ = ['ItemView', 'WorkflowManager', 'Queuer']
 
-"Workflow Manager" is an important parameter in several cases.
-Execution management tools like scalems.run(), scalems.wait(), and scalems.dispatch()
-update the workflow managed in a particular scope, possibly by interacting with
-other scopes. Commands for declaring work or data add items to specific instances
-of workflow managers. Internally, SCALEMS explicitly refers to theses scopes as
-*manager*, or *context*, depending on the nature of the code collaboration.
-*manager* may appear as an optional parameter for user-facing functions to allow
-a particular managed workflow to be specified.
-"""
-import abc
 import asyncio
 import contextlib
+import contextvars
 import dataclasses
 import functools
 import json
@@ -21,7 +12,6 @@ import typing
 import warnings
 import weakref
 
-from scalems.context import _dispatcher
 from scalems.dispatching import _CommandQueueAddItem
 from scalems.dispatching import _CommandQueueControlItem
 from scalems.dispatching import QueueItem
@@ -42,6 +32,18 @@ from scalems.serialization import encode
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
+_dispatcher: contextvars.ContextVar = contextvars.ContextVar('_dispatcher')
+"""Active dispatcher in the current thread (or Task or other execution scope).
+
+Identify an asynchronous Context. Non-asyncio-aware functions may need to behave
+differently when we know that asynchronous context switching could happen.
+We allow multiple dispatchers to be active, but each dispatcher must
+1. contextvars.copy_context()
+2. set itself as the dispatcher in the new Context.
+3. run within the new Context.
+4. ensure the Context is destroyed (remove circular references)
+"""
+
 
 class Description:
     """Describe data managed in the workflow.
@@ -56,6 +58,7 @@ class Description:
     workflow item reference. References may be to an entire node or a nested subset of
     node output.
     """
+
     def shape(self) -> tuple:
         return self._shape
 
@@ -65,7 +68,8 @@ class Description:
     def __init__(self, resource_type: TypeIdentifier, *, shape: tuple = (1,)):
         type_id = TypeIdentifier.copy_from(resource_type)
         if type_id is None:
-            raise ValueError(f'Could not create a TypeIdentifier for {repr(resource_type)}')
+            raise ValueError('Could not create a TypeIdentifier for '
+                             f'{repr(resource_type)}')
         # TODO: Further input validation
         self._shape = shape
         self._type = type_id
@@ -173,20 +177,6 @@ class WorkflowView:
     keeping the public WorkflowContext interface as simple as possible. The interfaces
     may be combined in the future.
     """
-
-
-class WorkflowItemRecord:
-    """Encapsulate the management of an item record in a BasicWorkflowManager."""
-
-
-class BasicWorkflowManager:
-    """Reference implementation for a workflow manager.
-
-    Support addition and querying of items.
-    """
-
-    def __init__(self):
-        self._items = dict()
 
 
 class InvalidStateError(ScaleMSError):
@@ -302,12 +292,6 @@ class Task:
         return self._serialized_record
 
 
-class WorkflowEditor(abc.ABC):
-    @abc.abstractmethod
-    def add_item(self, item) -> ItemView:
-        ...
-
-
 class TaskMap(dict, typing.MutableMapping[bytes, Task]):
     def __setitem__(self, k: bytes, v: Task) -> None:
         if not isinstance(k, bytes) and isinstance(k, typing.SupportsBytes):
@@ -364,10 +348,10 @@ class WorkflowManager:
     """
     tasks: TaskMap
     """Map byte-sequence uid keys to Task objects.
-    
-    The task map is built with calls to add_item, which accepts either Subprocess 
+
+    The task map is built with calls to add_item, which accepts either Subprocess
     objects or *dict* objects representing a poorly specified "task description".
-    
+
     The TaskMap will soon be replaced by a more strongly specified DAG container.
     """
 
@@ -389,6 +373,10 @@ class WorkflowManager:
             loop: event loop, such as from asyncio.new_event_loop()
             executor_factory: Implementation-specific callable to get a run time work
             manager.
+
+        executor_factory is called in dispatch() as
+            executor_factory(manager=self, params=params)
+        where *params* is from the dispatch() parameter.
         """
         # We are moving towards a composed rather than a derived WorkflowManager Context.
         # Note that we can require the super().__init__() to be called in derived classes,
@@ -408,7 +396,7 @@ class WorkflowManager:
         self._executor_factory = executor_factory
 
         # Basic Context implementation details
-        # TODO: Tasks should only writable within a WorkflowEditor context.
+        # TODO: Tasks should only be writable within a WorkflowEditor context.
         self.tasks = TaskMap()  # Map UIDs to task Futures.
 
         self._dispatcher: typing.Optional[Queuer] = None
@@ -490,19 +478,19 @@ class WorkflowManager:
     #
     #     Find reference by label. Find owner of non-local resource, if known.
     #     """
-
-    def default_dispatcher(self):
-        """Get a default dispatcher instance, if available.
-
-        Provide a hint to scalems.run() on how to execute work in this scope.
-
-        WorkflowManager implementations define their own semantics. If implemented,
-        the returned object should be an AsyncContextManager. If the dispatching
-        facility is not reentrant, the WorkflowManager may raise ProtocolError.
-
-        WorkflowManagers are not required to provide a default dispatcher.
-        """
-        return None
+    #
+    # def default_dispatcher(self):
+    #     """Get a default dispatcher instance, if available.
+    #
+    #     Provide a hint to scalems.run() on how to execute work in this scope.
+    #
+    #     WorkflowManager implementations define their own semantics. If implemented,
+    #     the returned object should be an AsyncContextManager. If the dispatching
+    #     facility is not reentrant, the WorkflowManager may raise ProtocolError.
+    #
+    #     WorkflowManagers are not required to provide a default dispatcher.
+    #     """
+    #     return None
 
     @contextlib.asynccontextmanager
     async def dispatch(self, dispatcher: 'Queuer' = None, params=None):
@@ -668,7 +656,7 @@ class WorkflowManager:
         #     supported as input.')
 
         # TODO: Replace with type-based dispatching or some normative interface test.
-        from .subprocess import Subprocess
+        from ..subprocess import Subprocess
         if not isinstance(task_description, (Subprocess, dict)):
             raise MissingImplementationError('Operation not supported.')
 
@@ -780,13 +768,18 @@ class WorkflowManager:
             warnings.warn('No workflow items in record.')
         else:
             for i, item in enumerate(record['items']):
+                # Question: How forgiving do we want to be with errors?
+                # This may need to be user-configurable. I think we may need to allow
+                # that workflow records may not be fully loadable in all environments,
+                # but that we should try to extract the useful instructions or data
+                # when possible. For records that take a while to load, this could be
+                # an important frustration-avoidance scheme in case users need to chase
+                # down multiple small errors with repeated attempts to load. It may
+                # also be that the failure mode provides actionable information,
+                # such as a reference that may be assumed to be cached, but which is
+                # easily retrieved when not.
                 try:
-                    label = item['label']
-                    recorded_identity = item['identity']
-                    # TODO: Validate identity.
-                    item_type = item['type']
-                    item_shape = item['shape']
-                    item_data = item['data']
+                    raise MissingImplementationError
                 except Exception as e:
                     raise APIError(f'Could not process item {i} in record.') from e
 
@@ -1138,14 +1131,3 @@ class Queuer:
     #     function.
     #     # return self.result()  # May raise too.
     #     # # Otherwise, the only allowed value from the iterator is None.
-
-
-class Scope(typing.NamedTuple):
-    """Backward-linked list (potentially branching) to track nested context.
-
-    There is not much utility to tracking the parent except for introspection
-    during debugging. The previous state is more appropriately held within the
-    closure of the context manager. This structure may be simplified without warning.
-    """
-    parent: typing.Union[None, WorkflowManager]
-    current: WorkflowManager

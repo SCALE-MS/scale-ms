@@ -17,9 +17,9 @@ import logging
 import os
 import pathlib
 
+from scalems.workflow import WorkflowManager, Task
 from . import operations
 from .. import execution as _execution
-from .. import workflow as _workflow
 from ..context import scoped_chdir
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
@@ -42,17 +42,17 @@ def workflow_manager(loop: asyncio.AbstractEventLoop):
 
     There is no implicit OS level multithreading or multiprocessing.
     """
-    return _workflow.WorkflowManager(loop=loop, executor_factory=executor_factory)
+    return WorkflowManager(loop=loop, executor_factory=executor_factory)
 
 
 class _ExecutionContext:
     """Represent the run time environment for a managed workflow item."""
 
-    def __init__(self, manager: _workflow.WorkflowManager, identifier: bytes):
+    def __init__(self, manager: WorkflowManager, identifier: bytes):
         if manager is None:
             raise ProtocolError('Could not acquire reference to WorkflowManager. Stale '
                                 'reference?')
-        self.workflow_manager: _workflow.WorkflowManager = manager
+        self.workflow_manager: WorkflowManager = manager
         self.identifier: bytes = identifier
         try:
             self.workflow_manager.item(self.identifier)
@@ -81,7 +81,7 @@ class WorkflowUpdater(_execution.AbstractWorkflowUpdater):
     def __init__(self, runtime: _execution.RuntimeManager):
         self.executor = runtime
 
-    async def submit(self, *, item: _workflow.Task) -> asyncio.Task:
+    async def submit(self, *, item: Task) -> asyncio.Task:
         # TODO: Ensemble handling
         item_shape = item.description().shape()
         if len(item_shape) != 1 or item_shape[0] != 1:
@@ -92,7 +92,7 @@ class WorkflowUpdater(_execution.AbstractWorkflowUpdater):
         return task
 
 
-async def submit(item: _workflow.Task) -> asyncio.Task:
+async def submit(item: Task) -> asyncio.Task:
     key = item.uid()
     # Note that we could insert resource management here. We could create
     # tasks until we run out of free resources, then switch modes to awaiting
@@ -105,6 +105,8 @@ async def submit(item: _workflow.Task) -> asyncio.Task:
             id = str(key)
         logger.info(f'Skipping task that is already done. ({id})')
         # TODO: Update local status and results.
+        # TODO: Return completed Future for cached results.
+        return None
     else:
         assert not item.done()
         assert not item.manager().item(key).done()
@@ -117,7 +119,7 @@ async def submit(item: _workflow.Task) -> asyncio.Task:
 
 # TODO: return an execution status object?
 async def _execute_item(task_type: TypeIdentifier,  # noqa: C901
-                        item: _workflow.Task, execution_context: _ExecutionContext):
+                        item: Task, execution_context: _ExecutionContext):
     # TODO: Automatically resolve resource types.
     if task_type == TypeIdentifier(('scalems', 'subprocess', 'SubprocessTask')):
         task_type = SubprocessTask()
@@ -212,7 +214,7 @@ async def _execute_item(task_type: TypeIdentifier,  # noqa: C901
             raise e
 
 
-def executor_factory(manager: _workflow.WorkflowManager, params=None):
+def executor_factory(manager: WorkflowManager, params=None):
     if params is not None:
         raise TypeError('This factory does not accept a Configuration object.')
     executor = LocalExecutor(source=manager,
@@ -226,7 +228,7 @@ class LocalExecutor(_execution.RuntimeManager):
     """
 
     def __init__(self,
-                 source: _workflow.WorkflowManager,
+                 source: WorkflowManager,
                  *,
                  loop: asyncio.AbstractEventLoop,
                  dispatcher_lock=None,

@@ -4,7 +4,8 @@ Note that object representations are not required to be completely self-containe
 References to other workflow items may be used in place of data values.
 """
 __all__ = [
-    'EncodedObjectDict'
+    'EncodedObjectDict',
+    'EncodedValue'
 ]
 
 import typing
@@ -27,13 +28,13 @@ EncodedValue = typing.Union[
 ]
 """Allowed variants for recorded data values.
 
-Encoded data is held in a ``list``. Dimensions are commensurate with the value 
+Encoded data is held in a ``list``. Dimensions are commensurate with the value
 of *shape*.
 
-Field values may simply refer to other objects managed with the workflow. References 
+Field values may simply refer to other objects managed with the workflow. References
 are encoded as strings.
 
-Schema for specific object types may allow fields to be optional, in which case 
+Schema for specific object types may allow fields to be optional, in which case
 ``None`` is a valid value.
 """
 

@@ -14,7 +14,7 @@ from scalems.identifiers import TypeIdentifier
 from scalems.serialization import BasicSerializable
 from scalems.serialization import decode
 from scalems.serialization import encode
-from scalems.workflow import Shape
+from scalems._types import Shape
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

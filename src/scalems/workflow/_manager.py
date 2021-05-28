@@ -15,6 +15,7 @@ import weakref
 from scalems.dispatching import _CommandQueueAddItem
 from scalems.dispatching import _CommandQueueControlItem
 from scalems.dispatching import QueueItem
+from scalems.encoding import EncodedObjectDict
 from scalems.encoding import EncodedRecordDict
 from scalems.encoding import ItemsRecord
 from scalems.encoding import TypesRecord
@@ -28,6 +29,7 @@ from scalems.exceptions import ScaleMSError
 from scalems.exceptions import ScopeError
 from scalems.identifiers import TypeIdentifier
 from scalems.serialization import encode
+from ._graph import DAGState
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -358,6 +360,7 @@ class WorkflowManager:
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during
     #  execution and dispatching.
+    _graph: DAGState
 
     def __init__(self, *,
                  loop: asyncio.AbstractEventLoop,
@@ -398,6 +401,8 @@ class WorkflowManager:
         # Basic Context implementation details
         # TODO: Tasks should only be writable within a WorkflowEditor context.
         self.tasks = TaskMap()  # Map UIDs to task Futures.
+
+        self._graph = DAGState()
 
         self._dispatcher: typing.Optional[Queuer] = None
         self._dispatcher_lock = asyncio.Lock()
@@ -746,7 +751,8 @@ class WorkflowManager:
         probably not a sustainable interface.
         """
         types_record: TypesRecord = {}
-        items_record: ItemsRecord = []
+        # TODO: `encode` does not currently produce EncodedObjectDict instances.
+        items_record: ItemsRecord = list([encode(obj) for obj in self._graph.data()])
         record = EncodedRecordDict(version='scalems_workflow_1', types=types_record,
                                    items=items_record)
         return record
@@ -779,9 +785,26 @@ class WorkflowManager:
                 # such as a reference that may be assumed to be cached, but which is
                 # easily retrieved when not.
                 try:
-                    raise MissingImplementationError
+                    self.decode_item(item)
                 except Exception as e:
                     raise APIError(f'Could not process item {i} in record.') from e
+
+    def decode_item(self, item: EncodedObjectDict):
+        """Decode a single workflow item in the context of the managed workflow.
+
+        Decode the *item*, confirming implementation availability, checking
+        dependencies, and validating nested references.
+
+        Add the decoded item to the managed workflow.
+
+        Raises:
+            UnknownTypeError: If the item type is not available.
+            ScopeError: If the item depends on a reference that cannot be resolved in
+                the current workflow context.
+
+        TODO: Return an ItemView or at least a Reference.
+        """
+        raise MissingImplementationError
 
 
 @functools.singledispatch

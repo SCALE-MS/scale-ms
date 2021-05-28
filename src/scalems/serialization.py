@@ -36,7 +36,7 @@ from scalems.identifiers import EphemeralIdentifier
 from scalems.identifiers import Identifier
 from scalems.identifiers import TypeDataDescriptor
 from scalems.identifiers import TypeIdentifier
-from scalems.workflow import Shape
+from scalems._types import Shape
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

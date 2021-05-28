@@ -2,34 +2,15 @@
 __all__ = [
     'Data',
     'Object',
-    'Shape',
 ]
 
 import abc
 import typing
 
+from scalems._types import Shape
 from scalems.identifiers import Identifier
 from scalems.identifiers import ResourceIdentifier
 from scalems.identifiers import TypeIdentifier
-
-
-class Shape(tuple):
-    """Describe the data shape of a SCALEMS object."""
-
-    def __new__(cls, elements: typing.Iterable):
-        return super().__new__(cls, elements)
-
-    def __init__(self, elements: typing.Iterable):
-        """Initial implementation requires a sequence of integers.
-
-        Software requirements include symbolic elements, TBD.
-        """
-        try:
-            es = tuple(e for e in elements)
-        except TypeError as e:
-            raise e
-        if len(es) < 1 or any(not isinstance(e, int) for e in es):
-            raise TypeError('Shape is a sequence of 1 or more integers.')
 
 
 # ``MetaField[_InfoT]`` isn't useful without some additional metaprogramming,

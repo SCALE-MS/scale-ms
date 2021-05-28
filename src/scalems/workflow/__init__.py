@@ -12,7 +12,6 @@ a particular managed workflow to be specified.
 __all__ = [
     'Description',
     'ItemView',
-    'Shape',
     'Task',
     'WorkflowManager',
     'workflow_item_director_factory',
@@ -20,7 +19,6 @@ __all__ = [
 
 import logging
 
-from ._object import Shape
 from ._manager import Description
 from ._manager import ItemView
 from ._manager import Task

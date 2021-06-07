@@ -57,7 +57,8 @@ RUN . $HOME/rp-venv/bin/activate && \
         -DPKG_COMPRESS=yes \
         && \
     cmake --build . && \
-    cmake --build . --target install
+    cmake --build . --target install && \
+    rm -rf /tmp/lammps
 
 #ENV REF=master
 #

@@ -36,8 +36,7 @@ jobs:
       run: |
         . $HOME/testenv/bin/activate
         export RADICAL_LOG_LVL=DEBUG
-        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -k "not test_exec_rp" tests -s
-        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml --cov-append -k "test_exec_rp" tests -s
+        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml tests -s
     - name: Command line tests
       run: |
         . $HOME/testenv/bin/activate
@@ -103,7 +102,9 @@ jobs:
         export RADICAL_LOG_LVL=DEBUG
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         ulimit -n 65536
-        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests/test_rp_exec.py::test_rp_future --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml --cov-append -rA -l --log-cli-level=info tests/test_rp_exec.py::test_rp_raptor_staging --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml --cov-append -rA -l --log-cli-level=info tests/test_rp_exec.py::test_exec_rp --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
     - name: Command line tests
       timeout-minutes: 3
       env:

@@ -48,6 +48,7 @@ jobs:
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
         files: ./coverage1.xml,./coverage2.xml
         name: codecov-local-${{ matrix.python-version }}
@@ -117,6 +118,7 @@ jobs:
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
         files: ./coverage1.xml,./coverage2.xml
         name: codecov-rp-local-${{ matrix.python-version }}
@@ -202,6 +204,7 @@ jobs:
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
+        token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
         files: ./coverage1.xml,./coverage2.xml
         name: codecov-rp-ssh-${{ matrix.python-version }}

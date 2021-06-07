@@ -36,8 +36,8 @@ jobs:
       run: |
         . $HOME/testenv/bin/activate
         export RADICAL_LOG_LVL=DEBUG
-        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml          -k "not test_exec_rp" tests -s
-        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml --append -k "test_exec_rp"     tests -s
+        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -k "not test_exec_rp" tests -s
+        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml --cov-append -k "test_exec_rp" tests -s
     - name: Command line tests
       run: |
         . $HOME/testenv/bin/activate

@@ -69,6 +69,7 @@ RUN rp-venv/bin/pip install --upgrade \
         setuptools \
         wheel && \
     rp-venv/bin/pip install --upgrade \
+        build \
         coverage \
         flake8 \
         'mock==2.0.0' \

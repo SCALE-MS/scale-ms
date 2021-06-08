@@ -36,17 +36,6 @@
 ARG TAG=latest
 FROM scalems/rp-complete:$TAG
 
-USER rp
-WORKDIR /home/rp
-
-RUN ./rp-venv/bin/pip install --upgrade pip setuptools wheel
-
-COPY --chown=rp:radical . scalems
-
-RUN ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
-RUN ./rp-venv/bin/pip install scalems/
-# The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
-
 USER root
 
 RUN apt-get update && \
@@ -55,7 +44,7 @@ RUN apt-get update && \
         apt-utils \
         build-essential \
         cmake \
-        fftw3 \
+        libfftw3-dev \
         git \
         libopenmpi-dev \
         make \
@@ -68,6 +57,11 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 USER rp
+
+WORKDIR /home/rp
+
+RUN /home/rp/rp-venv/bin/pip install --upgrade pip setuptools wheel
+RUN /home/rp/rp-venv/bin/pip install --upgrade cmake
 
 # Patch release will have a path like lammps-27May2021
 RUN . $HOME/rp-venv/bin/activate && \
@@ -91,6 +85,12 @@ RUN . $HOME/rp-venv/bin/activate && \
     cmake --build . && \
     cmake --build . --target install && \
     rm -rf /tmp/lammps
+
+COPY --chown=rp:radical . scalems
+
+RUN ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
+RUN ./rp-venv/bin/pip install scalems/
+# The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
 
 #ENV REF=master
 #

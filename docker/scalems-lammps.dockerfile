@@ -39,7 +39,7 @@ FROM scalems/rp-complete:$TAG
 USER rp
 WORKDIR /home/rp
 
-RUN ./rp-venv/bin/pip install --upgrade pip setuptools
+RUN ./rp-venv/bin/pip install --upgrade pip setuptools wheel
 
 COPY --chown=rp:radical . scalems
 
@@ -55,6 +55,7 @@ RUN apt-get update && \
         apt-utils \
         build-essential \
         cmake \
+        fftw3 \
         git \
         libopenmpi-dev \
         make \

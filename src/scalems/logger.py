@@ -31,7 +31,9 @@ logger output.
 __all__ = ['logger']
 
 # Import system facilities
-from logging import getLogger, DEBUG, NullHandler
+from logging import DEBUG
+from logging import getLogger
+from logging import NullHandler
 
 # Define `logger` attribute that is used by submodules to create sub-loggers.
 logger = getLogger('scalems')

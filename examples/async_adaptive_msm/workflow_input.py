@@ -1,17 +1,17 @@
 """Hold the reusable part of the various workflows in this example."""
 
-__all__ = ['scalems', 'initial_simulation_input', 'num_clusters', 'initial_pdb', 'collect_coordinates', 'msmtool', 'simulate', 'modify_input']
+__all__ = ['scalems', 'initial_simulation_input', 'num_clusters', 'initial_pdb', 'collect_coordinates', 'msmtool',
+           'simulate', 'modify_input']
 
 import scalems
-
+# Get a set of simulation tools following a common interface convention.
+from scalems.wrappers.gromacs import internal_to_pdb
+from scalems.wrappers.gromacs import make_input
+# Get a set of simulation tools following a common interface convention.
+from scalems.wrappers.gromacs import modify_input
+from scalems.wrappers.gromacs import simulate
 # Get a module that provides the `msm_analyzer` function we will be using.
 from . import msmtool
-
-# Get a set of simulation tools following a common interface convention.
-from scalems.wrappers.gromacs import collect_coordinates, modify_input, simulate
-
-# Get a set of simulation tools following a common interface convention.
-from scalems.wrappers.gromacs import internal_to_pdb, make_input
 
 # Generic data hierarchy is not yet clear. Model,
 # method, instance/system/conformation/microstate, and implementation details

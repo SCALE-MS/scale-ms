@@ -1,4 +1,4 @@
-# Basic gmxapi simulation.
+# Basic gmxapi simulation
 
 Simple gmxapi workflow to configure and run MD for an ADP molecule.
 
@@ -8,7 +8,7 @@ For example usage, see comments in the [Dockerfile](Dockerfile) in this director
 
 For a clean test environment pull and/or build a Docker image following instructions in the Dockerfile.
 
-# Example 1
+## Example 1
 
 `single_sim.py` makes trivial use of the proof-of-concept code in the
 [`src/scalems/wrappers/gromacs.py`](../../src/scalems/wrappers/gromacs.py) module,

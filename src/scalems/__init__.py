@@ -37,20 +37,26 @@ __all__ = [
     'executable',
     # utilities and helpers
     'get_context',
-    'run',
-    'wait',
+    # 'run',
+    # 'wait',
+    '__version__',
+    # core API
+    'ScriptEntryPoint',
 ]
 
 import logging
 
-import scalems.exceptions as exceptions
-# Import the singleton early to avoid ambiguity under multi-threaded conditions.
-from scalems.utility import next_monotonic_integer as _next_int
+from ._version import get_versions
 from .context import get_context
-from .commands import *
-from .utility import *
 from .subprocess import executable
+from .utility import app
+from .utility import ScriptEntryPoint
+
+__version__ = get_versions()['version']
+del get_versions
+# We do not provide a version module or API.
+# Use :py:mod:`packaging.version <https://packaging.pypa.io/en/latest/version/>`
+# or pkg_resources.get_distribution('gmxapi').version for richer interfaces.
 
 logger = logging.getLogger(__name__)
 logger.debug('Imported {}'.format(__name__))
-

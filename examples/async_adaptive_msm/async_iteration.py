@@ -19,7 +19,7 @@ parameter_list = list()
 for seed in range(num_simulations):
     parameter_list.append({'ld_seed': seed})
 initial_input = modify_input(input=initial_simulation_input,
-                              parameters=parameter_list)
+                             parameters=parameter_list)
 
 # The num_simulations should equal or exceed the amount of concurrency available
 # from the requested computing resources. Results will be processed in smaller
@@ -28,6 +28,7 @@ initial_input = modify_input(input=initial_simulation_input,
 # synchronization, but small enough to minimize the cost of node failures and
 # work heterogeneity (e.g. maximize occupancy).
 batch_size = num_simulations // 10
+
 
 async def batch_analysis(model, conformation: Iterable):
     """Return an updated model after applying a batch updated."""

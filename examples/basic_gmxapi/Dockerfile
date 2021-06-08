@@ -20,7 +20,8 @@
 # Note that, because of the `--rm` flag, the container will be removed when you
 # exit the containerized shell.
 
-FROM scalems/radicalpilot
+ARG TAG=latest
+FROM scalems/radicalpilot:$TAG
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
@@ -65,20 +66,20 @@ RUN mkdir /tmp/gromacs && \
     cd && \
     rm -rf /tmp/gromacs
 
-RUN cd $EXAMPLE && \
-    python3 -m venv env38 && \
-    . env38/bin/activate && \
-    pip install --upgrade pip setuptools wheel
+WORKDIR $EXAMPLE
 
-RUN cd $EXAMPLE && \
+RUN python3 -m venv env38 && \
     . env38/bin/activate && \
+    pip install --no-cache-dir --upgrade pip setuptools wheel
+
+RUN . env38/bin/activate && \
     . ~/gromacs2021/bin/GMXRC && \
-    pip install --upgrade gmxapi
+    pip install --no-cache-dir --upgrade gmxapi
 
 ENV REF=master
 
 RUN . $EXAMPLE/env38/bin/activate && \
-    pip install --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF
+    pip install --no-cache-dir --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF
 
 COPY --chown=rp:radical examples/basic_gmxapi/*.py $EXAMPLE/examples/basic_gmxapi/
 COPY --chown=rp:radical testdata $EXAMPLE/testdata

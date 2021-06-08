@@ -1,24 +1,15 @@
 """Execution dispatched through RADICAL Pilot for ScaleMS workflows.
 
 Usage:
-    python3 -m scalems.radical my_workflow.py
+    python3 -m scalems.radical <RP options> my_workflow.py <script options>
 
 """
 
-import asyncio
-import runpy
 import sys
 
-import radical.pilot # Make sure rp is imported before logging module.
-import scalems.radical
+import scalems.invocation
 
-# TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
-if len(sys.argv) < 2:
-    raise RuntimeError('Usage: python -m scalems.local myscript.py')
+# Can we attach to the rp Logger here?
 
-# Note that we want to make sure that the asyncio event loop is started in the
-# root thread before any RP Session is created.
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
-with scalems.radical.RPWorkflowContext():
-    runpy.run_path(sys.argv[0])
+if __name__ == '__main__':
+    sys.exit(scalems.invocation.run(scalems.radical.workflow_manager))

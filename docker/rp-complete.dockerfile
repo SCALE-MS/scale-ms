@@ -26,36 +26,45 @@ USER root
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y \
+    apt-get -yq --no-install-suggests --no-install-recommends install apt-utils build-essential software-properties-common && \
+    apt-get install -y --no-install-recommends \
         curl \
         dnsutils \
         gcc \
         git \
         iputils-ping \
+        language-pack-en \
+        locales \
         openmpi-bin \
         openssh-server \
         python3.8-dev \
         python3-venv \
+        tox \
         vim \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
+RUN locale-gen en_US.UTF-8 && \
+    update-locale LANG=en_US.UTF-8
+
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y \
+    apt-get install -y --no-install-recommends \
         python3.8-venv \
          && \
     rm -rf /var/lib/apt/lists/*
 
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 
 USER rp
 
-RUN (cd ~rp && python3.8 -m venv rp-venv)
+WORKDIR /home/rp
 
-RUN (cd ~rp && \
-    rp-venv/bin/pip install --upgrade \
+RUN python3.8 -m venv rp-venv
+
+RUN rp-venv/bin/pip install --upgrade \
         pip \
         setuptools \
         wheel && \
@@ -71,36 +80,18 @@ RUN (cd ~rp && \
         pytest \
         pytest-asyncio \
         python-hostlist \
-        setproctitle \
-        )
-
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --upgrade \
-        'radical.saga>=1.5.2' \
-        'radical.utils>=1.5.2'
+        setproctitle
 
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-#ARG RPREF="v1.5.7"
-ARG RPREF="project/scalems"
+ARG RPREF="v1.6.6"
+#ARG RPREF="project/scalems"
 # Note: radical.pilot does not work properly with an "editable install"
-#RUN (cd ~rp && \
-#    . ~rp/rp-venv/bin/activate && \
-#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
-#    cd radical.pilot && \
-#    pip install -e . \
-#    )
-# We want the sources for the examples and unit tests.
-#RUN (cd ~rp && \
-#    . ~rp/rp-venv/bin/activate && \
-#    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
-# OR first get sources, then
-RUN cd ~rp && \
-    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     . ~rp/rp-venv/bin/activate && \
     cd ~rp/radical.pilot && \
-    pip install .
+    pip install --no-cache-dir --no-build-isolation .
 
 
 # Allow RADICAL Pilot to provide more useful behavior during testing,
@@ -124,6 +115,7 @@ ENV RADICAL_PILOT_DBURL="mongodb://$MONGO_INITDB_ROOT_USERNAME:$MONGO_INITDB_ROO
 
 RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 
+# Set user "rp" password to "rp".
 RUN echo "rp\nrp" | passwd rp
 
-WORKDIR /home/rp
+USER mongodb

@@ -2,14 +2,14 @@
 
 import json
 
-import scalems
-from scalems.wrappers.gromacs import make_input, modify_input, simulate
-
 # MD extension code, written in C++ has been compiled and installed for use as a plugin.
 import myplugin
-
 # The researcher has written a restrained_md_analysis package (not included) to support their new method.
 from restrained_md_analysis import calculate_js
+
+import scalems
+from scalems.wrappers.gromacs import make_input
+from scalems.wrappers.gromacs import simulate
 
 # The user has already built 20 input files in 20 directories for an ensemble of width 20.
 N = 20

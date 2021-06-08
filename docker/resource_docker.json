@@ -1,0 +1,68 @@
+{
+  "login": {
+    "description": "compute service from the docker/stack.yml.",
+    "notes": "Local schema in the 'login' service container.",
+    "schemas": [
+      "local",
+      "ssh"
+    ],
+    "ssh": {
+      "job_manager_endpoint": "ssh://rp@compute/",
+      "filesystem_endpoint": "sftp://rp@compute/"
+    },
+    "local": {
+      "job_manager_endpoint": "fork://localhost/",
+      "filesystem_endpoint": "file://localhost/"
+    },
+    "pre_bootstrap_1": [
+    ],
+    "default_remote_workdir": "$HOME",
+    "resource_manager": "FORK",
+    "agent_config": "default",
+    "agent_scheduler": "CONTINUOUS",
+    "agent_spawner": "POPEN",
+    "agent_launch_method": "FORK",
+    "task_launch_method": "FORK",
+    "mpi_launch_method": "MPIEXEC",
+    "rp_version": "installed",
+    "virtenv_mode": "use",
+    "virtenv": "/home/rp/rp-venv",
+    "python_dist": "default",
+    "cores_per_node": 4,
+    "gpus_per_node": 0,
+    "lfs_path_per_node": "/tmp",
+    "lfs_size_per_node": 1024,
+    "memory_per_node": 4096,
+    "fake_resources": true
+  },
+  "compute": {
+    "description": "compute service from the docker/stack.yml.",
+    "notes": "To use the ssh schema from outside of the Docker stack, make sure that ssh-agent has added the id_rsa.pub for the rp user in the scalems/radicalpilot image.",
+    "schemas": [
+      "ssh"
+    ],
+    "ssh": {
+      "job_manager_endpoint": "ssh://rp@compute/",
+      "filesystem_endpoint": "sftp://rp@compute/"
+    },
+    "pre_bootstrap_1": [],
+    "default_remote_workdir": "$HOME",
+    "resource_manager": "FORK",
+    "agent_config": "default",
+    "agent_scheduler": "CONTINUOUS",
+    "agent_spawner": "POPEN",
+    "agent_launch_method": "FORK",
+    "task_launch_method": "FORK",
+    "mpi_launch_method": "MPIEXEC",
+    "rp_version": "installed",
+    "virtenv_mode": "use",
+    "virtenv": "/home/rp/rp-venv",
+    "python_dist": "default",
+    "cores_per_node": 4,
+    "gpus_per_node": 0,
+    "lfs_path_per_node": "/tmp",
+    "lfs_size_per_node": 1024,
+    "memory_per_node": 4096,
+    "fake_resources": true
+  }
+}

@@ -1,0 +1,66 @@
+{
+  "github": {
+    "description": "GitHub Actions workflow with a `testenv` venv preconfigured.",
+    "notes": "To use the ssh schema, make sure that ssh access to localhost is enabled.",
+    "schemas": [
+      "local",
+      "ssh"
+    ],
+    "ssh": {
+      "job_manager_endpoint": "ssh://127.0.0.1/",
+      "filesystem_endpoint": "sftp://127.0.0.1/"
+    },
+    "local": {
+      "job_manager_endpoint": "fork://localhost/",
+      "filesystem_endpoint": "file://localhost/"
+    },
+    "default_remote_workdir": "$HOME",
+    "resource_manager": "FORK",
+    "agent_config": "default",
+    "agent_scheduler": "CONTINUOUS",
+    "agent_spawner": "POPEN",
+    "agent_launch_method": "FORK",
+    "task_launch_method": "FORK",
+    "mpi_launch_method": "MPIEXEC",
+    "rp_version": "installed",
+    "virtenv_mode": "use",
+    "virtenv": "$HOME/testenv",
+    "python_dist": "default",
+    "cores_per_node": 8,
+    "gpus_per_node": 1,
+    "lfs_path_per_node": "/tmp",
+    "lfs_size_per_node": 1024,
+    "memory_per_node": 4096,
+    "fake_resources": true
+  },
+  "tunnel": {
+    "description": "Use a local ssh tunnel for an arbitrary compute host.",
+    "notes": "Assumes a tunnel has already been set up for password-less login to localhost:22222",
+    "schemas": [
+      "ssh"
+    ],
+    "ssh": {
+      "job_manager_endpoint": "ssh://rp@127.0.0.1:22222/",
+      "filesystem_endpoint": "sftp://rp@127.0.0.1:22222/"
+    },
+    "pre_bootstrap_1": [
+    ],
+    "default_remote_workdir": "$HOME",
+    "resource_manager": "FORK",
+    "agent_config": "default",
+    "agent_scheduler": "CONTINUOUS",
+    "agent_spawner": "POPEN",
+    "agent_launch_method": "FORK",
+    "task_launch_method": "FORK",
+    "mpi_launch_method": "MPIEXEC",
+    "rp_version": "local",
+    "virtenv_mode": "create",
+    "python_dist": "default",
+    "cores_per_node": 4,
+    "gpus_per_node": 0,
+    "lfs_path_per_node": "/tmp",
+    "lfs_size_per_node": 1024,
+    "memory_per_node": 4096,
+    "fake_resources": true
+  }
+}

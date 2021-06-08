@@ -22,7 +22,8 @@
 # Note that, because of the `--rm` flag, the container will be removed when you
 # exit the containerized shell.
 
-FROM scalems/radicalpilot
+ARG TAG=latest
+FROM scalems/radicalpilot:$TAG
 
 ENV EXAMPLE=/home/rp/scalems_example
 
@@ -31,20 +32,19 @@ RUN mkdir $EXAMPLE && \
 
 USER rp
 
-RUN cd $EXAMPLE && \
-    python3 -m venv env38 && \
+WORKDIR $EXAMPLE
+RUN python3 -m venv env38 && \
     . env38/bin/activate && \
-    pip install --upgrade pip setuptools wheel
+    pip install --no-cache-dir --upgrade pip setuptools wheel
 
 ARG REF=master
 
 RUN . $EXAMPLE/env38/bin/activate && \
-    pip install --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF
+    pip install --no-cache-dir --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF
 
 COPY --chown=rp:radical *.py $EXAMPLE/
 
 # Alternatively, get a specific version of the script:
-#RUN cd $EXAMPLE && \
-#    wget https://raw.githubusercontent.com/SCALE-MS/scale-ms/$REF/examples/basic/echo.py
+#RUN wget https://raw.githubusercontent.com/SCALE-MS/scale-ms/$REF/examples/basic/echo.py
 
 CMD ["/usr/bin/bash"]

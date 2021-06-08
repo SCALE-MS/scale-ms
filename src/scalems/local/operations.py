@@ -12,10 +12,11 @@ import shutil
 import typing
 
 import scalems.subprocess
-from scalems.utility import next_monotonic_integer as _next_int
+import scalems.workflow
 from scalems.exceptions import InternalError
 from scalems.exceptions import ProtocolError
 from scalems.subprocess._subprocess import OutputFile
+from scalems.utility import next_monotonic_integer as _next_int
 
 
 @dataclasses.dataclass
@@ -34,7 +35,7 @@ class _ExecutionContext:
 
     Provide local definition of evolving concept from local/__init__.py
     """
-    workflow_manager: scalems.context.WorkflowManager
+    workflow_manager: scalems.workflow.WorkflowManager
     identifier: bytes
 
 
@@ -92,7 +93,7 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
 
 
 @contextlib.asynccontextmanager
-async def input_resource_scope(context: _ExecutionContext,
+async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
                                task_input: typing.Union[
                                    scalems.subprocess.SubprocessInput,
                                    typing.Awaitable[scalems.subprocess.SubprocessInput]]):
@@ -139,8 +140,8 @@ async def input_resource_scope(context: _ExecutionContext,
             try:
                 if not os.path.exists(value):
                     raise ValueError('File not found: {}'.format(value))
-            except:
-                raise TypeError('Invalid input (expected file path): {}'.format(repr(value)))
+            except Exception as e:
+                raise TypeError('Invalid input (expected file path): {}'.format(repr(value))) from e
             args.extend([key, value])
 
     if task_input.outputs is not None and len(task_input.inputs) > 0:

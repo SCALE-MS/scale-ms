@@ -12,8 +12,8 @@ import os
 from pathlib import Path
 
 import scalems
-from scalems.wrappers.gromacs import make_input, simulate
-
+from scalems.wrappers.gromacs import make_input
+from scalems.wrappers.gromacs import simulate
 
 # Allow log level to be set from the command line.
 parser = argparse.ArgumentParser('Run a single simulation.')

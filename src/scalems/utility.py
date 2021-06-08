@@ -4,28 +4,76 @@ __all__ = [
     'app',
     'command',
     'function_wrapper',
+    'parser',
     'poll',
-    'run',
     'wait',
     'ScriptEntryPoint'
 ]
 
-
 import abc
+import argparse
 import contextvars
 import functools
 import logging
 import typing
-import warnings
 from typing import Protocol
 
-from scalems import exceptions
+from scalems import exceptions as _exceptions
+from scalems.context import get_context
+from ._version import get_versions
+from .workflow import WorkflowManager
 
-from scalems.context import get_context, scope, WorkflowManager
-
+_scalems_version = get_versions()['version']
+del get_versions
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
+
+# TODO: (Python 3.9) Use functools.cache instead of lru_cache when Py 3.9 is required.
+cache = getattr(functools, 'cache', functools.lru_cache(maxsize=None))
+
+
+@cache
+def parser(add_help=False):
+    """Get the base scalems argument parser.
+
+    Provides a base argument parser for scripts or other module parsers.
+
+    By default, the returned ArgumentParser is created with ``add_help=False``
+    to avoid conflicts when used as a *parent* for a parser more local to the caller.
+    If *add_help* is provided, it is passed along to the ArgumentParser created
+    in this function.
+
+    See Also:
+         https://docs.python.org/3/library/argparse.html#parents
+    """
+    _parser = argparse.ArgumentParser(add_help=add_help)
+
+    _parser.add_argument(
+        '--version',
+        action='version',
+        version=f'scalems version {_scalems_version}'
+    )
+
+    _parser.add_argument(
+        '--log-level',
+        type=str.upper,
+        choices=['CRITICAL',
+                 'ERROR',
+                 'WARNING',
+                 'INFO',
+                 'DEBUG'],
+        help='Optionally configure console logging to the indicated level.'
+    )
+
+    _parser.add_argument(
+        '--pycharm',
+        action='store_true',
+        default=False,
+        help='Attempt to connect to PyCharm remote debugging system, where appropriate.'
+    )
+
+    return _parser
 
 
 class ScriptEntryPoint(abc.ABC):
@@ -50,6 +98,7 @@ def app(func: typing.Callable) -> typing.Callable:
 
 
     """
+
     class App(ScriptEntryPoint):
         def __init__(self, func: typing.Callable):
             if not callable(func):
@@ -65,7 +114,6 @@ def app(func: typing.Callable) -> typing.Callable:
     return decorated
 
 
-
 # def command(*, input_type, result_type):
 #     """Get a decorator for ScaleMS Command definitions.
 #
@@ -79,6 +127,7 @@ def app(func: typing.Callable) -> typing.Callable:
 
 class Callable(Protocol):
     """This protocol describes the required function signature for a SCALE-MS command."""
+
     def __call__(self):
         ...
 
@@ -121,7 +170,7 @@ def function_wrapper(output: dict = None):
     publish multiple named results. Otherwise, the ``output`` of the generated operation
     will just capture the return value of the wrapped function.
     """
-    raise exceptions.MissingImplementationError()
+    raise _exceptions.MissingImplementationError()
 
 
 def poll():
@@ -133,13 +182,14 @@ def poll():
     Used in a work graph, this adds a non-deterministic aspect, but adds truly
     asynchronous adaptability.
     """
-    raise exceptions.MissingImplementationError()
+    raise _exceptions.MissingImplementationError()
 
 
 ResultType = typing.TypeVar('ResultType')
 
 
-class WorkflowObject(typing.Generic[ResultType]): ...
+class WorkflowObject(typing.Generic[ResultType]):
+    ...
 
 
 def _unpack_work(ref: dict):
@@ -153,7 +203,7 @@ def _unpack_work(ref: dict):
     implementation_identifier = ref.get('implementation', None)
     message: dict = ref.get('message', None)
     if not isinstance(implementation_identifier, list) or not isinstance(message, dict):
-        raise exceptions.DispatchError('Bug: bad schema checking?')
+        raise _exceptions.DispatchError('Bug: bad schema checking?')
 
     command = implementation_identifier[-1]
     logger.debug(f'Unpacking a {command}')
@@ -202,7 +252,7 @@ def _unpack_work(ref: dict):
 @functools.singledispatch
 def _wait(ref, *, manager):
     """Use the indicated workflow manager to resolve a reference to a workflow item."""
-    raise exceptions.DispatchError('No dispatcher for this type of reference.')
+    raise _exceptions.DispatchError('No dispatcher for this type of reference.')
     # TODO: Return an object supporting the result type interface.
 
 
@@ -211,7 +261,7 @@ def _(ref: dict, *, manager):
     # First draft: monolithic implementation directs the workflow manager to add tasks and execute them.
     # TODO: Use a WorkflowManager interface from the core data model.
     if not isinstance(manager, WorkflowManager):
-        raise exceptions.ProtocolError('Provided manager does not implement the required interface.')
+        raise _exceptions.ProtocolError('Provided manager does not implement the required interface.')
     for item in _unpack_work(ref):
         view = manager.add_item(item)
         logger.debug('Added {}: {}'.format(
@@ -249,72 +299,19 @@ def wait(ref):
     an execution manager in the current scope.
 
     .. todo:: Acquire asyncio event loop from WorkflowManager.
-        scalems.wait is primarily intended as an abstraction from https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete and an alternative to `await`.
+        scalems.wait is primarily intended as an abstraction from
+        https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete
+        and an alternative to `await`.
     """
     context = get_context()
     if context is None:
         # Bail out.
-        raise exceptions.DispatchError(str(ref))
+        raise _exceptions.DispatchError(str(ref))
     if not isinstance(context, WorkflowManager):
-        raise exceptions.ProtocolError('Expected WorkflowManager. Got {}'.format(repr(context)))
+        raise _exceptions.ProtocolError('Expected WorkflowManager. Got {}'.format(repr(context)))
 
     # Dispatch on reference type.
     return _wait(ref, manager=context)
-
-
-def _run(*, work, context, **kwargs):
-    """Run in current scope."""
-    import asyncio
-    from asyncio.coroutines import iscoroutinefunction
-
-    # TODO: Allow custom dispatcher hook.
-    if iscoroutinefunction(context.run):
-
-        # TODO: Rearchitect the handling of *work*.
-        # Don't run function until the dispatcher is active or dispatch on *work* type.
-        # We can't support scalems.wait() in scalems.app as intended if dispatcher is not active.
-        if callable(work):
-            logger.debug('Preprocessing callable *work*.')
-            # This is supposed to either get a coroutine object from *work* or allow
-            # *work* the opportunity to interact with the workflow manager before dispatching begins.
-            try:
-                # Note that with the current scalems.utility.app, we don't have a convention for
-                # the callable to return anything, so *handle* is None (and unused).
-                handle = work(**kwargs)
-            except Exception as e:
-                logger.exception('Uncaught exception in scalems.run() processing work: ' + str(e))
-                raise e
-        else:
-            raise exceptions.DispatchError('Asynchronous workflow context expects callable work.')
-
-        logger.debug('Creating coroutine object for workflow dispatcher.')
-        # TODO: Handle in context.run() via full dispatcher implementation.
-        # TODO:
-        # coro = context.run(work, **kwargs)
-        try:
-            coro = context.run()
-        except Exception as e:
-            logger.exception('Uncaught exception in scalems.run() calling context.run(): ' + str(e))
-            raise e
-
-        logger.debug('Starting asyncio.run()')
-        # Manage event loop directly, since asyncio.run() doesn't seem to always clean it up right.
-        # TODO: Check for existing event loop.
-        loop = asyncio.get_event_loop()
-        try:
-            task = loop.create_task(coro)
-            result = loop.run_until_complete(task)
-        finally:
-            loop.close()
-        assert loop.is_closed()
-
-        logger.debug('Finished asyncio.run()')
-    else:
-        raise NotImplementedError('scalems workflow management requires an active event loop.')
-        # logger.debug('Starting context.run() without asyncio wrapper')
-        # result = context.run(work, **kwargs)
-        # logger.debug('Finished context.run()')
-    return result
 
 
 def deprecated(explanation: str):
@@ -350,68 +347,6 @@ def deprecated(explanation: str):
         return wrapper
 
     return decorator
-
-
-@deprecated('scalems.run() is not currently supported. See https://github.com/SCALE-MS/scale-ms/issues/82')
-def run(work, context=None, **kwargs):
-    """Execute a workflow and return the results.
-
-    This call is not necessary if an execution manager is already running, such
-    as when a workflow script is invoked with `python -m scalems.<some_executor> workflow.py`,
-    when run in a Jupyter notebook (or other application with a compatible native event loop),
-    or when the execution manager is launched explicitly within the script.
-
-    `scalems.run()` may be useful if you want to embed a ScaleMS application in another
-    application, or as a short-hand for execution management with the Python
-    Context Manager syntax by which ScaleMS execution can be more explicitly directed.
-    `scalems.run()` is analogous to (and may simply wrap a call to) `asyncio.run()`.
-
-    As with `asyncio.run()`, `scalems.run()` is intended to be invoked (from the
-    main thread) exactly once in a Python interpreter process lifetime. It is
-    probably fine to call it more than once, but such a use case probably indicates
-    non-standard ScaleMS software design. Nested calls to `scalems.run()` have
-    unspecified behavior.
-
-    Abstraction for :py:func:`asyncio.run()`
-
-    Note: If we want to go this route, we should integrate with the
-    asyncio event loop policy, or obtain an event loop instance and
-    use it w.r.t. run_in_executor and set_task_factory.
-
-    .. todo:: Coordinate with RP plans for event loop contexts and concurrency module executors.
-
-    See also https://docs.python.org/3/library/asyncio-dev.html#debug-mode
-    """
-    # Cases, likely in appropriate order of resolution:
-    # * work is a SCALEMS ItemView or Future
-    # * work is a asyncio.coroutine
-    # * work is a asyncio.coroutinefunction
-    # * work is a regular Python callable
-    # * work is None (get all work from current and/or parent workflow context)
-
-    # TODO: Check whether coroutine is already executing and where.
-    # if iscoroutine(coroutine):
-    #     return asyncio.run(coroutine, **kwargs)
-
-    # No automatic dispatching yet. Coroutine must be executable
-    # in the current or provided context.
-    try:
-        if context is None:
-            context = get_context()
-        if context is get_context():
-            result = _run(work=work, context=context, **kwargs)
-        else:
-            with scope(context):
-                result = _run(work=work, context=context, **kwargs)
-        return result
-    except Exception as e:
-        message = 'Uncaught exception in scalems.context.run(): {}'.format(str(e))
-        warnings.warn(message)
-        logger.warning(message)
-        return None
-
-    # TODO: Consider generalized coroutines to be dispatched through
-    #     custom event loops or executors.
 
 
 def next_monotonic_integer() -> int:

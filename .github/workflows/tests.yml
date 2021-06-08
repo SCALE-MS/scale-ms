@@ -1,0 +1,233 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Python package
+
+on:
+  push:
+  pull_request:
+    branches: [ $default-branch ]
+
+jobs:
+  simple_local:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --upgrade -r requirements-testing.txt
+        python -m pip install .
+        python -m pip install coverage pytest-cov
+        radical-stack
+    - name: Test with pytest
+      run: |
+        . $HOME/testenv/bin/activate
+        export RADICAL_LOG_LVL=DEBUG
+        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml tests -s
+    - name: Command line tests
+      run: |
+        . $HOME/testenv/bin/activate
+        coverage run -m scalems.local --version
+        coverage run --append -m scalems.local --help
+        coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
+        coverage xml -o coverage2.xml
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
+    - name: "Upload coverage to Codecov"
+      uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
+        files: ./coverage1.xml,./coverage2.xml
+        name: codecov-local-${{ matrix.python-version }}
+
+  rp_local:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: password
+        ports:
+        # will assign a random free host port
+        - 27017/tcp
+
+    strategy:
+      matrix:
+        python-version: [3.9]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Increase file limit
+      run: |
+        sudo sysctl -w fs.file-max=65536
+        ulimit -a
+    - name: Install dependencies
+      timeout-minutes: 10
+      run: |
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --upgrade -r requirements-testing.txt
+        python -m pip install .
+        python -m pip install coverage pymongo pytest-cov
+        mkdir -p $HOME/.radical/pilot/configs/
+        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        python -m pip freeze
+        radical-stack
+    - name: Test with pytest
+      timeout-minutes: 10
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        . $HOME/testenv/bin/activate
+        export RADICAL_LOG_LVL=DEBUG
+        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
+        ulimit -n 65536
+        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+    - name: Command line tests
+      timeout-minutes: 3
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        . $HOME/testenv/bin/activate
+        coverage run -m scalems.radical --version
+        coverage run --append -m scalems.radical --help
+        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+        coverage xml -o coverage2.xml
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
+    - name: "Upload coverage to Codecov"
+      uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
+        files: ./coverage1.xml,./coverage2.xml
+        name: codecov-rp-local-${{ matrix.python-version }}
+
+  rp_ssh:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: password
+        ports:
+        # will assign a random free host port
+        - 27017/tcp
+
+    strategy:
+      matrix:
+        python-version: [3.8]
+
+    steps:
+    - name: Prepare ssh
+      # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
+      run: |
+        ssh-keygen -f ~/.ssh/id -t ed25519 -N ''
+        echo -n 'from="127.0.0.1" ' | cat - ~/.ssh/id.pub > ~/.ssh/authorized_keys
+        ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+        chmod og-rw ~
+        ls -la ~/.ssh
+        # Test:
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        ssh 127.0.0.1 env
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Increase file limit
+      run: |
+        sudo sysctl -w fs.file-max=65536
+        ulimit -a
+    - name: Install dependencies
+      timeout-minutes: 10
+      run: |
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
+        python -m pip install --upgrade pip setuptools wheel
+        python -m pip install --upgrade -r requirements-testing.txt
+        python -m pip install .
+        python -m pip install coverage pymongo pytest-cov
+        mkdir -p $HOME/.radical/pilot/configs/
+        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        python -m pip freeze
+        radical-stack
+    - name: Test with pytest
+      timeout-minutes: 10
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        . $HOME/testenv/bin/activate
+        export RADICAL_LOG_LVL=DEBUG
+        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
+        ulimit -n 65536
+        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
+    - name: Command line tests
+      timeout-minutes: 3
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        . $HOME/testenv/bin/activate
+        coverage run -m scalems.radical --version
+        coverage run --append -m scalems.radical --help
+        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+        coverage xml -o coverage2.xml
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
+    - name: "Upload coverage to Codecov"
+      uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
+        files: ./coverage1.xml,./coverage2.xml
+        name: codecov-rp-ssh-${{ matrix.python-version }}
+
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    strategy:
+      matrix:
+        python-version: [3.9]
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install . --upgrade
+        pip install flake8
+    - name: Lint with flake8
+      run: |
+        flake8 src/ --count --show-source --statistics
+        flake8 tests/ --count --show-source --statistics

@@ -91,9 +91,6 @@ my_loop = scalems.while_loop(function=analysis_iteration,
                              condition=scalems.logical_not(analysis_iteration.is_converged))
 my_loop.run()
 
-
-
 # (Optionally) Drain the queue.
 scalems.while_loop(function=analysis_iteration,
-    condition=scalems.logical_not(queue.empty)).run()
-
+                   condition=scalems.logical_not(queue.empty)).run()

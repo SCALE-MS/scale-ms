@@ -8,12 +8,13 @@ import uuid
 
 import pytest
 
+import scalems.workflow
 from scalems.exceptions import ProtocolError
 from scalems.serialization import BasicSerializable
 from scalems.serialization import decode
 from scalems.serialization import encode
 from scalems.serialization import Shape
-from scalems.serialization import TypeIdentifier
+from scalems.identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -76,7 +77,7 @@ record = """{
                     "type"= ["scalems", "Mapping"],
                     "shape"= [1]
                 }
-            }            
+            }
         },
         "scalems.SubprocessResult" = {
             "schema" = {
@@ -219,6 +220,14 @@ def test_shape():
         Shape(1)
 
 
+def test_resource_type():
+    scoped_name = ['scalems', 'subprocess', 'SubprocessTask']
+    description = scalems.workflow.Description(
+        resource_type=TypeIdentifier(tuple(scoped_name)),
+        shape=(1,))
+    assert description.type() == TypeIdentifier(tuple(scoped_name))
+
+
 def test_encoding_str():
     """Confirm that bare strings are encoded and decoded as expected.
 
@@ -257,8 +266,8 @@ def test_encoding_int():
     Note: We may choose not to support certain forms of integer data for the full round trip.
     """
     series = [1, 1, 2, 3, 5]
-    length = len(series)
-    shape = (length,)
+    # length = len(series)
+    # shape = (length,)
 
     # Test bare native int list.
     serialized = json.dumps(series, default=encode)
@@ -270,7 +279,7 @@ def test_encoding_int():
     # assert round_trip.dtype() == ('scalems', 'Integer')
 
     array = [[1, 1], [2, 1], [8, 9]]
-    shape = (3, 2)
+    # shape = (3, 2)
     serialized = json.dumps(array, default=encode)
     round_trip = json.loads(serialized)
     for rowA, rowB in zip(array, round_trip):

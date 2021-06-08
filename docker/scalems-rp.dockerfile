@@ -22,7 +22,8 @@
 #     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile
-FROM scalems/rp-complete
+ARG TAG=latest
+FROM scalems/rp-complete:$TAG
 
 USER rp
 WORKDIR /home/rp
@@ -31,5 +32,6 @@ RUN ./rp-venv/bin/pip install --upgrade pip setuptools
 
 COPY --chown=rp:radical . scalems
 
-RUN ./rp-venv/bin/pip install -r scalems/requirements-testing.txt
+RUN ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
 RUN ./rp-venv/bin/pip install scalems/
+# The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv

@@ -9,18 +9,28 @@ FROM ubuntu:focal
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y \
+    apt-get -yq --no-install-suggests --no-install-recommends install apt-utils build-essential software-properties-common && \
+    apt-get install -y --no-install-recommends \
         curl \
         dnsutils \
         gcc \
         git \
         iputils-ping \
+        language-pack-en \
+        locales \
         openmpi-bin \
         openssh-server \
         python3.8-dev \
         python3-venv \
+        tox \
         vim && \
     rm -rf /var/lib/apt/lists/*
+
+RUN locale-gen en_US.UTF-8 && \
+    update-locale LANG=en_US.UTF-8
+
+
+RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 
 # Reference https://docs.docker.com/engine/examples/running_ssh_service/
 RUN mkdir /var/run/sshd
@@ -38,14 +48,15 @@ CMD ["/usr/sbin/sshd", "-D"]
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 USER rp
 
-RUN (cd ~rp && python3 -m venv rp-venv)
+WORKDIR /home/rp
+RUN python3 -m venv rp-venv
 
-RUN (cd ~rp && \
-    rp-venv/bin/pip install --upgrade \
+RUN rp-venv/bin/pip install --no-cache-dir --upgrade \
         pip \
         setuptools \
         wheel && \
-    rp-venv/bin/pip install --upgrade \
+    rp-venv/bin/pip install --no-cache-dir --upgrade \
+        build \
         coverage \
         flake8 \
         'mock==2.0.0' \
@@ -56,28 +67,43 @@ RUN (cd ~rp && \
         pytest \
         pytest-asyncio \
         python-hostlist \
-        setproctitle \
-        )
+        setproctitle
 
-RUN . ~rp/rp-venv/bin/activate && \
-    pip install --upgrade \
-        'radical.saga>=1.5.2' \
-        'radical.utils>=1.5.2'
+RUN  mkdir -p ~/.radical/pilot/configs
 
-ARG RPREF="project/scalems"
+COPY --chown=rp:radical resource_*.json /home/rp/.radical/pilot/configs
 
-# Note: radical.pilot does not work properly with an "editable install"
-#RUN (cd ~rp && \
-#    . ~rp/rp-venv/bin/activate && \
-#    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
-#    cd radical.pilot && \
-#    pip install -e . \
-#    )
+WORKDIR /home/rp
 
-RUN (cd ~rp && \
-    . ~rp/rp-venv/bin/activate && \
-    pip install "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot")
+# If using the PyCharm debug server, install the pydevd-pycharm package corresponding to the IDE version,
+# and set up the IDE to sync the project with an agreed-upon container directory: `/tmp/pycharm_scalems`
+#RUN . ~rp/rp-venv/bin/activate && \
+#    pip install --no-cache-dir pydevd-pycharm
+# The above is too hard to maintain. Follow the instructions from JetBrains or perform
+# the above commented-out pip install manually and hope for the best.
+# I most recently found the installed egg distribution in
+# $HOME/Library/Application\ Support/JetBrains/Toolbox/apps/PyCharm-P/ch-0/211.7142.13/PyCharm.app/Contents/debug-eggs/
+RUN mkdir /tmp/scalems_dev
 
+RUN ~rp/rp-venv/bin/python -m pip install \
+    --no-cache-dir --no-build-isolation --upgrade 'radical.saga==1.6.6' 'radical.utils==1.6.6'
+#ARG RPREF="project/scalems"
+#RUN . ~rp/rp-venv/bin/activate && \
+#    pip install --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
+RUN ~rp/rp-venv/bin/python -m pip install \
+    --no-cache-dir --no-build-isolation --upgrade "https://github.com/radical-cybertools/radical.pilot/archive/53e85ea99345b6f50f3adfd975385be3200b750f.tar.gz"
+
+# WARNING!!! Security risk!
+# Allow rp user to trivially ssh into containers created from this image.
+RUN mkdir ~rp/.ssh && \
+    ssh-keygen -f ~rp/.ssh/id_rsa -t rsa -N '' && \
+    cp ~rp/.ssh/id_rsa.pub ~/.ssh/authorized_keys && \
+    cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "localhost " $1 " " $2}' > ~/.ssh/known_hosts && \
+    cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "compute " $1 " " $2}' >> ~/.ssh/known_hosts && \
+    cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "login " $1 " " $2}' >> ~/.ssh/known_hosts
+
+# Ending the Dockerfile with a default CMD run as root triggers a warning
+# with Dockerfile linters, but is necessary to start the sshd.
 USER root
 
 # Set the environment variable that Radical Pilot uses to find its MongoDB instance.
@@ -91,4 +117,5 @@ ENV RADICAL_PILOT_DBURL="mongodb://root:password@mongo:27017/admin"
 
 RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 
+# Set user "rp" password to "rp".
 RUN echo "rp\nrp" | passwd rp

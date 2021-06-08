@@ -1,0 +1,15 @@
+codecov:
+  max_report_age: off
+  require_ci_to_pass: false
+  notify:
+    after_n_builds: 3
+# do not notify or comment until at least 3 builds have been uploaded from the
+# CI pipeline.
+comment:
+  after_n_builds: 3
+
+fixes:
+  - "*/site-packages/scalems/::src/scalems/"
+
+github_checks:
+  annotations: false

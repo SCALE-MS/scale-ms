@@ -1,22 +1,53 @@
 # Extend base scalems testing image with a lammps installation.
 #
 # Summary:
-#     docker build -t scalems/lammps -f scalems-lammps.dockerfile ../..
+#     docker build -t scalems/lammps -f scalems-lammps.dockerfile ..
 #     docker run --rm -ti scalems/lammps bash
+#
+# Before building this image, pull or build the `rp-complete` image from `rp-complete.dockerfile`
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile .
 #
 # Note that the image takes a while to build the first time. To try to use build
 # cache from an existing image, try:
-#     docker pull scalems/radicalpilot
+#     docker pull scalems/rp-complete
 #     docker pull scalems/lammps
-#     docker build -t scalems/lammps --cache-from scalems/lammps ../..
+#     docker build -t scalems/lammps --cache-from scalems/lammps -f scalems-lammps.dockerfile ..
 #
-# Example usage:
+# Example usage (simple):
 #     docker run --rm -ti scalems/lammps bash
 #     $ . ./rp-venv/bin/activate
-# Note that, because of the `--rm` flag, the container will be removed when you
-# exit the containerized shell.
+#     $ $HOME/.local/bin/lmp ...
+#
+# Example usage with RP availability:
+# The mongodb server needs to be running, so start the container, wait for mongodb to start,
+# and then launch a shell as an additional process.
+#
+# 1. Launch the container (as root, so that the mongod can be started).
+# 2. Wait a few seconds for the MongoDB service to start.
+# 3. Exec the tests in the container.
+#
+#     docker run --rm --name scalems_test -u root -d scalems/lammps
+#     sleep 3
+#     docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests --rp-resource=local.localhost"
+#     docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m scalems.radical --resource=local.localhost --venv /home/rp/rp-venv scalems/examples/basic/echo.py hi there"
+#     docker kill scalems_test
 
-FROM scalems/radicalpilot
+# Prerequisite: build base image from rp-complete.dockerfile
+ARG TAG=latest
+FROM scalems/rp-complete:$TAG
+
+USER rp
+WORKDIR /home/rp
+
+RUN ./rp-venv/bin/pip install --upgrade pip setuptools
+
+COPY --chown=rp:radical . scalems
+
+RUN ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
+RUN ./rp-venv/bin/pip install scalems/
+# The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
+
+USER root
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \

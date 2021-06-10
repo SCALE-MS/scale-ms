@@ -24,7 +24,7 @@
     "mpi_launch_method": "MPIEXEC",
     "rp_version": "installed",
     "virtenv_mode": "use",
-    "virtenv": "$HOME/testenv",
+    "virtenv": "/home/runner/testenv",
     "python_dist": "default",
     "cores_per_node": 8,
     "gpus_per_node": 1,

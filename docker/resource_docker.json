@@ -7,8 +7,8 @@
       "ssh"
     ],
     "ssh": {
-      "job_manager_endpoint": "ssh://rp@compute/",
-      "filesystem_endpoint": "sftp://rp@compute/"
+      "job_manager_endpoint": "ssh://rp@localhost/",
+      "filesystem_endpoint": "sftp://rp@localhost/"
     },
     "local": {
       "job_manager_endpoint": "fork://localhost/",

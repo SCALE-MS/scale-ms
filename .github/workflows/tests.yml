@@ -28,6 +28,7 @@ jobs:
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot radical.saga radical.utils
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pytest-cov
@@ -36,6 +37,10 @@ jobs:
       run: |
         . $HOME/testenv/bin/activate
         export RADICAL_LOG_LVL=DEBUG
+        echo "HOME=$HOME"
+        ls $HOME
+        pwd
+        ls
         python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml tests -s
     - name: Command line tests
       run: |
@@ -87,6 +92,7 @@ jobs:
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot radical.saga radical.utils
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pymongo pytest-cov
@@ -103,6 +109,10 @@ jobs:
         export RADICAL_LOG_LVL=DEBUG
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         ulimit -n 65536
+        echo "HOME=$HOME"
+        ls $HOME
+        pwd
+        ls
         COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
     - name: Command line tests
       timeout-minutes: 3
@@ -169,6 +179,7 @@ jobs:
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot radical.saga radical.utils
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pymongo pytest-cov
@@ -187,6 +198,10 @@ jobs:
         export RADICAL_LOG_LVL=DEBUG
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         ulimit -n 65536
+        echo "HOME=$HOME"
+        ls $HOME
+        pwd
+        ls
         COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
     - name: Command line tests
       timeout-minutes: 3

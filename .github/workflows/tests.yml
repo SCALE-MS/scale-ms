@@ -28,6 +28,7 @@ jobs:
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pytest-cov
@@ -86,6 +87,7 @@ jobs:
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pymongo pytest-cov
@@ -172,6 +174,7 @@ jobs:
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
         python -m pip install coverage pymongo pytest-cov

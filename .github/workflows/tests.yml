@@ -41,21 +41,20 @@ jobs:
         ls $HOME
         pwd
         ls
-        python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml tests -s
+        python -X dev -m pytest --cov=scalems --cov-report=xml tests -s
     - name: Command line tests
       run: |
         . $HOME/testenv/bin/activate
         coverage run -m scalems.local --version
         coverage run --append -m scalems.local --help
         coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
-        coverage xml -o coverage2.xml
+        coverage xml -o coverage-cli.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v1
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
-        files: ./coverage1.xml,./coverage2.xml
         name: codecov-local-${{ matrix.python-version }}
 
   rp_local:
@@ -89,6 +88,8 @@ jobs:
     - name: Install dependencies
       timeout-minutes: 10
       run: |
+        sudo apt-get update && sudo apt-get install openmpi-bin
+        which mpiexec
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
@@ -100,8 +101,8 @@ jobs:
         cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
         radical-stack
-    - name: Test with pytest
-      timeout-minutes: 10
+    - name: Test local.localhost with pytest
+      timeout-minutes: 15
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -113,7 +114,13 @@ jobs:
         ls $HOME
         pwd
         ls
-        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=local
+        for file in $(cd tests && ls -d test*py); do
+          python -X dev -m pytest \
+            --cov=scalems --cov-report=xml:coverage-$file.xml \
+            -rA -l --full-trace --log-cli-level=debug \
+            tests/$file \
+            --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
+        done
     - name: Command line tests
       timeout-minutes: 3
       env:
@@ -130,8 +137,17 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
-        files: ./coverage1.xml,./coverage2.xml
         name: codecov-rp-local-${{ matrix.python-version }}
+    - name: Collect artifacts
+      run: |
+        cd $HOME
+        tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
+    - name: "Upload artifacts"
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ github.job }}-${{ matrix.python-version }}
+        path: '~/sessions.tgz'
 
   rp_ssh:
 
@@ -176,6 +192,8 @@ jobs:
     - name: Install dependencies
       timeout-minutes: 10
       run: |
+        sudo apt-get update && sudo apt-get install openmpi-bin
+        which mpiexec
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
@@ -187,8 +205,8 @@ jobs:
         cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
         radical-stack
-    - name: Test with pytest
-      timeout-minutes: 10
+    - name: Test local.github with pytest
+      timeout-minutes: 15
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -202,7 +220,13 @@ jobs:
         ls $HOME
         pwd
         ls
-        COVERAGE_FILE=$PWD/.coverage python -X dev -m pytest --cov=scalems --cov-report=xml:coverage1.xml -rA -l --log-cli-level=info tests --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
+        for file in $(cd tests && ls -d test*py); do
+          python -X dev -m pytest \
+            --cov=scalems --cov-report=xml:coverage-$file.xml \
+            -rA -l --full-trace --log-cli-level=debug \
+            tests/$file \
+            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
+        done
     - name: Command line tests
       timeout-minutes: 3
       env:
@@ -221,8 +245,135 @@ jobs:
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
-        files: ./coverage1.xml,./coverage2.xml
         name: codecov-rp-ssh-${{ matrix.python-version }}
+    - name: Collect artifacts
+      run: |
+        cd $HOME
+        tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
+    - name: "Upload artifacts"
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ github.job }}-${{ matrix.python-version }}
+        path: '~/sessions.tgz'
+
+  rp_ssh_head:
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      mongodb:
+        image: mongo
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: password
+        ports:
+        # will assign a random free host port
+        - 27017/tcp
+
+    strategy:
+      matrix:
+        python-version: [3.9]
+
+    steps:
+    - name: Prepare ssh
+      # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
+      run: |
+        ssh-keygen -f ~/.ssh/id -t ed25519 -N ''
+        echo -n 'from="127.0.0.1" ' | cat - ~/.ssh/id.pub > ~/.ssh/authorized_keys
+        ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+        chmod og-rw ~
+        ls -la ~/.ssh
+        # Test:
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        ssh 127.0.0.1 env
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Increase file limit
+      run: |
+        sudo sysctl -w fs.file-max=65536
+        ulimit -a
+    - name: Install dependencies
+      timeout-minutes: 10
+      run: |
+        sudo apt-get update && sudo apt-get install openmpi-bin
+        which mpiexec
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
+        python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot
+        python -m pip install --upgrade --force \
+          git+https://github.com/radical-cybertools/radical.utils.git@project/scalems#egg=radical.utils \
+          git+https://github.com/radical-cybertools/radical.saga.git@project/scalems#egg=radical.saga \
+          git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems#egg=radical.pilot
+        python -m pip install .
+        python -m pip install \
+          build \
+          coverage \
+          pymongo \
+          pytest>=6.1.2 \
+          pytest-asyncio>=0.14 \
+          pytest-cov \
+          pytest-env
+        mkdir -p $HOME/.radical/pilot/configs/
+        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        python -m pip freeze
+        radical-stack
+    - name: Test local.github with pytest
+      timeout-minutes: 15
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        . $HOME/testenv/bin/activate
+        export RADICAL_LOG_LVL=DEBUG
+        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
+        ulimit -n 65536
+        echo "HOME=$HOME"
+        ls $HOME
+        pwd
+        ls
+        for file in $(cd tests && ls -d test*py); do
+          python -X dev -m pytest \
+            --cov=scalems --cov-report=xml:coverage-$file.xml \
+            -rA -l --full-trace --log-cli-level=debug \
+            tests/$file \
+            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
+        done
+    - name: Command line tests
+      timeout-minutes: 3
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        . $HOME/testenv/bin/activate
+        coverage run -m scalems.radical --version
+        coverage run --append -m scalems.radical --help
+        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+        coverage xml -o coverage2.xml
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
+    - name: "Upload coverage to Codecov"
+      uses: codecov/codecov-action@v1
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
+        name: codecov-rp-ssh-${{ matrix.python-version }}
+    - name: Collect artifacts
+      run: |
+        cd $HOME
+        tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
+    - name: "Upload artifacts"
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v2
+      with:
+        name: ${{ github.job }}-${{ matrix.python-version }}
+        path: '~/sessions.tgz'
 
   lint:
     runs-on: ubuntu-latest

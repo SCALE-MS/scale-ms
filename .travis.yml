@@ -59,19 +59,19 @@ jobs:
         - docker pull mongo:bionic
         - docker pull scalems/radicalpilot
         - (cd docker && docker build --cache-from scalems/radicalpilot -t scalems/radicalpilot -f radicalpilot.dockerfile .)
-        - docker-compose -f docker/stack.yml up -d mongo login compute
-        - docker-compose -f docker/stack.yml ps
+        - docker-compose -f docker/compose.yml up -d mongo login compute
+        - docker-compose -f docker/compose.yml ps
         - ssh-keygen -f tempkey -N ''
-        - cat tempkey.pub | docker-compose -f docker/stack.yml exec -u rp -T login bash -c 'cat - >> /home/rp/.ssh/authorized_keys'
+        - cat tempkey.pub | docker-compose -f docker/compose.yml exec -u rp -T login bash -c 'cat - >> /home/rp/.ssh/authorized_keys'
         - eval "$(ssh-agent -s)"
         - ssh-add tempkey
         - ssh-keyscan -p 2345 127.0.0.1 >> ~/.ssh/known_hosts
         - ssh -l rp -p 2345 127.0.0.1 echo ssh connection sucessful
         - scp -P 2345 -r tests rp@127.0.0.1:/home/rp/scalems_tests
       script:
-        - docker-compose -f docker/stack.yml exec -u rp login \
+        - docker-compose -f docker/compose.yml exec -u rp login \
           bash -c "cd ~/scalems_tests && . ~/rp-venv/bin/activate && pytest --full-trace -s --rp-resource local.docker --rp-access ssh"
-        - docker-compose -f docker/stack.yml down
+        - docker-compose -f docker/compose.yml down
     - name: "RP dispatching (Travis-CI env local)"
       # Local RP client connects to execution host in a docker container (tunnel to the "login" service).
       env: RPREF="project/scalems"
@@ -80,10 +80,10 @@ jobs:
       install:
         - docker pull scalems/radicalpilot
         - (cd docker && docker build --cache-from scalems/radicalpilot -t scalems/radicalpilot -f radicalpilot.dockerfile .)
-        - docker-compose -f docker/stack.yml up -d mongo login compute
-        - docker-compose -f docker/stack.yml ps
+        - docker-compose -f docker/compose.yml up -d mongo login compute
+        - docker-compose -f docker/compose.yml ps
         - ssh-keygen -f tempkey -N ''
-        - cat tempkey.pub | docker-compose -f docker/stack.yml exec -u rp -T login bash -c 'cat - >> /home/rp/.ssh/authorized_keys'
+        - cat tempkey.pub | docker-compose -f docker/compose.yml exec -u rp -T login bash -c 'cat - >> /home/rp/.ssh/authorized_keys'
         - eval "$(ssh-agent -s)"
         - ssh-add tempkey
         - ssh-keyscan -p 2345 127.0.0.1 >> ~/.ssh/known_hosts
@@ -96,7 +96,7 @@ jobs:
         - export RADICAL_PILOT_DBURL="mongodb://root:password@127.0.0.1:27017/admin"
         # Let tox manage the venv for us.
         - tox -vvv -e py38 -- tests --rp-resource=local.tunnel --rp-access=ssh
-        - docker-compose -f docker/stack.yml down
+        - docker-compose -f docker/compose.yml down
     - name: "RP master dependency"
       env: RPREF="master"
       services:

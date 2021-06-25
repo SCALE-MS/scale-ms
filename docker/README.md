@@ -33,7 +33,7 @@ comments in [rp-complete.dockerfile](rp-complete.dockerfile) for more informatio
 
 ## Docker Compose stack
 
-`stack.yml` provides a recipe for `docker-compose` (or more elaborate
+`compose.yml` provides a recipe for `docker-compose` (or more elaborate
 container-based service cluster). The stack relies on two public
 container images (`mongo:bionic` for the database service and, optionally,
 `mongo-express` for a database admin console) and a custom image
@@ -53,8 +53,8 @@ file to interact with the launched containers.
 identities with "swarms" and such.)
 E.g.
 
-    docker-compose -f stack.yml up
-    docker-compose -f stack.yml exec -u rp login bash
-    docker-compose -f stack.yml down
+    docker-compose -f compose.yml up
+    docker-compose -f compose.yml exec -u rp login bash
+    docker-compose -f compose.yml down
 
-See [stack.yml](stack.yml) for more information.
+See [compose.yml](compose.yml) for more information.

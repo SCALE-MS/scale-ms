@@ -1,14 +1,14 @@
 {
   "login": {
-    "description": "compute service from the docker/stack.yml.",
+    "description": "compute service from the docker/compose.yml.",
     "notes": "Local schema in the 'login' service container.",
     "schemas": [
       "local",
       "ssh"
     ],
     "ssh": {
-      "job_manager_endpoint": "ssh://rp@compute/",
-      "filesystem_endpoint": "sftp://rp@compute/"
+      "job_manager_endpoint": "ssh://rp@localhost/",
+      "filesystem_endpoint": "sftp://rp@localhost/"
     },
     "local": {
       "job_manager_endpoint": "fork://localhost/",
@@ -36,7 +36,7 @@
     "fake_resources": true
   },
   "compute": {
-    "description": "compute service from the docker/stack.yml.",
+    "description": "compute service from the docker/compose.yml.",
     "notes": "To use the ssh schema from outside of the Docker stack, make sure that ssh-agent has added the id_rsa.pub for the rp user in the scalems/radicalpilot image.",
     "schemas": [
       "ssh"

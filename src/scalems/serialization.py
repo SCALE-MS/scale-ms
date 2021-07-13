@@ -426,7 +426,7 @@ class BasicSerializable(UnboundObject):
         identity = encoded.get('identity')  # TODO: verify and use type schema to decode.
         shape = Shape(encoded['shape'])
         data = encoded['data']  # TODO: use type schema / self._data_decoder to decode.
-        logger.debug('Decoding {identity} as BasicSerializable.')
+        logger.debug(f'Decoding {identity} as BasicSerializable.')
         return cls(label=label,
                    identity=identity,
                    dtype=dtype,

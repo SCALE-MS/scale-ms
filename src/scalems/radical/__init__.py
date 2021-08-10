@@ -5,6 +5,37 @@ Example:
 
 Manage workflow context for RADICAL Pilot.
 
+The user is largely responsible for establishing appropriate
+RADICAL Cybertools software environment at both the client side
+and the execution side.
+
+For performance and control, the canonical use case should be fully static venv
+configuration for both the Pilot agent (and bootstrapping) interpreter, remote RCT
+stack, and executed Tasks. However, the default behavior should work for most users,
+in which a venv is created in the radical sandbox on the first connection (reused if it
+already exists) and the RCT stack is updated within the Pilot sandbox for each session.
+
+In the case of non-RCT Python dependencies, the Pilot has an evolving prepare_env
+feature that can be used for a Task dependency (named_env) to provide a dynamically
+created venv with a list of requested packages.
+
+Locally prepared package distribution archives can be used, such as by staging with the
+Pilot.stage_in before doing prepare_env.
+
+There is some work underway to place full venvs at run time, specifically to handle use
+cases in which it is important to run the Python stack from a local filesystem on an
+HPC compute node. So far, this is limited to use of conda freeze.
+
+Upcoming RP features will provide a mechanism for environment caching so that module
+load, source ``$VENV/bin/activate``, etc. do not need to be repeated for every task.
+However, the current mechanisms for optimal (static) venv usage are
+
+use ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
+definition, and activate alternative Task venvs using ``pre_exec``. The user (or client) is
+then responsible for maintaining venv(s) with the correct RCT stack (matching the API
+used by the client-side RCT stack), the `scalems` package, and any dependencies of the
+workflow.
+
 Dispatching through RADICAL Pilot is still evolving, and this
 module may provide multiple disparate concepts.
 
@@ -16,11 +47,15 @@ Executor:
     The RP dispatcher and executor are currently combined, and provided only
     as the implementation of the `context.dispatch` member function.
 
-    When "entered" (i.e. used as
-    a :py:func:`with`), the Python Context Manager protocol manages the
+    When "entered" (i.e. used in a
+    `with expression <https://docs.python.org/3/reference/compound_stmts.html#with>`__),
+    the Python Context Manager protocol manages the
     lifetime of a radical.pilot.Session. Two significant areas of future
     development include Context chaining, and improved support for multiple rp.Sessions
     through multiple RPContextManager instances.
+
+See also:
+    https://github.com/SCALE-MS/scale-ms/issues/90
 
 """
 # TODO: Consider converting to a namespace package to improve modularity of

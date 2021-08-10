@@ -2,29 +2,19 @@
 User Guide
 ==========
 
+Getting Started
+===============
+
+The :py:mod:`scalems` package requires a supported Python3 installation
+and assumes a Linux environment. For remote execution, SCALE-MS uses
+RADICAL Pilot, which has additional requirements.
+
+See :doc:`install`
+
 Invocation
 ==========
 
-Users define and execute SCALE-MS workflows by using Python to define work and
-submit it for execution through a SCALE-MS workflow manager.
-The SCALE-MS machinery is accessible through the :py:mod:`scalems` Python module.
-
-For the greatest flexibility in execution, scripts should be written without
-explicit reference to the execution environment. Instead, a SCALE-MS workflow
-manager module can be specified on the command line to bootstrap an entry point.
-
-Example::
-
-    python3 -m scalems.local myscript.py
-
-The above example uses the workflow manager provided by the :py:mod:`scalems.local`
-module to process :file:`myscript.py`. After the module performs some initialization,
-the script is essentially just imported. After that, though, specifically annotated
-callables (functions or function objects) are identified and submitted for execution.
-See :py:func:`scalems.app`.
-
-For examples of more direct access to the SCALE-MS workflow management machinery,
-the pytest scripts in :file:`tests/` will be instructive.
+.. automodule:: scalems.invocation
 
 Idioms
 ======

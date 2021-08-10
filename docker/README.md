@@ -47,14 +47,14 @@ In the simplest case, one service container each is launched for the services
 *login* (`scalems/radicalpilot`), and
 *compute* (`scalems/radicalpilot`).
 Unlike with the `docker run` or `docker start` commands,
-`docker-compose` commands use the service names defined in the YAML configuration
+`docker compose` commands use the service names defined in the YAML configuration
 file to interact with the launched containers.
 (It is somewhat antithetical to think of individual containers as having persistent
 identities with "swarms" and such.)
 E.g.
 
-    docker-compose -f compose.yml up
-    docker-compose -f compose.yml exec -u rp login bash
-    docker-compose -f compose.yml down
+    docker compose up
+    docker compose exec -u rp login bash
+    docker compose down
 
-See [compose.yml](compose.yml) for more information.
+See [docker-compose.yml](docker-compose.yml) for more information.

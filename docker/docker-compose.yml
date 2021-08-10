@@ -1,7 +1,7 @@
 # Bring the services up with
-#     docker-compose -f compose.yml up
+#     docker compose -f docker-compose.yml up
 # Shut down and clean up with
-#     docker-compose -f compose.yml down
+#     docker compose -f docker-compose.yml down
 # The service running the "radicalpilot" image (built from
 # radicalpilot.dockerfile in this directory) has an sshd server running and a
 # Python environment configured for the "rp" user.
@@ -10,13 +10,13 @@
 # Once the services are up, you could, for instance, confirm the container name
 # with `docker ps` and, assuming the login service is running as `docker_login_`, start a shell with
 #     docker exec -ti -u rp docker_login_1 bash
-# More normative usage is to reference the service through `docker-compose`.
+# More normative usage is to reference the service through `docker compose`.
 # For example, once the services are up, start a shell with
-#     docker-compose -f compose.yml exec -u rp login bash
+#     docker compose exec -u rp login bash
 # or check the image's RADICAL CT stack:
-#     docker-compose -f compose.yml exec -u rp login bash -c "cd && . /home/rp/rp-venv/bin/activate && radical-stack"
+#     docker compose exec -u rp login bash -c "cd && . /home/rp/rp-venv/bin/activate && radical-stack"
 #
-# Don't forget to `docker-compose -f compose.yml down` to shutdown the containers when you are done.
+# Don't forget to `docker compose down` to shut down the containers when you are done.
 #
 # Once the login (and compute) service(s) are up, you can transfer the local
 # respository files to the container however you prefer and install the scalems package
@@ -28,7 +28,7 @@
 # Then I can run
 #     python -m pytest /tmp/scalems_dev/tests --rp-venv=/home/rp/rp-venv/ --rp-resource=local.docker --rp-access=local
 
-version: '3.1'
+version: '3.2'
 
 services:
   mongo:
@@ -51,9 +51,8 @@ services:
     build:
       context: .
       dockerfile: ./radicalpilot.dockerfile
-# Not supported in all implementations.
-#      cache_from:
-#       - scalems/radicalpilot
+      cache_from:
+       - scalems/radicalpilot
     image: scalems/radicalpilot
     restart: always
     ports:

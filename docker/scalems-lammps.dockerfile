@@ -80,16 +80,20 @@ RUN . $HOME/rp-venv/bin/activate && \
         -DPKG_REPLICA=yes \
         -DPKG_MISC=yes \
         -DPKG_GPU=yes \
+	-DBUILD_SHARED_LIBS=on \
         -DPKG_COMPRESS=yes \
+	-DLAMMPS_EXCEPTIONS=on \
+	-DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
         && \
     cmake --build . && \
     cmake --build . --target install && \
-    rm -rf /tmp/lammps
+    rm -rf /tmp/lammps && \
+    echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $HOME/rp-venv/bin/activate
 
 COPY --chown=rp:radical . scalems
 
-RUN ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
-RUN ./rp-venv/bin/pip install scalems/
+RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
+RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install scalems/
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
 
 #ENV REF=master

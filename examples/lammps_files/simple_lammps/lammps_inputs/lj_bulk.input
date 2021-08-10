@@ -6,7 +6,7 @@ boundary p p p
 
 special_bonds lj 0.0 0.0 0.5 coul 0.0 0.0 0.5
 
-read_data /Users/mrshirts/work/papers/SCALEMS/scale-ms/examples/lammps/simple_lammps/lammps_inputs/lj_bulk.lmp
+read_data lammps_inputs/lj_bulk.lmp
 
 pair_style lj/cut 9.0 
 kspace_style none

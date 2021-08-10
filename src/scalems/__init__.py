@@ -33,9 +33,22 @@ Invocation:
 __all__ = [
     # core UI
     'app',
+    'poll',
     # tools / commands
     'executable',
+    'desequence',
+    'extend_sequence',
+    'gather',
+    'logical_and',
+    'logical_not',
+    'map',
+    'reduce',
+    'resequence',
+    'scatter',
+    'subgraph',
+    'while_loop',
     # utilities and helpers
+    'function_wrapper',
     'get_context',
     # 'run',
     # 'wait',

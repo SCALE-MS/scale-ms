@@ -1,0 +1,74 @@
+LAMMPS (1 Feb 2014)
+units real
+atom_style full
+
+dimension 3
+boundary p p p
+
+special_bonds lj 0.0 0.0 0.5 coul 0.0 0.0 0.5
+
+read_data lj_bulk.lmp
+  orthogonal box = (-19.9953 -19.8859 -19.8867) to (30.1108 30.2202 30.2194)
+  1 by 1 by 1 MPI processor grid
+  reading atoms ...
+  400 atoms
+  0 = max # of 1-2 neighbors
+  0 = max # of 1-3 neighbors
+  0 = max # of 1-4 neighbors
+  1 = max # of special neighbors
+
+pair_style lj/cut 9.0
+kspace_style none
+
+pair_coeff 1 1   0.2390057   4.0000000
+
+pair_modify mix geometric
+
+thermo_style custom step temp epair press
+
+# make the random number seed a variable
+velocity all create 120.0 123456
+fix 1 all nve
+fix 2 all langevin 120 120 1.0 123456
+
+thermo 1000
+
+dump 1 all dcd 1000 lj_bulk.dcd
+dump 2 all xyz 1000 lj_bulk.xyz
+
+#Run it!
+run 10000
+Memory usage per processor = 4.56441 Mbytes
+Step Temp E_pair Press 
+       0          120   -207.41933    30.268748 
+    1000    122.35682   -208.90516    28.805557 
+    2000    122.73551   -205.07789     40.08787 
+    3000    116.38005   -207.66721    29.758171 
+    4000    117.03164   -205.24791    34.682606 
+    5000    117.10471   -209.68604     24.86145 
+    6000    120.09362   -208.52289    30.946579 
+    7000    114.02449   -210.05688    21.897219 
+    8000     119.3163   -207.70268    31.476673 
+    9000    121.47514   -211.38774    22.606323 
+   10000    123.79562   -207.49273    37.089733 
+Loop time of 0.622394 on 1 procs for 10000 steps with 400 atoms
+
+Pair  time (%) = 0.378362 (60.7914)
+Bond  time (%) = 0.000483513 (0.077686)
+Neigh time (%) = 0.000583172 (0.0936982)
+Comm  time (%) = 0.0242972 (3.90384)
+Outpt time (%) = 0.00388455 (0.624131)
+Other time (%) = 0.214784 (34.5093)
+
+Nlocal:    400 ave 400 max 400 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Nghost:    507 ave 507 max 507 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+Neighs:    5125 ave 5125 max 5125 min
+Histogram: 1 0 0 0 0 0 0 0 0 0
+
+Total # of neighbors = 5125
+Ave neighs/atom = 12.8125
+Ave special neighs/atom = 0
+Neighbor list builds = 2
+Dangerous builds = 0

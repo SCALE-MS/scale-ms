@@ -16,25 +16,6 @@ it only returns the Runtime instance to its initial state when exiting, rather t
 shutting down completely.
 See also https://docs.python.org/3/library/contextlib.html#contextlib.ExitStack
 
-TODO:
-    * Combine Runtime and Configuration.
-    * Let Runtime exist without a Session.
-    * Introduce proxy object ``RuntimeState``. Runtime resources are not accessible
-      directly, but must be accessed through a RuntimeState, acquired through the
-      context manager protocol or `open()` and `close()` protocol. RuntimeState
-      inherits the Runtime interface for nesting.
-    * Runtime and RuntimeState must behave appropriately when errored or terminated
-      unexpectedly in the context of a nested RuntimeState.
-    * Use Runtime instances in the pytest fixtures for more normative interaction.
-    * Allow RuntimeState to be provided to RuntimeManager or the
-      WorkflowManager.dispatch() call that launches it.
-    * RuntimeState exposes weakref.WeakProxy handles to rp components to minimize
-      chances of unexpected extension of reference lifetimes, and the RuntimeState
-      object itself raises ScopeError if accessed after `close()` (such as by leaving the
-      context manager).
-    * Add some locking for state changes until we are clearer about multithread use
-      cases and safe state maintenance.
-
 Deferred:
     Runtime can avoid providing direct access to RP interface, and instead run an
     entire RP Session state machine in a thread (separate from the asyncio event loop
@@ -42,6 +23,9 @@ Deferred:
     prevent misuse and to insulate the asyncio event loop from blocking RP commands.
     We need to get a better sense of the RP flow combinatorics before we can reasonably
     pursue this.
+
+See Also:
+    https://github.com/SCALE-MS/scale-ms/issues/55
 
 """
 import argparse
@@ -142,9 +126,9 @@ class Configuration:
     """Module configuration information.
 
     See also:
-        scalems.radical.configuration()
-        scalems.radical.parser()
-        scalems.radical.Runtime
+        `scalems.radical.configuration`
+        `scalems.radical.parser`
+        `scalems.radical.runtime.Runtime`
 
     TODO: Consider merging with module Runtime state container.
     """

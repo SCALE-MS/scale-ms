@@ -33,7 +33,10 @@ Execution dispatching contexts
 Execution dispatching generally uses some sort of concurrency model,
 but there is not a consistent concurrency model for all dispatchers.
 ScaleMS provides abstractions to insulate scripting from particular implementations
-or concurrency primitives (such as the need to call `asyncio.run()`).
+or concurrency primitives (such as the need to call
+:py:func:`asyncio.run`
+.. `asyncio.run() <https://docs.python.org/3/library/asyncio-task.html#asyncio.run>`__
+).
 
 Design notes
 ------------

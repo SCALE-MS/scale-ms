@@ -77,7 +77,7 @@ As noted above, SCALE-MS data has shape. As with numpy, it is helpful to think
 in terms of "vectorized" operations instead of explicitly looping over elements.
 Most ``for`` or ``foreach`` use cases are handled implicitly by applying a
 function to iterable inputs.
-The functional style `scalems.map` can be used to apply a function
+The functional style ``scalems.map`` can be used to apply a function
 to the elements of an iterable.
 This can be necessary when the operation instance needs to be generated
 dynamically, such as when the shape of data is not known until run time.
@@ -87,9 +87,11 @@ data flow API).
 
 Of course, some iteration is not vectorizable.
 Logic may be explicitly stateful, or commands may hide internal data graph management.
-The main looping construct in SCALE-MS, then, is `scalems.while_loop`.
+The main looping construct in SCALE-MS, then, is ``scalems.while_loop``.
 The *condition* of the *while* loop is evaluated before each application of the
 *function*.
+
+.. todo:: When ``map`` and ``while_loop`` are implemented, import to ``scalems`` and link above.
 
 Dynamic functions
 -----------------

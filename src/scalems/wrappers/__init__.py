@@ -20,8 +20,8 @@ Core components:
         implementation-dependent named arguments and returns an object that may
         be used as simulation input within the context of the other module tools.
 
-        Proposal: At an abstract level, this contains everything needed to define the simulation 
-        mathematically. The chemical system, instructions for running the simulation, but 
+        Proposal: At an abstract level, this contains everything needed to define the simulation
+        mathematically. The chemical system, instructions for running the simulation, but
         not how it's executed, or the resources it will take. That will be taken care of later in
         the workflow.
 

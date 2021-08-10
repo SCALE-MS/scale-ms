@@ -80,7 +80,7 @@ RUN . $HOME/rp-venv/bin/activate && \
         -DPKG_REPLICA=yes \
         -DPKG_MISC=yes \
         -DPKG_GPU=yes \
-	-DKPG_EXTRA-DUMP=yes \
+	-DPKG_EXTRA-DUMP=yes \
         -DPKG_COMPRESS=yes \
 	-DBUILD_SHARED_LIBS=on \
 	-DLAMMPS_EXCEPTIONS=on \

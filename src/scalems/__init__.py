@@ -51,9 +51,6 @@ from .context import get_context
 from .subprocess import executable
 from .utility import app
 from .utility import ScriptEntryPoint
-from .utility import function_wrapper
-from .utility import poll
-from .commands import *
 
 __version__ = get_versions()['version']
 del get_versions

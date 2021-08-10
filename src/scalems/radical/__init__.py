@@ -5,6 +5,11 @@ Example:
 
 Manage workflow context for RADICAL Pilot.
 
+See Also:
+    * `scalems.dispatching`
+    * `scalems.execution`
+    * `scalems.radical.runtime`
+
 The user is largely responsible for establishing appropriate
 RADICAL Cybertools software environment at both the client side
 and the execution side.
@@ -35,24 +40,6 @@ definition, and activate alternative Task venvs using ``pre_exec``. The user (or
 then responsible for maintaining venv(s) with the correct RCT stack (matching the API
 used by the client-side RCT stack), the `scalems` package, and any dependencies of the
 workflow.
-
-Dispatching through RADICAL Pilot is still evolving, and this
-module may provide multiple disparate concepts.
-
-Workflow Manager:
-    RPWorkflowContext provides a SCALE-MS workflow context and coordinates
-    resources for a RADICAL Pilot Session.
-
-Executor:
-    The RP dispatcher and executor are currently combined, and provided only
-    as the implementation of the `context.dispatch` member function.
-
-    When "entered" (i.e. used in a
-    `with expression <https://docs.python.org/3/reference/compound_stmts.html#with>`__),
-    the Python Context Manager protocol manages the
-    lifetime of a radical.pilot.Session. Two significant areas of future
-    development include Context chaining, and improved support for multiple rp.Sessions
-    through multiple RPContextManager instances.
 
 See also:
     https://github.com/SCALE-MS/scale-ms/issues/90

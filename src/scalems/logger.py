@@ -4,7 +4,7 @@ Upon import, the scalems package sets a placeholder "NullHandler" to block
 propagation of log messages to the root logger (and sys.stderr, if not handled).
 
 If you want to see logging output on sys.stderr, attach a
-logging.StreamHandler to the 'scalems' logger.
+`logging.StreamHandler` to the 'scalems' logger.
 
 Example::
 
@@ -20,7 +20,7 @@ Example::
 
 To handle log messages that are issued while importing :py:mod:`scalems` and its submodules,
 attach the handler before importing :py:mod:`scalems`. Note that if :py:mod:`scalems.radical`
-will be used, you should import `radical.pilot` before importing `logging` to avoid spurious warnings.
+will be used, you should import :py:mod:`radical.pilot` before importing `logging` to avoid spurious warnings.
 
 Refer to submodule documentation for hierarchical loggers to allow
 granular control of log handling (e.g. ``logging.getLogger('scalems.radical')``).

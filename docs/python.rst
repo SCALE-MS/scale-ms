@@ -98,11 +98,13 @@ scalems.local
 -------------
 
 .. automodule:: scalems.local
+    :members:
 
 scalems.radical
 ---------------
 
 .. automodule:: scalems.radical
+    :members:
 
 Basic functions
 ===============
@@ -112,6 +114,8 @@ Core Function implementations provided with the SCALE-MS package.
 .. py:currentmodule:: scalems
 
 .. autofunction:: executable
+
+.. py:currentmodule:: scalems.commands
 
 .. autofunction:: extend_sequence
 
@@ -130,7 +134,7 @@ Dynamic functions generate operations during graph execution.
 
 .. autofunction:: while_loop
 
-.. autofunction:: poll
+.. autofunction:: scalems.utility.poll
 
 Data shaping functions
 ======================
@@ -146,7 +150,7 @@ Helpers
 
 Tools for dynamically generating Functions.
 
-.. autofunction:: function_wrapper
+.. autofunction:: scalems.utility.function_wrapper
 
 .. autofunction:: subgraph
 

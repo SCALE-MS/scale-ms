@@ -2,7 +2,7 @@
 from mpi4py import MPI
 from lammps import lammps
 lmp = lammps()
-lmp.file("in.lj")
+lmp.file("lammps_inputs/lj_bulk.input")
 me = MPI.COMM_WORLD.Get_rank()
 nprocs = MPI.COMM_WORLD.Get_size()
 print("Proc %d out of %d procs has" % (me,nprocs),lmp)

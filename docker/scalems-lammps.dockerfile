@@ -80,9 +80,10 @@ RUN . $HOME/rp-venv/bin/activate && \
         -DPKG_REPLICA=yes \
         -DPKG_MISC=yes \
         -DPKG_GPU=yes \
-	-DBUILD_SHARED_LIBS=on \
+	-DKPG_EXTRA-DUMP=on \
         -DPKG_COMPRESS=yes \
 	-DLAMMPS_EXCEPTIONS=on \
+	-DBUILD_SHARED_LIBS=on \
 	-DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
         && \
     cmake --build . && \

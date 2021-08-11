@@ -312,12 +312,6 @@ This document assumes the following definitions of potentially overloaded key wo
             but not individually meaningful because they are coupled by some ensemble method,
             then they are "coupled segments" or an "ensemble segment," I think.
 
-    task
-        A unit of work at the :term:`CPI` or :term:`run time` level.
-        Generally an :term:`operation` or a portion of an operation that has
-        been decomposed in terms of decoupled parallelism or execution checkpoint
-        interval.
-
     Context
         Abstraction for the software component that maps work to a computing environment.
         Instances may be long-lived and participate in owning/managing work and

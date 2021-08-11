@@ -13,10 +13,16 @@
 #     docker pull scalems/lammps
 #     docker build -t scalems/lammps --cache-from scalems/lammps -f scalems-lammps.dockerfile ..
 #
-# Example usage (simple):
+# Example usage (Python):
 #     docker run --rm -ti scalems/lammps bash
 #     $ . ./rp-venv/bin/activate
-#     $ $HOME/.local/bin/lmp ...
+#     $ $VIRTUAL_ENV/bin/lmp ...
+#
+# Example usage (Python):
+#     docker run --rm -ti scalems/lammps bash
+#     $ . ./rp-venv/bin/activate
+#     $ python
+#     >>> from lammps import lammps
 #
 # Example usage with RP availability:
 # The mongodb server needs to be running, so start the container, wait for mongodb to start,
@@ -62,6 +68,7 @@ WORKDIR /home/rp
 
 RUN /home/rp/rp-venv/bin/pip install --upgrade pip setuptools wheel
 RUN /home/rp/rp-venv/bin/pip install --upgrade cmake
+RUN ./rp-venv/bin/pip install mpi4py
 
 # Patch release will have a path like lammps-27May2021
 RUN . $HOME/rp-venv/bin/activate && \
@@ -80,22 +87,22 @@ RUN . $HOME/rp-venv/bin/activate && \
         -DPKG_REPLICA=yes \
         -DPKG_MISC=yes \
         -DPKG_GPU=yes \
-	-DPKG_EXTRA-DUMP=yes \
+        -DPKG_EXTRA-DUMP=yes \
         -DPKG_COMPRESS=yes \
-	-DBUILD_SHARED_LIBS=on \
-	-DLAMMPS_EXCEPTIONS=on \
-	-DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
+        -DBUILD_SHARED_LIBS=on \
+        -DLAMMPS_EXCEPTIONS=on \
+        -DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
         && \
     cmake --build . && \
     cmake --build . --target install && \
     rm -rf /tmp/lammps && \
     echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $HOME/rp-venv/bin/activate
 
-COPY --chown=rp:radical . scalems
-
+COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
 RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
-RUN ./rp-venv/bin/pip install scalems/
-RUN ./rp-venv/bin/pip install mpi4py
+
+COPY --chown=rp:radical . scalems
+RUN ./rp-venv/bin/pip install --no-deps --use-feature=in-tree-build scalems/
 
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
 
@@ -106,4 +113,3 @@ RUN ./rp-venv/bin/pip install mpi4py
 
 #COPY --chown=rp:radical examples/basic_gmxapi/*.py $EXAMPLE/examples/basic_gmxapi/
 #COPY --chown=rp:radical testdata $EXAMPLE/testdata
-

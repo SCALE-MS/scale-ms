@@ -48,7 +48,7 @@ Core components:
         parallel the keyword syntax used by the simulation programs
         themselves: LAMMPS, PLUMED, GROMACS (in the .mdp) all use
         keyword options.  It's not as clear for OpenMM, but we should
-        use the ExTASY implementations to guide us as to how modification is done there.  
+        use the ExTASY implementations to guide us as to how modification is done there.
 
         One question is how the defintion of the chemical system
         should changed using this approach. This is not set up very
@@ -83,7 +83,7 @@ Core components:
 
         Potentially, we use this to specify which resources assoicated
         with the job?  The goal of this function is to define a task
-        that is ready to dispatch for execution.  
+        that is ready to dispatch for execution.
 
         MRS: some notes that I took during the conversation last week:
         Any of the things that affect the checkpointable identity are
@@ -91,7 +91,7 @@ Core components:
         equivalence class. Operate by fingerprinting commands and data
         to determine identity that should distinguish it.  Workflow
         level checkpointing.
-       
+
         MRS: I'm still a little confused by the point of this.  I
         assume the importance of checkpointing is to know whether one
         should relaunch a simulation if it fails?  And if it's not
@@ -103,11 +103,11 @@ Utility functions:
         For interoperability with other tools, simulator wrappers should provide
         conversion utilities for native structure and topology data. *internal_to_pdb*
         converts a native structure object to a structure file in the Protein Data Bank
-        (PDB) format.  
+        (PDB) format.
 
-        MRS: Though actually, PDB might not be the best, since it's limited resolution. 
-        Should it actually convert the internal representation into a numpy array (or somthing 
-        like mdtraj or mdanalysis internal representation, which can THEN be converted into 
+        MRS: Though actually, PDB might not be the best, since it's limited resolution.
+        Should it actually convert the internal representation into a numpy array (or something
+        like mdtraj or mdanalysis internal representation, which can THEN be converted into
         PDB files or any other output trajectory form desired.
 
     get_trajectory(source) -> Trajectory:
@@ -123,7 +123,7 @@ Utility functions:
         system conformations from a collection of sources of conformation data.
 
         MRS: Then internal_to_pdb can be used to convert into external files as needed?
-        
+
 
 Module types:
     Frame:

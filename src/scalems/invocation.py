@@ -93,6 +93,8 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
         get_parser = getattr(module, 'parser', base_parser)
 
         parser = argparse.ArgumentParser(
+            prog=module.__name__,
+            description=f'Process {module.__name__} command line arguments.',
             usage=f'python -m {module.__name__} <{module.__name__} args> script-to-run.py.py <script args>',
             parents=[get_parser()]
         )

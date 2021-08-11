@@ -94,8 +94,8 @@ RUN . $HOME/rp-venv/bin/activate && \
 COPY --chown=rp:radical . scalems
 
 RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
-RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install scalems/
-RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install mpi4py
+RUN ./rp-venv/bin/pip install scalems/
+RUN ./rp-venv/bin/pip install mpi4py
 
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
 

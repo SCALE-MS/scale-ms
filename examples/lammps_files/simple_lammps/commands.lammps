@@ -6,7 +6,11 @@ boundary p p p
 
 special_bonds lj 0.0 0.0 0.5 coul 0.0 0.0 0.5
 
-read_data /Users/mrshirts/work/papers/SCALEMS/scale-ms/examples/lammps/simple_lammps/lammps_inputs/lj_bulk.lmp
+# Note that this input file has to be placed by the user.
+# References:
+# * https://github.com/SCALE-MS/scale-ms/issues/75
+# * https://github.com/SCALE-MS/scale-ms/issues/129
+read_data lammps_inputs/lj_bulk.lmp
 
 pair_style lj/cut 9.0 
 kspace_style none

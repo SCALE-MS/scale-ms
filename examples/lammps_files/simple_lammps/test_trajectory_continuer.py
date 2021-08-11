@@ -1,6 +1,10 @@
 import trajectory_continuer
 from trajectory_continuer import TrajectoryContinuer
 
+# Note that this input has to be placed by the user.
+# References:
+# * https://github.com/SCALE-MS/scale-ms/issues/75
+# * https://github.com/SCALE-MS/scale-ms/issues/129
 initial_structure=['lammps_inputs/lj_bulk.lmp']
 all_frames = ["lammps_inputs/lj_bulk.dcd"]
 max_iterations = 5
@@ -27,4 +31,3 @@ for i in range(max_iterations):
         print(f"Iteration {i}: Yep, we're converged")
     else:
         print(f"Iteration {i}: Not converged yet.")
-

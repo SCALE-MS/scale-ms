@@ -18,6 +18,10 @@ from scalems.wrappers.lammps import collect_coordinates, internal_to_pdb, make_i
 
 # LAMMPS input file
 # Could start with a list of distinct confs, but here we use a single starting point.
+# Note that this input has to be placed by the user.
+# References:
+# * https://github.com/SCALE-MS/scale-ms/issues/75
+# * https://github.com/SCALE-MS/scale-ms/issues/129
 initial_structure = 'lammps_inputs/lj_bulk.lmp'  # GROMACS structure file.
 
 simulation_parameters = ['lammps_inputs/lj_bulk.in']

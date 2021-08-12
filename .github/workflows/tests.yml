@@ -98,7 +98,7 @@ jobs:
         python -m pip install .
         python -m pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
-        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
         radical-stack
     - name: Test local.localhost with pytest
@@ -202,7 +202,7 @@ jobs:
         python -m pip install .
         python -m pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
-        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
         radical-stack
     - name: Test local.github with pytest
@@ -320,7 +320,7 @@ jobs:
           pytest-cov \
           pytest-env
         mkdir -p $HOME/.radical/pilot/configs/
-        cp ./docker/resource_local.json $HOME/.radical/pilot/configs/
+        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
         radical-stack
     - name: Test local.github with pytest

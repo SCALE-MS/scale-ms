@@ -72,7 +72,7 @@ RUN rp-venv/bin/pip install --no-cache-dir --upgrade \
 
 RUN  mkdir -p ~/.radical/pilot/configs
 
-COPY --chown=rp:radical resource_*.json /home/rp/.radical/pilot/configs
+COPY --chown=rp:radical resource_docker.json /home/rp/.radical/pilot/configs
 
 WORKDIR /home/rp
 

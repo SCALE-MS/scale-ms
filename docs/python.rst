@@ -76,7 +76,8 @@ Operations provide a ``run()`` method to force execution at the point of call.
 Execution Module
 ================
 
-Every SCALE-MS object reference belongs to a workflow managed by a WorkflowManager.
+Every SCALE-MS object reference belongs to a workflow managed by a
+:py:class:`~scalems.workflow.WorkflowManager`.
 Workflows may be executed through different means and with different resources
 through distinct modules. Different middleware implementations may be accessed
 directly, but we recommend selecting a management module when invoking Python
@@ -98,13 +99,11 @@ scalems.local
 -------------
 
 .. automodule:: scalems.local
-    :members:
 
 scalems.radical
 ---------------
 
 .. automodule:: scalems.radical
-    :members:
 
 Basic functions
 ===============

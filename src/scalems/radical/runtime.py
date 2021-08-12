@@ -143,7 +143,7 @@ class Configuration:
 class Runtime:
     """Container for scalems.radical runtime state data.
 
-    TODO: Consider merging with scalems.radical.Configuration
+    TODO: Consider merging with `scalems.radical.Configuration`
 
     See Also:
         scalems.radical.RPDispatchingExecutor.runtime()

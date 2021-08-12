@@ -43,7 +43,7 @@ Create a new Python virtual environment. (See, for example, :py:mod:`venv`.)
 Activate the environment, then install `scalems` (and the RP software),
 along with any software required for your workflow.
 
-.. note::
+.. admonition:: Explicitly activate the virtual environment.
 
     Some packages (including LAMMPS and RP) do not behave properly unless their virtual environment is explicitly activated.
     You must ``. /path/to/venv/bin/activate`` before installing or using ``radical.pilot`` or ``scalems.radical``.
@@ -51,11 +51,11 @@ along with any software required for your workflow.
 
 You will need an equivalent virtual environment in the execution environment.
 If you are using a shared filesystem
-(or if you are using the *local.localhost* `rp resource`_
+(or if you are using the *local.localhost* `RP resource`_
 or *local* :py:data:`~radical.pilot.PilotDescription.access_schema`)
 then you can execute in the same venv used on the client side.
 Otherwise, you will need to prepare a virtual environment
-(accessible to the chosen `rp resource`_) and inform `scalems.radical` of it
+(accessible to the chosen `RP resource`_) and inform `scalems.radical` of it
 at run time. (See :option:`--venv`)
 
 When executing the workflow, `scalems.radical` will automatically direct RP to *activate*
@@ -67,7 +67,7 @@ Configuration
 Many of the configurable aspects of :py:mod:`scalems.radical` only allow you to refer to
 resources prepared ahead of time in the filesystem.
 
-.. _rp resource:
+.. _RP resource:
 
 Resource
 ~~~~~~~~
@@ -89,6 +89,27 @@ in your home directory **before launching** :py:mod:`scalems.radical`.
     It is only necessary that RP is able to make new ssh connections at run time without storing or asking for a password.
     Refer to the ``ssh-agent`` documentation for your SSH client.
 
+Setting resource parameters
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+https://radicalpilot.readthedocs.io/en/stable/machconf.html#writing-a-custom-resource-configuration-file.
+describes the user files for defining new resources or replacing built-in resource definitions.
+
+To override the default logic for a built-in resource definition,
+copy the JSON object for the resource(s) from your RP version
+(e.g. https://github.com/radical-cybertools/radical.pilot/tree/devel/src/radical/pilot/configs)
+to your home directory and then apply updates.
+
+For example
+"""""""""""
+
+To update parameters for ``local.localhost``::
+
+    mkdir $HOME/.radical/pilot/configs/
+    cp $VIRTUAL_ENV/lib/python3*/site-packages/radical/pilot/configs/resource_local.json $HOME/.radical/pilot/configs/
+
+Then edit the ``localhost`` JSON object in ``$HOME/.radical/pilot/configs/resource_local.json``.
+
 More notes on Python virtual environments
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -96,19 +117,13 @@ RP recommends (but does not require) a completely static set of virtual environm
 For simplicity and convenience, the built-in resource definitions have automatic
 environment bootstrapping logic.
 
-.. note:: Changing the definition for a built-in `rp resource`_
-
-    To override the default logic for a built-in resource definition,
-    copy the JSON object for the resource(s) from your RP version
-    (e.g. https://github.com/radical-cybertools/radical.pilot/tree/devel/src/radical/pilot/configs)
-    to your home directory and apply updates as described at
-    https://radicalpilot.readthedocs.io/en/stable/machconf.html#writing-a-custom-resource-configuration-file.
-
 To minimize the amount of bootstrapping RP performs for each :py:class:`~radical.pilot.Session`,
-make sure the `rp resource`_ is configured to *use* and existing *virtenv* and the
+make sure the `RP resource`_ is configured to *use* and existing *virtenv* and the
 RP installation it contains.
 Set ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
 definition.
+
+.. note:: This optimization is relevant even for the ``local.localhost`` resource and ``local`` access scheme!
 
 The user (or client) is
 then responsible for maintaining venv(s) with the correct RCT stack (matching the API

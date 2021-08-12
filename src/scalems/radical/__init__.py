@@ -12,7 +12,7 @@ Command Line Arguments:
     .. option:: --resource <name>
 
         Name of a defined RADICAL Pilot execution resource.
-        See also `rp resource`. (Required)
+        See also `RP resource`. (Required)
 
     .. option:: --venv <path>
 

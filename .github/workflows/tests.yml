@@ -101,7 +101,8 @@ jobs:
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
         radical-stack
-    - name: Test local.localhost with pytest
+    - name: Test default local.localhost with pytest
+      # We use static venvs for most of the tests, but this expands our coverage a bit.
       timeout-minutes: 15
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
@@ -121,7 +122,7 @@ jobs:
             tests/$file \
             --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
         done
-    - name: Command line tests
+    - name: Command line tests with static venv
       timeout-minutes: 3
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin

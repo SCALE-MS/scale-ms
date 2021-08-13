@@ -1,12 +1,12 @@
 """Define the ScaleMS Subprocess command.
 
-scalems.executable() is used to execute a program in one (or more) subprocesses.
-It is an alternative to the built-in Python subprocess.Popen or asyncio.create_subprocess_exec
+`scalems.executable` is used to execute a program in one (or more) subprocesses.
+It is an alternative to the built-in Python `subprocess.Popen` or `asyncio.create_subprocess_exec`
 with extensions to better support ScaleMS execution dispatching and ensemble data flow.
 
-The core task is represented by ``scalems.subprocess.SubprocessTask``, but also
-requires the definition of ``scalems.subprocess.SubprocessInput`` and
-``scalems.subprocess.SubprocessResult``.
+The core task is represented by `scalems.subprocess.SubprocessTask`, but also
+requires the definition of `scalems.subprocess.SubprocessInput` and
+`scalems.subprocess.SubprocessResult`.
 
 
 
@@ -345,7 +345,7 @@ def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs
     * threads_per_proc (int): Number of threads to allocate for each process.
     * gpus_per_task (int): Number of GPU devices to allocate for and instance of the
       *exec*.
-    * launcher (str): Task launch mechanism, such as `mpiexec`.
+    * launcher (str): Task launch mechanism, such as ``mpiexec``.
 
     Returns:
         Output collection contains *exitcode*, *stdout*, *stderr*, *file*.

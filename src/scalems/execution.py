@@ -339,7 +339,7 @@ async def manage_execution(executor: RuntimeManager,
 
         Some tasks will be awaiting results from other tasks.
 
-        All tasks will be awaiting a asyncio.Lock or asyncio.Condition for each
+        All tasks will be awaiting a `asyncio.Lock` or `asyncio.Condition` for each
         required resource, but must do so indirectly.
 
         To avoid dead-locks, we can't have a Lock object for each resource unless
@@ -362,10 +362,10 @@ async def manage_execution(executor: RuntimeManager,
         (We still need to consider dynamic tasks that
         generate other tasks. I think the only way to distinguish tasks which can't be
         dynamic from those which might be would be with the `def` versus `async def` in
-        the implementing function declaration. If we abstract `await` with `scalems.wait`,
+        the implementing function declaration. If we abstract `await` with ``scalems.wait``,
         we can throw an exception at execution time after checking a ContextVar.
         It may be better to just let implementers use `await` for dynamically created
-        tasks, but we need to make the same check if a function calls `.result()` or
+        tasks, but we need to make the same check if a function calls ``.result()`` or
         otherwise tries to create a dependency on an item that was not allocated
         resources before the function started executing.
         In a conservative first draft, we can simply throw an exception if

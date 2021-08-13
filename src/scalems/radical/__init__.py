@@ -14,7 +14,7 @@ Workflow Manager:
 
 Executor:
     The RP dispatcher and executor are currently combined, and provided only
-    as the implementation of the `context.dispatch` member function.
+    as the implementation of the *context.dispatch* member function.
 
     When "entered" (i.e. used as
     a :py:func:`with`), the Python Context Manager protocol manages the

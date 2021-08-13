@@ -31,10 +31,13 @@ release = '0'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinx.ext.intersphinx',
     'sphinx.ext.todo',  # Note: todo_include_todos=True is required for directives to produce output.
     'sphinxcontrib.napoleon',
     'sphinxcontrib.plantuml'
 ]
+
+default_role = 'any'
 
 # Note that config options can be overridden on the command line with `-D`. E.g.
 #     sphinx-build -D todo_include_todos=1 -b html -c docs/ docs/ build/html
@@ -48,6 +51,14 @@ templates_path = ['_templates']
 exclude_patterns = []
 
 master_doc = 'index'
+
+# -- Options for intersphinx extension ---------------------------------------
+
+# Example configuration for intersphinx: refer to the Python standard library.
+intersphinx_mapping = {
+    'https://docs.python.org/3/': None,
+    'https://radicalpilot.readthedocs.io/en/stable/': None
+}
 
 # -- Options for HTML output -------------------------------------------------
 

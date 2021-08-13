@@ -12,7 +12,7 @@ in part to stimulate discussion and understanding of packaging and component
 capabilities.
 
 One supporting module (:file:`examples/parallel_adaptive_msm/msmtool.py`) wraps PyEmma
-and provides a SCALE-MS compatible `msm_analyzer` function.
+and provides a SCALE-MS compatible ``msm_analyzer`` function.
 
 Another supporting module (:file:`examples/parallel_adaptive_msm/wrappers`)
 wraps GROMACS command line tools and gmxapi.

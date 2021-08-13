@@ -104,6 +104,11 @@ RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scale
 COPY --chown=rp:radical . scalems
 RUN ./rp-venv/bin/pip install --no-deps --use-feature=in-tree-build scalems/
 
+# Try to update the testdata submodule if it is missing or out of date.
+# If there are files in testdata, but it is not tracked as a git submodule,
+# then we should not overwrite it. Unfortunately, I don't think there is really
+# a way for us to report this condition during docker build.
+# (The `echo` below will not be seen on the terminal.)
 RUN cd scalems && \
     git submodule update --init --merge || \
         echo "testdata has untracked changes. Skipping submodule update."

@@ -1,26 +1,74 @@
 """Workflow subpackage for ScaleMS execution dispatching to RADICAL Pilot.
 
-Example:
-    python -m scalems.radical myworkflow.py
-
 Manage workflow context for RADICAL Pilot.
 
-Dispatching through RADICAL Pilot is still evolving, and this
-module may provide multiple disparate concepts.
+Command Line Invocation Example:
+    ``python -m scalems.radical --resource local.localhost --venv $HOME/myvenv --access local myworkflow.py``
 
-Workflow Manager:
-    RPWorkflowContext provides a SCALE-MS workflow context and coordinates
-    resources for a RADICAL Pilot Session.
+For required and optional command line arguments:
+    ``python -m scalems.radical --help``
 
-Executor:
-    The RP dispatcher and executor are currently combined, and provided only
-    as the implementation of the *context.dispatch* member function.
+Command Line Arguments:
+    .. option:: --resource <name>
 
-    When "entered" (i.e. used as
-    a :py:func:`with`), the Python Context Manager protocol manages the
-    lifetime of a radical.pilot.Session. Two significant areas of future
-    development include Context chaining, and improved support for multiple rp.Sessions
-    through multiple RPContextManager instances.
+        Name of a defined RADICAL Pilot execution resource.
+        See also `RP resource`. (Required)
+
+    .. option:: --venv <path>
+
+        Path to the Python virtual environment with which tasks should be executed.
+        (Required. See also https://github.com/SCALE-MS/scale-ms/issues/90)
+
+    Additional arguments may provide configuration fields for the `radical.pilot.Pilot`
+    or other `radical.pilot <https://radicalpilot.readthedocs.io/en/stable/>`__ components.
+
+The user is largely responsible for establishing appropriate
+`RADICAL Cybertools <https://radical-cybertools.github.io/>`__
+(RCT) software environment at both the client side
+and the execution side.
+
+For performance and control, the canonical use case is a fully static `venv`
+configuration for both the Pilot agent (and bootstrapping) interpreter, remote RCT
+stack, and executed Tasks. However, the default behavior should work for most users,
+in which a `venv` is created in the radical sandbox on the first connection (reused if it
+already exists) and the RCT stack is updated within the Pilot sandbox for each session.
+
+In the case of non-RCT Python dependencies,
+:py:class:`~radical.pilot.Pilot` has an (evolving)
+:py:attr:`~radical.pilot.Pilot.prepare_env`
+feature that can be used for a Task dependency
+(:py:data:`~radical.pilot.TaskDescription.named_env`) to provide a dynamically
+created venv with a list of requested packages.
+
+Locally prepared package distribution archives can be used, such as by staging with the
+*Pilot.stage_in* before doing *prepare_env*.
+
+.. seealso::
+
+    Refer to https://github.com/SCALE-MS/scale-ms/issues/141
+    for the status of `scalems` support for automatic execution environment bootstrapping.
+
+Use ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
+definition, and activate alternative Task venvs using ``pre_exec``. The user (or client) is
+then responsible for maintaining venv(s) with the correct RCT stack (matching the API
+used by the client-side RCT stack), the `scalems` package, and any dependencies of the
+workflow.
+
+Upcoming RP features:
+
+    There is some work underway to place full venvs at run time, specifically to handle use
+    cases in which it is important to run the Python stack from a local filesystem on an
+    HPC compute node. So far, this is limited to use of conda freeze.
+
+    Upcoming RP features will provide a mechanism for environment caching so that module
+    load, source ``$VENV/bin/activate``, etc. do not need to be repeated for every task.
+    However, the current mechanisms for optimal (static) venv usage are
+
+See Also:
+    * `scalems.dispatching`
+    * `scalems.execution`
+    * `scalems.radical.runtime`
+    * https://github.com/SCALE-MS/scale-ms/issues/90
 
 """
 # TODO: Consider converting to a namespace package to improve modularity of

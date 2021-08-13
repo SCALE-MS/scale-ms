@@ -1,11 +1,33 @@
-"""Provide the boiler plate for scalems entry point scripts.
+"""Python invocation of SCALE-MS workflow scripts.
 
-Internal module provides consistent logic for command line invocation.
+Users define and execute SCALE-MS workflows by using Python to define work and
+submit it for execution through a SCALE-MS workflow manager.
+The SCALE-MS machinery is accessible through the :py:mod:`scalems` Python module.
 
-Supports invocation of the following form with minimal `backend/__main__.py`
+For the greatest flexibility in execution, scripts should be written without
+explicit reference to the execution environment. Instead, a SCALE-MS workflow
+manager :ref:`backend` can be specified on the command line to bootstrap an entry point.
 
-    python -m scalems.radical --venv=/path/to/venv --resource=local.localhost myscript.py arg1 --foo bar
+:command:`python3 -m scalems.local myscript.py`
+would use the workflow manager provided by the :py:mod:`scalems.local`
+module to process :file:`myscript.py`. After the module performs some initialization,
+the script is essentially just imported. After that, though, specifically annotated
+callables (functions or function objects) are identified and submitted for execution.
+See :py:func:`scalems.app`.
 
+Refer to :ref:`backend` for more on command line invocation.
+
+For examples of more direct access to the SCALE-MS workflow management machinery,
+the pytest scripts in :file:`tests/` will be instructive.
+
+The base command line parser is provided by :py:func:`scalems.utility.parser`,
+extended (optionally) by the :ref:`backend`, and further extended by
+:py:func:`scalems.invocation.run`. Get usage for a particular backend with
+reference to the particular module.
+
+    python3 -m scalems.local --help
+
+Unrecognized command line arguments will be passed along to the called script.
 """
 
 import argparse
@@ -53,6 +75,15 @@ def run_dispatch(work, context: scalems.workflow.WorkflowManager):
 
 def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C901
         _loop: asyncio.AbstractEventLoop = None):
+    """Execute boiler plate for scalems entry point scripts.
+
+    Provides consistent logic for command line invocation.
+
+    Supports invocation of the following form with minimal `backend/__main__.py`
+
+        python -m scalems.radical --venv=/path/to/venv --resource=local.localhost myscript.py arg1 --foo bar
+
+    """
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:
         raise RuntimeError('scalems launcher is not reentrant.')
@@ -62,7 +93,9 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
         get_parser = getattr(module, 'parser', base_parser)
 
         parser = argparse.ArgumentParser(
-            usage=f'python -m {module.__name__} <{module.__name__} args> myscript.py <script args>',
+            prog=module.__name__,
+            description=f'Process {module.__name__} command line arguments.',
+            usage=f'python -m {module.__name__} <{module.__name__} args> script-to-run.py.py <script args>',
             parents=[get_parser()]
         )
 

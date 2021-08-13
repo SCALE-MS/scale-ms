@@ -320,14 +320,15 @@ class WorkflowManager:
     *shutdown* of Executor roles.
 
     TODO: Enforce centralization of Context instantiation for the interpreter process.
+
     For instance:
-    * Implement a root context singleton and require acquisition of new Context
-      handles through methods in this module.
-    * Use abstract base class machinery to register Context implementations.
-    * Require Context instances to track their parent Context, or otherwise
-      participate in a single tree structure.
-    * Prevent instantiation of Command references without a reference to a Context
-      instance.
+        * Implement a root context singleton and require acquisition of new Context
+          handles through methods in this module.
+        * Use abstract base class machinery to register Context implementations.
+        * Require Context instances to track their parent Context, or otherwise
+          participate in a single tree structure.
+        * Prevent instantiation of Command references without a reference to a Context
+          instance.
 
     TODO:
         Check that I'm actually toggling something for the context instance to avoid

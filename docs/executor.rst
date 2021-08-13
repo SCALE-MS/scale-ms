@@ -118,3 +118,44 @@ Multiple graph nodes may be received in the same packet of work, or asynchronous
 The executor may locally manage dependencies to optimize execution and data placement.
 
 .. uml:: diagrams/runtime_deferred_sequence.puml
+
+Python package support
+======================
+
+Dispatching
+-----------
+
+.. automodule:: scalems.dispatching
+    :members:
+
+Execution
+---------
+
+.. automodule:: scalems.execution
+    :members:
+
+Workflow
+--------
+
+.. automodule:: scalems.workflow
+    :members:
+
+Backends
+--------
+
+See `backend` for user facing module interfaces.
+
+Extra scalems.radical details
+-----------------------------
+
+.. autoclass:: scalems.radical.Configuration
+
+.. autofunction:: scalems.radical.configuration
+
+.. autofunction:: scalems.radical.parser
+
+scalems.radical.runtime support module
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: scalems.radical.runtime
+    :members:

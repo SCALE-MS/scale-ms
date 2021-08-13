@@ -312,6 +312,62 @@ class Runtime:
                 return self.pilot(pilot)
 
 
+def _get_scheduler(name: str,
+                   pre_exec: typing.Iterable[str],
+                   task_manager: rp.TaskManager):
+    """Establish the radical.pilot.raptor.Master task.
+
+    Create a master rp.Task (running the scalems_rp_master script) with the
+    provide *name* to be referenced as the *scheduler* for raptor tasks.
+
+    Returns the rp.Task for the master script once the Master is ready to
+    receive submissions.
+
+    Raises:
+        DispatchError if the master task could not be launched successfully.
+
+    Note:
+        Currently there is no completion condition for the master script.
+        Caller is responsible for canceling the Task returned by this function.
+    """
+    # This is the name that should be resolvable in an active venv for the script we
+    # install as
+    # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+    master_script = 'scalems_rp_master'
+
+    # We can probably make the config file a permanent part of the local metadata,
+    # but we don't really have a scheme for managing local metadata right now.
+    # with tempfile.TemporaryDirectory() as dir:
+    #     config_file_name = 'raptor_scheduler_config.json'
+    #     config_file_path = os.path.join(dir, config_file_name)
+    #     with open(config_file_path, 'w') as fh:
+    #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
+    #         json.dump(encoded, fh, indent=2)
+
+    # define a raptor.scalems master and launch it within the pilot
+    td = rp.TaskDescription(
+        {
+            'uid': name,
+            'executable': master_script
+        })
+    td.arguments = []
+    td.pre_exec = pre_exec
+    # td.named_env = 'scalems_env'
+    logger.debug('Launching RP scheduler.')
+    scheduler = task_manager.submit_tasks(td)
+    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
+    # check type.
+    scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+    logger.debug(f'Scheduler in state {scheduler.state}. Proceeding.')
+    if scheduler.state in rp.FINAL:
+        if scheduler.stdout or scheduler.stderr:
+            logger.error(f'scheduler.stdout: {scheduler.stdout}')
+            logger.error(f'scheduler.stderr: {scheduler.stderr}')
+        raise DispatchError(
+            f'Master Task unexpectedly reached {scheduler.state} during launch.')
+    return scheduler
+
+
 def _connect_rp(config: Configuration) -> Runtime:
     """Establish the RP Session.
 
@@ -400,27 +456,6 @@ def _connect_rp(config: Configuration) -> Runtime:
         # Get a Pilot
         #
 
-        # # TODO: #94 Describe (link to) configuration points.
-        # resource_config['local.localhost'].update({
-        #     'project': None,
-        #     'queue': None,
-        #     'schema': None,
-        #     'cores': 1,
-        #     'gpus': 0
-        # })
-
-        # _pilot_description = dict(_resource=_resource,
-        #                          runtime=30,
-        #                          exit_on_error=True,
-        #                          project=resource_config[_resource]['project'],
-        #                          queue=resource_config[_resource]['queue'],
-        #                          cores=resource_config[_resource]['cores'],
-        #                          gpus=resource_config[_resource]['gpus'])
-
-        # TODO: How to specify PilotDescription? (see also #121)
-        # Where should this actually be coming from?
-        # We need to inspect both the HPC allocation and the work load, I think,
-        # and combine with user-provided preferences.
         pilot_description = {}
         pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
         pilot_description.update({'resource': config.execution_target})
@@ -505,11 +540,10 @@ def _connect_rp(config: Configuration) -> Runtime:
         #
 
         assert runtime.scheduler is None
-        # TODO: #119 Re-enable raptor.
-        # runtime.scheduler = _get_scheduler(
-        #     'raptor.scalems',
-        #     pre_exec=execution_manager._pre_exec,
-        #     task_manager=task_manager)
+        runtime.scheduler = _get_scheduler(
+            'raptor.scalems',
+            pre_exec=list(get_pre_exec(config)),
+            task_manager=task_manager)
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         # Note: The worker script name only appears in the config file.
         # logger.info('RP scheduler ready.')

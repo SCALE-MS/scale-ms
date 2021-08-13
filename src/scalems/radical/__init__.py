@@ -619,57 +619,6 @@ def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
             item.set_result(fut.result())
 
 
-def _get_scheduler(name: str,
-                   pre_exec: typing.Iterable[str],
-                   task_manager: rp.TaskManager):
-    """Establish the radical.pilot.raptor.Master task.
-
-    Create a master rp.Task (running the scalems_rp_master script) with the
-    provide *name* to be referenced as the *scheduler* for raptor tasks.
-
-    Returns the rp.Task for the master script once the Master is ready to
-    receive submissions.
-
-    Raises:
-        DispatchError if the master task could not be launched successfully.
-
-    Note:
-        Currently there is no completion condition for the master script.
-        Caller is responsible for canceling the Task returned by this function.
-    """
-    # This is the name that should be resolvable in an active venv for the script we
-    # install as
-    # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
-    master_script = 'scalems_rp_master'
-
-    # We can probably make the config file a permanent part of the local metadata,
-    # but we don't really have a scheme for managing local metadata right now.
-    # with tempfile.TemporaryDirectory() as dir:
-    #     config_file_name = 'raptor_scheduler_config.json'
-    #     config_file_path = os.path.join(dir, config_file_name)
-    #     with open(config_file_path, 'w') as fh:
-    #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
-    #         json.dump(encoded, fh, indent=2)
-
-    # define a raptor.scalems master and launch it within the pilot
-    td = rp.TaskDescription(
-        {
-            'uid': name,
-            'executable': master_script
-        })
-    td.arguments = []
-    td.pre_exec = pre_exec
-    # td.named_env = 'scalems_env'
-    logger.debug('Launching RP scheduler.')
-    scheduler = task_manager.submit_tasks(td)
-    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
-    # check type.
-    scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
-    if scheduler.state not in {rp.states.CANCELED, rp.states.FAILED}:
-        raise DispatchError('Could not get Master task for dispatching.')
-    return scheduler
-
-
 class RPDispatchingExecutor(RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 

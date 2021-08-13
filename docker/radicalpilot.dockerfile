@@ -22,6 +22,7 @@ RUN apt-get update && \
         openssh-server \
         python3.8-dev \
         python3-venv \
+        python-dev-is-python3 \
         tox \
         vim && \
     rm -rf /var/lib/apt/lists/*

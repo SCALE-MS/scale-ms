@@ -104,6 +104,10 @@ RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scale
 COPY --chown=rp:radical . scalems
 RUN ./rp-venv/bin/pip install --no-deps --use-feature=in-tree-build scalems/
 
+RUN cd scalems && \
+    git submodule update --init --merge || \
+        echo "testdata has untracked changes. Skipping submodule update."
+
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
 
 #ENV REF=master

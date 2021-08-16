@@ -87,6 +87,14 @@ See :doc:`invocation` for usage information.
 
 See :py:mod:`scalems.invocation` for more about Execution Modules.
 
+Entry point
+===========
+
+The entry point for a `scalems` workflow script is the function decorated with
+`scalems.app`
+
+.. autodecorator:: scalems.app
+
 Basic functions
 ===============
 

@@ -1,3 +1,4 @@
+sphinx>=2
 sphinxcontrib-autoprogram
 sphinxcontrib-napoleon
 sphinxcontrib-plantuml

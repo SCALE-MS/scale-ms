@@ -78,6 +78,7 @@ def parser(add_help=False):
         'script',
         metavar='script-to-run.py',
         type=str,
+        help='The workflow script. Must contain a function decorated with `scalems.app`'
     )
 
     return _parser

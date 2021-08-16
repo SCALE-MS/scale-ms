@@ -128,9 +128,9 @@ class Configuration:
     """Module configuration information.
 
     See also:
-        :py:func:`scalems.radical.configuration`
-        :py:data:`scalems.radical.parser`
-        :py:class:`scalems.radical.runtime.Runtime`
+        * :py:func:`scalems.radical.configuration`
+        * :py:data:`scalems.radical.runtime.parser`
+        * :py:class:`scalems.radical.runtime.Runtime`
 
     TODO: Consider merging with module Runtime state container.
     """

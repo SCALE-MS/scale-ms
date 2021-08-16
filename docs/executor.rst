@@ -143,7 +143,22 @@ Workflow
 Backends
 --------
 
-See `backend` for user facing module interfaces.
+See :doc:`invocation` for user facing module interfaces.
+
+Built-in Execution Modules include `scalems.radical` and `scalems.local`
+
+For command line usage, an `backend` should support interaction with the
+`scalems.invocation` module.
+
+Support for module authors
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. automodule:: scalems.invocation
+    :members:
+
+.. autofunction:: scalems.utility.parser
+
+.. autofunction:: scalems.utility.make_parser
 
 Extra scalems.radical details
 -----------------------------
@@ -151,8 +166,6 @@ Extra scalems.radical details
 .. autoclass:: scalems.radical.Configuration
 
 .. autofunction:: scalems.radical.configuration
-
-.. autofunction:: scalems.radical.parser
 
 scalems.radical.runtime support module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

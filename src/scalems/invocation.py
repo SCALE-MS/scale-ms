@@ -1,36 +1,14 @@
 """Python invocation of SCALE-MS workflow scripts.
 
-Users define and execute SCALE-MS workflows by using Python to define work and
-submit it for execution through a SCALE-MS workflow manager.
-The SCALE-MS machinery is accessible through the :py:mod:`scalems` Python module.
-
-For the greatest flexibility in execution, scripts should be written without
-explicit reference to the execution environment. Instead, a SCALE-MS workflow
-manager :ref:`backend` can be specified on the command line to bootstrap an entry point.
-
-:command:`python3 -m scalems.local myscript.py`
-would use the workflow manager provided by the :py:mod:`scalems.local`
-module to process :file:`myscript.py`. After the module performs some initialization,
-the script is essentially just imported. After that, though, specifically annotated
-callables (functions or function objects) are identified and submitted for execution.
-See :py:func:`scalems.app`.
-
-Refer to :ref:`backend` for more on command line invocation.
-
-For examples of more direct access to the SCALE-MS workflow management machinery,
-the pytest scripts in :file:`tests/` will be instructive.
+Refer to :doc:`invocation` for user-level documentation about SCALE-MS command line
+invocation.
 
 The base command line parser is provided by :py:func:`scalems.utility.parser`,
 extended (optionally) by the :ref:`backend`, and further extended by
 :py:func:`scalems.invocation.run`. Get usage for a particular backend with
 reference to the particular module.
-
-    python3 -m scalems.local --help
-
-Unrecognized command line arguments will be passed along to the called script.
 """
 
-import argparse
 import asyncio
 import os
 import runpy
@@ -40,7 +18,6 @@ import typing
 
 import scalems.exceptions
 import scalems.workflow
-from scalems.utility import parser as base_parser
 
 _reentrance_guard = threading.Lock()
 
@@ -79,10 +56,11 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
 
     Provides consistent logic for command line invocation.
 
-    Supports invocation of the following form with minimal `backend/__main__.py`
+    Supports invocation of the following form with minimal ``backend/__main__.py``
 
         python -m scalems.radical --venv=/path/to/venv --resource=local.localhost myscript.py arg1 --foo bar
 
+    Unrecognized command line arguments will be passed along to the called script.
     """
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:
@@ -90,20 +68,10 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
     try:
         module = sys.modules[manager_type.__module__]
 
-        get_parser = getattr(module, 'parser', base_parser)
-
-        parser = argparse.ArgumentParser(
-            prog=module.__name__,
-            description=f'Process {module.__name__} command line arguments.',
-            usage=f'python -m {module.__name__} <{module.__name__} args> script-to-run.py.py <script args>',
-            parents=[get_parser()]
-        )
-
-        parser.add_argument(
-            'script',
-            metavar='script-to-run.py',
-            type=str,
-        )
+        parser = getattr(module, 'parser', None)
+        if parser is None:
+            raise scalems.exceptions.APIError(
+                'Execution manager modules must provide a `parser` module member.')
 
         # Strip the current __main__ file from argv. Collect arguments for this script
         # and for the called script.

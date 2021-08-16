@@ -82,28 +82,10 @@ Workflows may be executed through different means and with different resources
 through distinct modules. Different middleware implementations may be accessed
 directly, but we recommend selecting a management module when invoking Python
 from the command line with the ``-m`` option.
-Use the ``--help`` command line option for an execution module for details about
-available and required command line arguments::
 
-    $ python -m scalems.local --help
-    usage: python -m scalems.local <scalems.local args> script-to-run.py.py <script args>
-    ...
+See :doc:`invocation` for usage information.
 
-Documentation for built-in execution modules is shown below,
-but may be accessed from the command line with
-`pydoc <https://docs.python.org/3/library/pydoc.html>`__
-or from within the interpreter with :py:func:`help`.
-(E.g. ``pydoc scalems.radical``)
-
-scalems.local
--------------
-
-.. automodule:: scalems.local
-
-scalems.radical
----------------
-
-.. automodule:: scalems.radical
+See :py:mod:`scalems.invocation` for more about Execution Modules.
 
 Basic functions
 ===============

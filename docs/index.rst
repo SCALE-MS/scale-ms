@@ -10,6 +10,7 @@ for data flow driven molecular simulation management and analysis.
     :maxdepth: 2
 
     install
+    invocation
     userguide
     developer
     python

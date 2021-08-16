@@ -8,8 +8,6 @@ Example:
     python3 -m scalems.local my_workflow.py
 
 """
-# TODO: Consider converting to a namespace package to improve modularity of
-#  implementation.
 
 import asyncio
 import importlib
@@ -26,13 +24,13 @@ from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
 from ..identifiers import TypeIdentifier
 from ..subprocess._subprocess import SubprocessTask
+from scalems.utility import make_parser as _make_parser
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
-# TO DO NEXT: Implement the queue, dispatcher, executor (and internal queue)
-# and, come on... add the fingerprinter... and the basic serializer...  `
+parser = _make_parser(__package__)
 
 
 def workflow_manager(loop: asyncio.AbstractEventLoop):

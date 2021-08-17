@@ -31,6 +31,7 @@ release = '0'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
+    'sphinxcontrib.autoprogram',
     'sphinx.ext.intersphinx',
     'sphinx.ext.todo',  # Note: todo_include_todos=True is required for directives to produce output.
     'sphinxcontrib.napoleon',

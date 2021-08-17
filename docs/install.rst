@@ -56,7 +56,7 @@ or *local* :py:data:`~radical.pilot.PilotDescription.access_schema`)
 then you can execute in the same venv used on the client side.
 Otherwise, you will need to prepare a virtual environment
 (accessible to the chosen `RP resource`_) and inform `scalems.radical` of it
-at run time. (See :option:`--venv`)
+at run time. (See :option:`scalems.radical --venv`)
 
 When executing the workflow, `scalems.radical` will automatically direct RP to *activate*
 the chosen virtual environment before launching Tasks.

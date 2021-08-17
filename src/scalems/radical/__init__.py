@@ -8,20 +8,6 @@ Command Line Invocation Example:
 For required and optional command line arguments:
     ``python -m scalems.radical --help``
 
-Command Line Arguments:
-    .. option:: --resource <name>
-
-        Name of a defined RADICAL Pilot execution resource.
-        See also `RP resource`. (Required)
-
-    .. option:: --venv <path>
-
-        Path to the Python virtual environment with which tasks should be executed.
-        (Required. See also https://github.com/SCALE-MS/scale-ms/issues/90)
-
-    Additional arguments may provide configuration fields for the `radical.pilot.Pilot`
-    or other `radical.pilot <https://radicalpilot.readthedocs.io/en/stable/>`__ components.
-
 The user is largely responsible for establishing appropriate
 `RADICAL Cybertools <https://radical-cybertools.github.io/>`__
 (RCT) software environment at both the client side
@@ -106,6 +92,7 @@ from .runtime import get_pre_exec
 from .runtime import parser as _runtime_parser
 from .runtime import Runtime
 from ..identifiers import TypeIdentifier
+from scalems.utility import make_parser as _make_parser
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -117,23 +104,7 @@ except AttributeError:
     cache = functools.lru_cache(maxsize=None)
 
 
-@cache
-def parser(add_help=False):
-    """Get the module-specific argument parser.
-
-    Provides a base argument parser for scripts using the scalems.radical backend.
-
-    By default, the returned ArgumentParser is created with ``add_help=False``
-    to avoid conflicts when used as a *parent* for a parser more local to the caller.
-    If *add_help* is provided, it is passed along to the ArgumentParser created
-    in this function.
-
-    See Also:
-         https://docs.python.org/3/library/argparse.html#parents
-    """
-    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_runtime_parser()])
-    # We don't yet have anything to add...
-    return _parser
+parser = _make_parser(__package__, parents=[_runtime_parser()])
 
 
 def configuration(*args, **kwargs) -> Configuration:
@@ -158,7 +129,7 @@ def configuration(*args, **kwargs) -> Configuration:
     elif _configuration.get(None) is None:
         # No config is set yet. Generate with module parser.
         c = Configuration()
-        parser().parse_known_args(namespace=typing.cast(argparse.Namespace, c))
+        parser.parse_known_args(namespace=typing.cast(argparse.Namespace, c))
         _configuration.set(c)
     return _configuration.get()
 

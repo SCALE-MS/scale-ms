@@ -11,10 +11,7 @@ RADICAL Pilot, which has additional requirements.
 
 See :doc:`install`
 
-Invocation
-==========
-
-.. automodule:: scalems.invocation
+For the basics of running SCALE-MS scripts, see :doc:`invocation`.
 
 Idioms
 ======

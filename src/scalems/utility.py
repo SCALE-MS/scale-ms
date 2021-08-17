@@ -4,6 +4,7 @@ __all__ = [
     'app',
     'command',
     'function_wrapper',
+    'make_parser',
     'parser',
     'poll',
     'wait',
@@ -73,6 +74,41 @@ def parser(add_help=False):
         help='Attempt to connect to PyCharm remote debugging system, where appropriate.'
     )
 
+    _parser.add_argument(
+        'script',
+        metavar='script-to-run.py',
+        type=str,
+        help='The workflow script. Must contain a function decorated with `scalems.app`'
+    )
+
+    return _parser
+
+
+def make_parser(module: str, parents: typing.Iterable[argparse.ArgumentParser] = None):
+    """Make a SCALE-MS Execution Module command line argument parser.
+
+    Args:
+        module: Name of the execution module.
+        parents: Optional list of parent parsers.
+
+    If *parents* is not provided, `scalems.utility.parser` is used to generate a default.
+    If *parents* _is_ provided, one of the provided parents **should** inherit from
+    `scalems.utility.parser` using the *parents* parameter of
+    :py:class:`argparse.ArgumentParser`.
+
+    Notes:
+        :py:data:`__package__` and :py:data:`__module__` are convenient aliases that a
+        client might use to provide the *module* argument.
+    """
+    if parents is None:
+        parents = [parser()]
+    _parser = argparse.ArgumentParser(
+        prog=module,
+        description=f'Process {module} command line arguments.',
+        usage=f'python -m {module} <{module} args> script-to-run.py.py '
+              '<script args>',
+        parents=parents
+    )
     return _parser
 
 

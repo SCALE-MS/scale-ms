@@ -96,13 +96,15 @@ def parser(add_help=False):
                          metavar='PATH',
                          type=str,
                          required=True,
-                         help='Full path to a (pre-configured) venv to use for RP tasks.')
+                         help='tasks.Path to the (pre-configured) Python virtual '
+                              'environment with which RP tasks should be executed. '
+                              '(Required. See also https://github.com/SCALE-MS/scale-ms/issues/90)')
 
     _parser.add_argument(
         '--resource',
         type=str,
         required=True,
-        help='Specify a *resource* for the radical.pilot.PilotDescription.'
+        help='Specify a `RP resource` for the radical.pilot.PilotDescription. (Required)'
     )
 
     _parser.add_argument(
@@ -116,7 +118,7 @@ def parser(add_help=False):
         action='append',
         type=_parse_option,
         metavar='<key>=<value>',
-        help='Add a key value pair to the pilot description.'
+        help='Add a key value pair to the `radical.pilot.PilotDescription`.'
     )
     return _parser
 
@@ -126,9 +128,9 @@ class Configuration:
     """Module configuration information.
 
     See also:
-        `scalems.radical.configuration`
-        `scalems.radical.parser`
-        `scalems.radical.runtime.Runtime`
+        * :py:func:`scalems.radical.configuration`
+        * :py:data:`scalems.radical.runtime.parser`
+        * :py:class:`scalems.radical.runtime.Runtime`
 
     TODO: Consider merging with module Runtime state container.
     """

@@ -34,7 +34,7 @@ RADICAL Pilot (RP)
 Execution through the :py:mod:`scalems.radical` backend requires additional set up.
 
 You must have a functioning
-`RADICAL Pilot (RP) installation <https://radicalpilot.readthedocs.io/en/stable/installation.html>`__
+`RADICAL Pilot (RP) installation <https://radicalpilot.readthedocs.io/en/stable/installation.html>`__.
 
 Python virtual environment
 --------------------------
@@ -118,7 +118,7 @@ For simplicity and convenience, the built-in resource definitions have automatic
 environment bootstrapping logic.
 
 To minimize the amount of bootstrapping RP performs for each :py:class:`~radical.pilot.Session`,
-make sure the `RP resource`_ is configured to *use* and existing *virtenv* and the
+make sure the `RP resource`_ is configured to *use* an existing *virtenv* and the
 RP installation it contains.
 Set ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
 definition.

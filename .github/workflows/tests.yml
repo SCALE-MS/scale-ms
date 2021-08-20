@@ -12,26 +12,79 @@ jobs:
   simple_local:
 
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     strategy:
       matrix:
         python-version: [3.8, 3.9]
-
+    env:
+      LAMMPSVER: 20201029
+      LAMMPSHASH: da9b6ecb5dc20c7614b9a2ef65903225654badfead9feb8937f1fbc6b4c9838e
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: true
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
-    - name: Install dependencies
+    - name: Update container
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-suggests --no-install-recommends \
+          build-essential \
+          libfftw3-dev \
+          libopenmpi-dev \
+          make \
+          ninja-build \
+          pkg-config \
+          software-properties-common
+    - uses: actions/cache@v2
+      id: cache-venv
+      with:
+        path: ~/testenv
+        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}
+    - name: Set up venv
+      if: steps.cache-venv.outputs.cache-hit != 'true'
       run: |
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
-        pip uninstall -y radical.pilot radical.saga radical.utils
+        python -m pip install --upgrade coverage pytest-cov mpi4py
+    - name: Install LAMMPS
+      if: steps.cache-venv.outputs.cache-hit != 'true'
+      run: |
+        . $HOME/testenv/bin/activate
+        mkdir /tmp/lammps
+        cd /tmp/lammps
+        wget https://download.lammps.org/tars/releases/stable/lammps-${LAMMPSVER}.tar.gz
+        echo "${LAMMPSHASH}  lammps-${LAMMPSVER}.tar.gz" | shasum -a 256 --check --status
+        tar xf lammps-${LAMMPSVER}.tar.gz
+        rm lammps-${LAMMPSVER}.tar.gz
+        cd lammps-*
+        mkdir build
+        cd build
+        cmake ../cmake -G Ninja \
+            -DPKG_KSPACE=yes \
+            -DPKG_MOLECULE=yes \
+            -DPKG_MPIIO=yes \
+            -DPKG_PYTHON=yes \
+            -DPKG_REPLICA=yes \
+            -DPKG_MISC=yes \
+            -DPKG_EXTRA-DUMP=yes \
+            -DPKG_COMPRESS=yes \
+            -DBUILD_SHARED_LIBS=on \
+            -DLAMMPS_EXCEPTIONS=on \
+            -DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV
+        cmake --build .
+        cmake --build . --target install
+        rm -rf /tmp/lammps
+        echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $VIRTUAL_ENV/bin/activate
+    - name: Install scalems and dependencies
+      run: |
+        . $HOME/testenv/bin/activate
+        pip uninstall -y radical.pilot radical.saga radical.utils scalems
         python -m pip install --upgrade -r requirements-testing.txt
         python -m pip install .
-        python -m pip install coverage pytest-cov
         radical-stack
     - name: Test with pytest
       run: |
@@ -50,6 +103,8 @@ jobs:
         coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
         coverage xml -o coverage-cli.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
+        (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
+        (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
     - name: "Upload coverage to Codecov"
       uses: codecov/codecov-action@v2
       with:

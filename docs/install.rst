@@ -34,7 +34,7 @@ RADICAL Pilot (RP)
 Execution through the :py:mod:`scalems.radical` backend requires additional set up.
 
 You must have a functioning
-[RADICAL Pilot (RP) installation](https://radicalpilot.readthedocs.io/en/stable/installation.html)
+`RADICAL Pilot (RP) installation <https://radicalpilot.readthedocs.io/en/stable/installation.html>`__
 
 Python virtual environment
 --------------------------

@@ -138,7 +138,8 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
             cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
-        assert cmd1.done() and cmd2.done()
+        assert cmd1.done()
+        assert cmd2.done()
         logger.debug(cmd1.result())
         logger.debug(cmd2.result())
 

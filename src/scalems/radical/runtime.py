@@ -506,36 +506,6 @@ def _connect_rp(config: Configuration) -> Runtime:
         logger.debug('Got Pilot {}'.format(pilot.uid))
         runtime.pilot(pilot)
 
-        # Note that the task description for the master (and worker) can specify a
-        # *named_env* attribute to use a venv prepared via Pilot.prepare_env
-        # E.g.         pilot.prepare_env({'numpy_env' : {'type'   : 'virtualenv',
-        #                                           'version': '3.6',
-        #                                           'setup'  : ['numpy']}})
-        #   td.named_env = 'numpy_env'
-        # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg:
-        # dict) or the task will wait indefinitely to be scheduled.
-        # Alternatively, we could use a pre-installed venv by putting
-        # `. path/to/ve/bin/activate`
-        # in the TaskDescription.pre_exec list.
-
-        # TODO: Use archives generated from (acquired through) the local installations.
-        # # Could we stage in archive distributions directly?
-        # # self.pilot.stage_in()
-        # pilot.prepare_env(
-        #     {
-        #         'scalems_env': {
-        #             'type': 'virtualenv',
-        #             'version': '3.8',
-        #             'setup': [
-        #                 # TODO: Generalize scalems dependency resolution.
-        #                 # Ideally, we would check the current API version
-        #                 # requirement, map that to a package version,
-        #                 # and specify >=min_version, allowing cached archives to
-        #                 # satisfy the dependency.
-        #                 rp_spec,
-        #                 scalems_spec
-        #             ]}})
-
         task_manager.add_pilots(pilot)
         logger.debug('Added Pilot {} to task manager {}.'.format(
             pilot.uid,

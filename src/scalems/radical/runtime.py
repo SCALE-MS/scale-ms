@@ -312,6 +312,23 @@ class Runtime:
                 return self.pilot(pilot)
 
 
+@cache
+def _master_script() -> str:
+    try:
+        import pkg_resources
+    except ImportError:
+        pkg_resources = None
+    master_script = 'scalems_rp_master'
+    if pkg_resources is not None:
+        # It is not hugely important if we cannot perform this test.
+        # In reality, this should be performed at the execution site, and we can/should
+        # remove the check here once we have effective API compatibility checking.
+        # See https://github.com/SCALE-MS/scale-ms/issues/100
+        assert pkg_resources.get_entry_info('scalems', 'console_scripts',
+                                            'scalems_rp_master').name == master_script
+    return master_script
+
+
 def _get_scheduler(name: str,
                    pre_exec: typing.Iterable[str],
                    task_manager: rp.TaskManager):
@@ -330,11 +347,22 @@ def _get_scheduler(name: str,
         Currently there is no completion condition for the master script.
         Caller is responsible for canceling the Task returned by this function.
     """
+    # define a raptor.scalems master and launch it within the pilot
+    td = rp.TaskDescription()
+    td.uid = name
+
     # This is the name that should be resolvable in an active venv for the script we
     # install as
     # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
-    master_script = 'scalems_rp_master'
+    master_script = _master_script()
 
+    td.executable = master_script
+
+    # Note: As of RP 1.6.7, the rp.radical.Master still accepts an optional config
+    # filename argument, but its use and future disposition are fluid and unclear.
+    # We do not seem to need one at the moment. If we do, it may end up looking
+    # something like the following.
+    #
     # We can probably make the config file a permanent part of the local metadata,
     # but we don't really have a scheme for managing local metadata right now.
     # with tempfile.TemporaryDirectory() as dir:
@@ -343,17 +371,16 @@ def _get_scheduler(name: str,
     #     with open(config_file_path, 'w') as fh:
     #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
     #         json.dump(encoded, fh, indent=2)
-
-    # define a raptor.scalems master and launch it within the pilot
-    td = rp.TaskDescription(
-        {
-            'uid': name,
-            'executable': master_script
-        })
     td.arguments = []
+
     td.pre_exec = pre_exec
+    # We are not using prepare_env at this point. We use the `venv` configured by the
+    # caller.
     # td.named_env = 'scalems_env'
     logger.debug('Launching RP scheduler.')
+
+    # WARNING: The following line may block for several seconds. Consider using a
+    # separate thread (if RP supports it).
     scheduler = task_manager.submit_tasks(td)
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
     # check type.
@@ -371,8 +398,8 @@ def _get_scheduler(name: str,
 def _connect_rp(config: Configuration) -> Runtime:
     """Establish the RP Session.
 
-    Acquire as many re-usable resources as possible. The scope established by
-    this function is as broad as it can be within the life of this instance.
+    Acquire a maximally re-usable set of RP resources. The scope established by
+    this function is as broad as it can be within the life of the workflow manager.
 
     Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to
     clean up resources. Use the async context manager behavior of the instance to
@@ -392,14 +419,21 @@ def _connect_rp(config: Configuration) -> Runtime:
     # A non-async method is potentially useful for debugging, but causes the event loop
     # to block while waiting for the RP tasks included here. If this continues to be a
     # slow function, we can wrap the remaining RP calls and let this function be
-    # inlined, or stick the whole function in a separate thread with
-    # loop.run_in_executor().
+    # inlined, or move parts to a separate thread or process with
+    # loop.run_in_executor(). Note, though, that
+    #   * The rp.Session needs to be created in the root thread to be able to correctly
+    #     manage signal handlers and subprocesses, and
+    #   * We need to be able to schedule RP Task callbacks in the same process as the
+    #     asyncio event loop in order to handle Futures for RP tasks.
+    # See https://github.com/SCALE-MS/randowtal/issues/2
 
     # TODO: RP triggers SIGINT in various failure modes.
     #  We should use loop.add_signal_handler() to convert to an exception
-    #  that we can raise in an appropriate task.
+    #  that we can raise in an appropriate task. However, we should make sure that we
+    #  account for the signal handling that RP expects to be able to do.
+    #  See https://github.com/SCALE-MS/randowtal/issues/1
     # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
-    # but we have not explored the consequences of doing so.
+    # but we have not fully explored the consequences of doing so.
 
     try:
         #
@@ -472,37 +506,6 @@ def _connect_rp(config: Configuration) -> Runtime:
         logger.debug('Got Pilot {}'.format(pilot.uid))
         runtime.pilot(pilot)
 
-        # Note that the task description for the master (and worker) can specify a
-        # *named_env* attribute to use a venv prepared via Pilot.prepare_env
-        # E.g.         pilot.prepare_env({'numpy_env' : {'type'   : 'virtualenv',
-        #                                           'version': '3.6',
-        #                                           'setup'  : ['numpy']}})
-        #   td.named_env = 'numpy_env'
-        # Note that td.named_env MUST be a key that is given to pilot.prepare_env(arg:
-        # dict) or the task will wait indefinitely to be scheduled.
-        # Alternatively, we could use a pre-installed venv by putting
-        # `. path/to/ve/bin/activate`
-        # in the TaskDescription.pre_exec list.
-
-        # TODO: Use archives generated from (acquired through) the local installations.
-        # # Could we stage in archive distributions directly?
-        # # self.pilot.stage_in()
-        # pilot.prepare_env(
-        #     {
-        #         'scalems_env': {
-        #             'type': 'virtualenv',
-        #             'version': '3.8',
-        #             'setup': [
-        #                 # TODO: Generalize scalems dependency resolution.
-        #                 # Ideally, we would check the current API version
-        #                 # requirement, map that to a package version,
-        #                 # and specify >=min_version, allowing cached archives to
-        #                 # satisfy the dependency.
-        #                 rp_spec,
-        #                 scalems_spec
-        #             ]}})
-
-        # Question: when should we remove the pilot from the task manager?
         task_manager.add_pilots(pilot)
         logger.debug('Added Pilot {} to task manager {}.'.format(
             pilot.uid,
@@ -531,7 +534,7 @@ def _connect_rp(config: Configuration) -> Runtime:
         except Exception as e:
             raise DispatchError('Could not determine remote RP version.') from e
         # TODO: #100 Improve compatibility checking.
-        if remote_rp_version < packaging.version.parse('1.6.0'):
+        if remote_rp_version < packaging.version.parse(rp.version):
             raise DispatchError(f'Incompatible radical.pilot version in execution '
                                 f'environment: {str(remote_rp_version)}')
 

@@ -71,6 +71,7 @@ import os
 import pathlib
 import threading
 import typing
+import weakref
 
 from radical import pilot as rp
 
@@ -202,7 +203,10 @@ class RPFinalTaskState:
         return self.canceled.is_set() or self.done.is_set() or self.failed.is_set()
 
 
-def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
+def _rp_callback(obj: rp.Task,
+                 state,
+                 cb_data: weakref.ReferenceType = None,
+                 final: RPFinalTaskState = None):
     """Prototype for RP.Task callback.
 
     To use, partially bind the *final* parameter (with functools.partial) to get a
@@ -210,12 +214,18 @@ def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
 
     Register with *task* to be called when the rp.Task state changes.
     """
+    if final is None:
+        raise APIError('This function is strictly for dynamically prepared RP callbacks through functools.partial.')
     logger.debug(f'Callback triggered by {repr(obj)} state change to {repr(state)}.')
     try:
         # Note: assertions and exceptions are not useful in RP callbacks.
-        # TODO: Can/should we register the call-back just for specific states?
         if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
-            # TODO: unregister call-back with RP Task or redirect subsequent call-backs.
+            # TODO: Pending https://github.com/radical-cybertools/radical.pilot/issues/2444
+            # tmgr: rp.TaskManager = obj.tmgr
+            # ref = cb_data()
+            # tmgr.unregister_callback(cb=ref, metrics='TASK_STATE',
+            #                          uid=obj.uid)
+            logger.debug(f'Recording final state {state} for {repr(obj)}')
             if state == rp.states.DONE:
                 final.done.set()
             elif state == rp.states.CANCELED:
@@ -229,7 +239,8 @@ def _rp_callback(obj: rp.Task, state, final: RPFinalTaskState):
 
 
 async def _rp_task_watcher(task: rp.Task,  # noqa: C901
-                           future: asyncio.Future, final: RPFinalTaskState,
+                           future: asyncio.Future,
+                           final: RPFinalTaskState,
                            ready: asyncio.Event) -> rp.Task:
     """Manage the relationship between an RP.Task and a scalems Future.
 
@@ -241,6 +252,7 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
     Arguments:
         task: RADICAL Pilot Task, submitted by caller.
         future: asyncio.Future to which *task* results should be propagated.
+        final: thread-safe event handler for the RP task call-back to announce it has run.
         ready: output parameter, set when coroutine has run enough to perform its
         responsibilities.
 
@@ -265,9 +277,7 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
         ready.set()
 
         def finished():
-            return task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED) \
-                   or future.done() \
-                   or final
+            return future.done() or final
 
         while not finished():
             # Let the watcher wake up periodically to check for state changes.
@@ -307,8 +317,16 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
                 return task
             if task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
                 if not final:
-                    logger.debug(f'RP Task {task.uid} complete, but Event not '
-                                 'triggered. Possible race condition.')
+                    # This log message is possible because the RP callbacks are handled
+                    # (sequentially) in a separate thread than the task manager.
+                    # If we see this log message, we need to make sure that
+                    # the Future is getting correctly set in a subsequent iteration.
+                    # If it occurs regularly, we should consider whether to use the
+                    # call-back at all.
+                    logger.debug(f'RP Task {task.uid} is in state {task.state}, '
+                                 'but RPFinalTaskState Event has not yet been triggered. '
+                                 'Possible race condition.')
+
     except asyncio.CancelledError as e:
         logger.debug(
             'Propagating scalems manager task cancellation to scalems future and rp '
@@ -354,7 +372,12 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     final = RPFinalTaskState()
     callback = functools.partial(_rp_callback, final=final)
     functools.update_wrapper(callback, _rp_callback)
-    rptask.register_callback(callback)
+
+    # Note: register_callback() does not provide a return value to use for
+    # TaskManager.unregister_callback.
+    cb_data: weakref.ReferenceType = weakref.ref(callback)
+
+    rptask.register_callback(callback, cb_data=cb_data, metric=rp.constants.TASK_STATE)
 
     asyncio.get_running_loop().slow_callback_duration = 0.2
     watcher_started = asyncio.Event()

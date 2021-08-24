@@ -9,7 +9,6 @@ of workflow managers. Internally, SCALEMS explicitly refers to theses scopes as
 *manager* may appear as an optional parameter for user-facing functions to allow
 a particular managed workflow to be specified.
 """
-import abc
 import asyncio
 import contextlib
 import dataclasses
@@ -150,29 +149,6 @@ class ItemView:
                                 f'Got {repr(uid)}')
 
 
-class WorkflowView:
-    """Middleware interface for interacting with managed workflow items.
-
-    This interface exists to compartmentalize access methods to the managed workflow,
-    keeping the public WorkflowContext interface as simple as possible. The interfaces
-    may be combined in the future.
-    """
-
-
-class WorkflowItemRecord:
-    """Encapsulate the management of an item record in a BasicWorkflowManager."""
-
-
-class BasicWorkflowManager:
-    """Reference implementation for a workflow manager.
-
-    Support addition and querying of items.
-    """
-
-    def __init__(self):
-        self._items = dict()
-
-
 class InvalidStateError(ScaleMSError):
     """Object state is not compatible with attempted access.
 
@@ -284,12 +260,6 @@ class Task:
 
     def serialize(self):
         return self._serialized_record
-
-
-class WorkflowEditor(abc.ABC):
-    @abc.abstractmethod
-    def add_item(self, item) -> ItemView:
-        ...
 
 
 class TaskMap(dict, typing.MutableMapping[bytes, Task]):

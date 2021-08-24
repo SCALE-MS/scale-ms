@@ -277,9 +277,7 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
         ready.set()
 
         def finished():
-            return task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED) \
-                   or future.done() \
-                   or final
+            return future.done() or final
 
         while not finished():
             # Let the watcher wake up periodically to check for state changes.
@@ -319,9 +317,15 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
                 return task
             if task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
                 if not final:
+                    # This log message is possible because the RP callbacks are handled
+                    # (sequentially) in a separate thread than the task manager.
+                    # If we see this log message, we need to make sure that
+                    # the Future is getting correctly set in a subsequent iteration.
+                    # If it occurs regularly, we should consider whether to use the
+                    # call-back at all.
                     logger.debug(f'RP Task {task.uid} is in state {task.state}, '
-                                 'but Event not triggered. Possible race condition.'
-                                 'If we see this log message, we need to make sure that the Future is getting correctly set.')
+                                 'but RPFinalTaskState Event has not yet been triggered. '
+                                 'Possible race condition.')
 
     except asyncio.CancelledError as e:
         logger.debug(

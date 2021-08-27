@@ -625,7 +625,7 @@ class WorkflowManager:
         #     supported as input.')
 
         # TODO: Replace with type-based dispatching or some normative interface test.
-        from .subprocess import Subprocess
+        from scalems.subprocess import Subprocess
         if not isinstance(task_description, (Subprocess, dict)):
             raise MissingImplementationError('Operation not supported.')
 

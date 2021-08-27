@@ -795,36 +795,3 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
                                                    task_manager=self.task_manager,
                                                    pre_exec=self._pre_exec)
         return task
-
-
-class ExecutionContext:
-    """WorkflowManager for running tasks when dispatching through RADICAL Pilot."""
-
-    def __init__(self):
-        self.__rp_cfg = dict()
-        if 'RADICAL_PILOT_DBURL' not in os.environ:
-            raise DispatchError('RADICAL Pilot environment is not available.')
-
-        resource = 'local.localhost'
-        # TODO: Find default config?
-        resource_config = {resource: {}}
-        # TODO: Get from user or local config files.
-        resource_config[resource].update({
-            'project': None,
-            'queue': None,
-            'schema': None,
-            'cores': 1,
-            'gpus': 0
-        })
-        pilot_description = dict(resource=resource,
-                                 runtime=30,
-                                 exit_on_error=True,
-                                 project=resource_config[resource]['project'],
-                                 queue=resource_config[resource]['queue'],
-                                 cores=resource_config[resource]['cores'],
-                                 gpus=resource_config[resource]['gpus'])
-        self.resource_config = resource_config
-        self.pilot_description = pilot_description
-        self.session = None
-        self._finalizer = None
-        self.umgr = None

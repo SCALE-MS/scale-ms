@@ -375,7 +375,7 @@ def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs
 
     """
     if manager is None:
-        manager = _context.get_scope()
+        manager = scalems.workflow.get_scope()
 
     # TODO: Figure out a reasonable way to check and catch invalid input
     #  through a dispatcher.

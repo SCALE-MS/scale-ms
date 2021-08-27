@@ -20,7 +20,7 @@ import typing
 from typing import Protocol
 
 from scalems import exceptions as _exceptions
-from scalems.context import get_scope
+from . import get_scope
 from ._version import get_versions
 from .workflow import WorkflowManager
 

@@ -132,7 +132,7 @@ def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C9
         exitcode = 0
 
         try:
-            with scalems.context.scope(manager_type(loop)) as manager:
+            with scalems.workflow.scope(manager_type(loop)) as manager:
                 try:
                     globals_namespace = runpy.run_path(args.script)
 

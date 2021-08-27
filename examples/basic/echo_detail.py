@@ -61,7 +61,7 @@ async def main(execution_context, words: typing.Iterable[str] = ()):
 
 if __name__ == '__main__':
     manager = workflow_manager(asyncio.get_event_loop())
-    with scalems.context.scope(manager) as context:
+    with scalems.workflow.scope(manager) as context:
         outfile = asyncio.run(main(context, sys.argv[1:]))
     with open(outfile, 'r') as fh:
         for line in fh:

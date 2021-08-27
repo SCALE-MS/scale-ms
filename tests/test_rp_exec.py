@@ -20,6 +20,7 @@ import scalems
 import scalems.context
 import scalems.radical
 import scalems.radical.runtime
+import scalems.workflow
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -110,7 +111,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     if rp_venv is None:
         pytest.skip('This test requires a user-provided static RP venv.')
 
-    original_context = scalems.context.get_scope()
+    original_context = scalems.workflow.get_scope()
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
@@ -130,7 +131,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     time.sleep(10)
     # TODO: Try to find a better way to wait for previous resources to be released.
 
-    with scalems.context.scope(manager):
+    with scalems.workflow.scope(manager):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         cmd1 = scalems.executable(('/bin/echo',))
@@ -156,7 +157,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
                 assert line.rstrip() == 'hello world'
 
     # Test active context scoping.
-    assert scalems.context.get_scope() is original_context
+    assert scalems.workflow.get_scope() is original_context
     assert not loop.is_closed()
 
 

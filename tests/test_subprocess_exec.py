@@ -23,7 +23,7 @@ async def test_exec_local(cleandir):
     asyncio.get_event_loop().set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
     # Note that a coroutine object created from an `async def` function is only awaitable once.
-    with scalems.context.scope(context):
+    with scalems.workflow.scope(context):
         # TODO: Input type checking.
         try:
             cmd = executable(('/bin/cat', '-'), stdin=('hi there\n', 'hello world'), stdout='stdout.txt')
@@ -42,7 +42,7 @@ async def test_exec_local(cleandir):
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
             assert fh.read().startswith('hi there')
-    with scalems.context.scope(scalems.local.workflow_manager(asyncio.get_event_loop())) as context:
+    with scalems.workflow.scope(scalems.local.workflow_manager(asyncio.get_event_loop())) as context:
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
         # TODO: #82

@@ -38,7 +38,6 @@ import os
 import typing
 import warnings
 
-import packaging.version
 from radical import pilot as rp
 
 import scalems.utility as _utility
@@ -511,33 +510,6 @@ def _connect_rp(config: Configuration) -> Runtime:
             pilot.uid,
             task_manager.uid))
 
-        pre_exec = get_pre_exec(config)
-        assert isinstance(pre_exec, tuple)
-        assert len(pre_exec) > 0
-        # Verify usable SCALEMS RP connector.
-        # TODO: Fetch a profile of the venv for client-side analysis (e.g. `pip freeze`).
-        # TODO: Check for compatible installed scalems API version.
-        rp_check = task_manager.submit_tasks(rp.TaskDescription({
-            # 'executable': py_venv,
-            'executable': 'python3',
-            'arguments': ['-c', 'import radical.pilot as rp; print(rp.version)'],
-            'pre_exec': list(pre_exec)
-            # 'named_env': 'scalems_env'
-        }))
-        logger.debug('Checking RP execution environment.')
-        states = task_manager.wait_tasks(uids=[rp_check.uid])
-        if states[0] != rp.states.DONE or rp_check.exit_code != 0:
-            raise DispatchError('Could not verify RP in execution environment.')
-
-        try:
-            remote_rp_version = packaging.version.parse(rp_check.stdout.rstrip())
-        except Exception as e:
-            raise DispatchError('Could not determine remote RP version.') from e
-        # TODO: #100 Improve compatibility checking.
-        if remote_rp_version < packaging.version.parse(rp.version):
-            raise DispatchError(f'Incompatible radical.pilot version in execution '
-                                f'environment: {str(remote_rp_version)}')
-
         #
         # Get a scheduler task.
         #
@@ -548,9 +520,6 @@ def _connect_rp(config: Configuration) -> Runtime:
             pre_exec=list(get_pre_exec(config)),
             task_manager=task_manager)
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
-        # Note: The worker script name only appears in the config file.
-        # logger.info('RP scheduler ready.')
-        # logger.debug(repr(execution_manager.scheduler))
 
         return runtime
 

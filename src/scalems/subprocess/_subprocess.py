@@ -27,7 +27,6 @@ import scalems.workflow
 from scalems.exceptions import InternalError
 from scalems.serialization import encode
 from scalems.utility import next_monotonic_integer
-from .. import context as _context
 from ..exceptions import APIError
 from ..exceptions import MissingImplementationError
 from ..workflow import WorkflowManager
@@ -226,7 +225,7 @@ class Subprocess:
     #     import scalems.context
     #     import scalems.local
     #     import scalems.radical
-    #     context = scalems.context.get_context()
+    #     context = scalems.context.get_scope()
     #     # TODO: dispatching
     #     if isinstance(context, scalems.local.LocalExecutor):
     #         from scalems.local.operations import executable as local_exec
@@ -376,7 +375,7 @@ def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs
 
     """
     if manager is None:
-        manager = _context.get_context()
+        manager = _context.get_scope()
 
     # TODO: Figure out a reasonable way to check and catch invalid input
     #  through a dispatcher.

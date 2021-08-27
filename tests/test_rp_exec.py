@@ -110,7 +110,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     if rp_venv is None:
         pytest.skip('This test requires a user-provided static RP venv.')
 
-    original_context = scalems.context.get_context()
+    original_context = scalems.context.get_scope()
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
@@ -156,7 +156,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
                 assert line.rstrip() == 'hello world'
 
     # Test active context scoping.
-    assert scalems.context.get_context() is original_context
+    assert scalems.context.get_scope() is original_context
     assert not loop.is_closed()
 
 

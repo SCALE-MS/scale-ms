@@ -78,7 +78,7 @@ Upshot:
 ::
 
     async def canonical_syntax():
-        context = sms_context.get_context()
+        context = sms_context.get_scope()
         # For testing purposes, we will explicitly create each of the implemented Contexts.
         # Simple use case:
         # Use context manager protocol to initialize and finalize connections and resources.

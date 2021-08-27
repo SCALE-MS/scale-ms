@@ -36,7 +36,7 @@ __all__ = [
     # tools / commands
     'executable',
     # utilities and helpers
-    'get_context',
+    'get_scope',
     # 'run',
     # 'wait',
     '__version__',
@@ -47,7 +47,7 @@ __all__ = [
 import logging
 
 from ._version import get_versions
-from .context import get_context
+from .context import get_scope
 from .subprocess import executable
 from .utility import app
 from .utility import ScriptEntryPoint

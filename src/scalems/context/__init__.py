@@ -4,7 +4,7 @@ SCALE-MS optimizes data flow and data locality in part by attributing all
 workflow references to well-defined scopes. Stateful API facilities, workflow
 state, and scoped references are managed as WorkflowManager instances.
 
-This module supports scoped_context() and get_context() with internal module state.
+This module supports scoped_context() and get_scope() with internal module state.
 These tools interact with the context management of the asynchronous dispatching,
 but note that they are not thread-safe. scoped_context() should not be used in
 a coroutine except in the root coroutine of a Task or otherwise within the scope
@@ -12,7 +12,7 @@ of a contextvars.copy_context().run(). scalems will try to flag misuse by raisin
 a ProtocolError, but please be sensible.
 """
 
-__all__ = ['scoped_chdir', 'get_context', 'scope']
+__all__ = ['scoped_chdir', 'get_scope', 'scope']
 
 import contextlib
 import contextvars
@@ -59,33 +59,33 @@ _dispatcher: contextvars.ContextVar = contextvars.ContextVar('_dispatcher')
 current_scope: contextvars.ContextVar = contextvars.ContextVar('current_scope')
 
 
-def get_context():
+def get_scope():
     """Get a reference to the manager of the current workflow scope."""
     # TODO: Redocument and adjust semantics.
-    # The contextvars and get_context should only be used in conjunction with
+    # The contextvars and get_scope should only be used in conjunction with
     # a workflow_scope() context manager that is explicitly not thread-safe, but
     # which can employ some checks for non-multi-threading access assumptions.
-    # get_context() is used to determine the default workflow manager when *context*
+    # get_scope() is used to determine the default workflow manager when *context*
     # is not provided to scalems object factories, scalems.run(), scalems.wait() and
     # (non-async) `result()` methods. Default *context* values are a user convenience
     # and so should only occur in the root thread for the UI / high-level scripting
     # interface.
-    # Async coroutines can safely use get_context(), but should not use the
+    # Async coroutines can safely use get_scope(), but should not use the
     # non-async workflow_scope() context manager for nested scopes without wrapping
     # in a contextvars.run().
     from scalems.workflow import Scope
 
     try:
         _scope: Scope = current_scope.get()
-        current_context = _scope.current
-        logger.debug(f'Scope queried with get_context() {repr(current_context)}')
+        manager = _scope.current
+        logger.debug(f'Scope queried with get_scope() {repr(manager)}')
         # This check is in case we use weakref.ref:
-        if current_context is None:
+        if manager is None:
             raise ProtocolError('Context for current scope seems to have disappeared.')
     except LookupError:
         logger.debug('Scope was queried, but has not yet been set.')
-        current_context = None
-    return current_context
+        manager = None
+    return manager
 
 
 @contextlib.contextmanager
@@ -94,14 +94,14 @@ def scope(context):
 
     Restore the previous workflow management scope on exiting the context manager.
 
-    Within the context managed by *scope*, get_context() will return *context*.
+    Within the context managed by *scope*, get_scope() will return *context*.
 
     Not thread-safe. In general, this context manage should only be used in the
     root thread.
     """
     from scalems.workflow import Scope
 
-    parent = get_context()
+    parent = get_scope()
     dispatcher = _dispatcher.get(None)
     if dispatcher is not None and parent is not dispatcher:
         raise ProtocolError(

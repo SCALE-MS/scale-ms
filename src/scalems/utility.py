@@ -20,7 +20,7 @@ import typing
 from typing import Protocol
 
 from scalems import exceptions as _exceptions
-from scalems.context import get_context
+from scalems.context import get_scope
 from ._version import get_versions
 from .workflow import WorkflowManager
 
@@ -339,7 +339,7 @@ def wait(ref):
         https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete
         and an alternative to `await`.
     """
-    context = get_context()
+    context = get_scope()
     if context is None:
         # Bail out.
         raise _exceptions.DispatchError(str(ref))

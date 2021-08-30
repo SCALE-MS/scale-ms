@@ -11,9 +11,6 @@ import threading
 import typing
 import warnings
 
-from scalems.context._lock import scoped_directory_lock as _scoped_directory_lock
-from scalems.context._lock import LockException
-
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 

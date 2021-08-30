@@ -50,7 +50,21 @@ def run_dispatch(work, context: scalems.workflow.WorkflowManager):
     return _result
 
 
-def run(manager_type: typing.Type[scalems.workflow.WorkflowManager],  # noqa: C901
+class _ManagerT(typing.Protocol):
+    """Primary argument type for scalems.invocation.run().
+
+    An imported callable object with the signature defined by this Protocol.
+
+    We use a typing.Protocol instead of typing.Callable to emphasize that the object of
+    this type is an object with the full interface described for User-defined functions in
+    the Python Data Model for Callable types.
+    See https://docs.python.org/3/reference/datamodel.html#the-standard-type-hierarchy.
+    """
+    def __call__(self, loop: asyncio.AbstractEventLoop) -> scalems.workflow.WorkflowManager:
+        ...
+
+
+def run(manager_type: _ManagerT,  # noqa: C901
         _loop: asyncio.AbstractEventLoop = None):
     """Execute boiler plate for scalems entry point scripts.
 

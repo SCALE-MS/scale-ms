@@ -1,6 +1,5 @@
 """Check that the basic Context implementation manages state as expected."""
 
-import contextlib
 import json
 import os
 
@@ -10,35 +9,31 @@ import scalems.context._datastore
 import scalems.context._lock
 
 
-@contextlib.contextmanager
-def working_directory(path):
-    original_dir = os.getcwd()
-    try:
-        yield os.chdir(path)
-    finally:
-        if os.getcwd() != original_dir:
-            os.chdir(original_dir)
-
-
 def test_normal_lifecycle(tmp_path):
     """Test normal Context data store life cycle / state machine.
 
     get_context() should succeed when called in a clean directory or when
     the current process already owns the data store.
     """
-    with working_directory(tmp_path):
+    with _context.scoped_chdir(tmp_path):
         scalems.context._datastore.get_context()
         scalems.context._datastore.finalize_context()
+
         scalems.context._datastore.get_context()
+        # Multiple calls to get_context() currently succeed as long as they are from
+        # the process ID and not concurrent.
         scalems.context._datastore.get_context()
+
         scalems.context._datastore.finalize_context()
+        # finalize_context() must be called exactly once for a data store that has been
+        # opened.
         with pytest.raises(scalems.context._datastore.StaleFileStore):
             scalems.context._datastore.finalize_context()
 
 
 def test_nonfinalized(tmp_path):
     """Failure to call finalize_context() should have well-defined behavior."""
-    with working_directory(tmp_path):
+    with _context.scoped_chdir(tmp_path):
         scalems.context._datastore.get_context()
         # In the future, more sophisticated tests might check that Singleton behavior or scoping
         # protections aren't violated.
@@ -60,7 +55,7 @@ def test_nonfinalized(tmp_path):
 def test_contention(tmp_path):
     """If two processes try to use the same data store, we should be able to
     detect and prevent it."""
-    with working_directory(tmp_path):
+    with _context.scoped_chdir(tmp_path):
         scalems.context._datastore.get_context()
         scalems.context._lock._lock_directory()
         with pytest.raises(scalems.context._lock.LockException):

@@ -1,4 +1,21 @@
-"""Manage non-volatile data for SCALE-MS in a filesystem context."""
+"""Manage non-volatile data for SCALE-MS in a filesystem context.
+
+The data store must be active before attempting any manipulation of the managed workflow.
+The data store must be closed by the time control returns to the interpreter after
+leaving a managed workflow scope (and releasing a WorkflowManager instance).
+
+We prefer to do this with the Python context manager protocol, since we already rely on
+`scalems.workflow.scope()`.
+
+We can also use a contextvars.ContextVar to hold a weakref to the FileStore, and register
+a finalizer to perform a check, but the check could come late in the interpreter shutdown
+and we should not rely on it. Also, note the sequence with which module variables and
+class definitions are released during shutdown.
+
+TODO: Make FileStore look more like a File interface, with open and close and context
+    manager support, and provide boolean status properties. Let get_context() return the
+    currently in-scope FileStore.
+"""
 
 __all__ = [
     'ContextError',
@@ -7,10 +24,15 @@ __all__ = [
     'get_context',
 ]
 
+import dataclasses
 import json
 import logging
 import os
+import pathlib
+import typing
+import warnings
 
+import scalems.exceptions
 from ._lock import LockException
 from ._lock import scoped_directory_lock as _scoped_directory_lock
 
@@ -29,7 +51,91 @@ class ContextError(Exception):
     """A Context operation could not be performed."""
 
 
-def get_context():
+@dataclasses.dataclass
+class Metadata:
+    instance: int
+
+
+class FileStore:
+    """Handle to the SCALE-MS nonvolatile data store for a workflow context.
+
+    Not thread safe. User is responsible for serializing access, as necessary.
+
+    Fields:
+        instance (int): Owner's PID.
+        log (list): Access log for the data store.
+        path (pathlib.Path): filesystem path to metadata JSON file.
+
+    """
+    _data: Metadata
+    _fields: typing.ClassVar = set([field.name for field in dataclasses.fields(Metadata)])
+    log: typing.Sequence[str]
+    path: pathlib.Path
+
+    def __setattr__(self, key, value):
+        # Note: called for all attribute assignments.
+        if key in self._fields:
+            setattr(self._data, key, value)
+        else:
+            raise AttributeError(
+                f'Cannot assign to field {key}'
+            )
+
+    def __getattr__(self, item):
+        # Note: only called when default attribute access fails.
+        if item not in FileStore._fields:
+            raise AttributeError(f'No field called {item}.')
+        else:
+            return getattr(self._data, item)
+
+    def __init__(self, dir: pathlib.Path):
+        # TODO: Consider breaking up the complex initialization with multi-state
+        #  FileStore and separate creation function.
+        metadata_file = (pathlib.Path(dir) / _context_metadata_file).absolute()
+        self.__dict__['path'] = metadata_file
+
+        # TODO: Use a log file!
+        self.__dict__['log'] = []
+
+        instance_id = os.getpid()
+        try:
+            with _scoped_directory_lock(dir):
+                logger.debug(f'Initializing {metadata_file}.')
+                if metadata_file.exists():
+                    logger.debug('Restoring metadata from previous metadata file.')
+                    with open(metadata_file, 'r') as fp:
+                        metadata_dict = json.load(fp)
+                    if 'instance' in metadata_dict:
+                        # The metadata file has an owner.
+                        if metadata_dict['instance'] != instance_id:
+                            # This would be a good place to check a heart beat or otherwise
+                            # try to confirm whether the previous owner is still active.
+                            raise ContextError('Context is already in use.')
+                        else:
+                            assert metadata_dict['instance'] == instance_id
+                            w = scalems.exceptions.ProtocolWarning(
+                                'Inappropriate `get_context()` call. This process is '
+                                f'already managing {metadata_file}'
+                            )
+                            warnings.warn(w)
+                    else:
+                        # The metadata file has no owner
+                        logger.debug(
+                            f'Taking ownership of metadata file for PID {instance_id}')
+                        metadata_dict['instance'] = instance_id
+                else:  # metadata_file does not yet exist.
+                    logger.debug(
+                        f'Creating metadata file for PID {instance_id}')
+                    metadata_dict = {'instance': instance_id}
+                self.__dict__['_data'] = Metadata(**metadata_dict)
+                with open(metadata_file, 'w') as fp:
+                    json.dump(dataclasses.asdict(self._data), fp)
+        except LockException as e:
+            raise ContextError(
+                'Could not acquire ownership of working directory {}'.format(dir)) from e
+
+
+def get_context() -> FileStore:
     """Get a reference to an API Context instance.
 
     If get_context() succeeds, the caller is responsible for calling `finalize_context()`
@@ -38,28 +144,8 @@ def get_context():
     Raises:
         ContextError if context backing store could not be obtained.
     """
-    path = os.getcwd()
-    instance_id = os.getpid()
-    try:
-        context = {}
-        with _scoped_directory_lock(path):
-            if os.path.exists(_context_metadata_file):
-                with open(_context_metadata_file, 'r') as fp:
-                    context.update(json.load(fp))
-            if 'instance' in context:
-                if context['instance'] != instance_id:
-                    # This would be a good place to check a heart beat or otherwise
-                    # try to confirm whether the previous owner is still active.
-                    raise ContextError('Context is already in use.')
-                else:
-                    assert context['instance'] == instance_id
-            else:
-                context['instance'] = instance_id
-            with open(_context_metadata_file, 'w') as fp:
-                json.dump(context, fp)
-        return context
-    except LockException as e:
-        raise ContextError('Could not acquire ownership of working directory {}'.format(path)) from e
+    path = pathlib.Path(os.getcwd())
+    return FileStore(dir=path)
 
 
 def finalize_context():

@@ -19,6 +19,14 @@ class ScaleMSError(BaseException):
     """
 
 
+class ScaleMSWarning(Warning):
+    """Base Warning for scalems package warnings.
+
+    Users and testers should be able to use this base class to filter
+    warnings emitted by SCALE-MS.
+    """
+
+
 class InternalError(ScaleMSError):
     """An otherwise unclassifiable error has occurred (a bug).
 
@@ -53,3 +61,7 @@ class ProtocolError(ScaleMSError):
 
 class ScopeError(ScaleMSError):
     """A command or reference is not valid in the current scope or Context."""
+
+
+class ProtocolWarning(ScaleMSWarning):
+    """Unexpected behavior is detected that is not fatal, but which may indicate a bug."""

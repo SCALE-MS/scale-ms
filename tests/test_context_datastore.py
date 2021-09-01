@@ -7,6 +7,7 @@ import pytest
 import scalems.context as _context
 import scalems.context._datastore
 import scalems.context._lock
+import scalems.exceptions
 
 
 def test_normal_lifecycle(tmp_path):
@@ -22,13 +23,31 @@ def test_normal_lifecycle(tmp_path):
         scalems.context._datastore.get_context()
         # Multiple calls to get_context() currently succeed as long as they are from
         # the process ID and not concurrent.
-        scalems.context._datastore.get_context()
+        with pytest.warns(scalems.exceptions.ProtocolWarning):
+            scalems.context._datastore.get_context()
 
         scalems.context._datastore.finalize_context()
         # finalize_context() must be called exactly once for a data store that has been
         # opened.
         with pytest.raises(scalems.context._datastore.StaleFileStore):
             scalems.context._datastore.finalize_context()
+
+    # Confirm some assumptions about implementation details.
+    filepath = tmp_path / scalems.context._datastore._context_metadata_file
+    with _context.scoped_chdir(tmp_path):
+        context = scalems.context._datastore.get_context()
+        assert context.instance == os.getpid()
+        assert context.path == filepath
+        with pytest.raises(AttributeError):
+            context.log = list()
+        context.log.append('Testing')
+        with pytest.raises(AttributeError):
+            context.foo = 1
+        scalems.context._datastore.finalize_context()
+    with open(filepath, 'r') as fh:
+        metadata: dict = json.load(fh)
+        # A finalized record should not have an owning *instance*.
+        assert 'instance' not in metadata
 
 
 def test_nonfinalized(tmp_path):
@@ -74,3 +93,33 @@ def test_contention(tmp_path):
         with pytest.raises(scalems.context._datastore.ContextError):
             scalems.context._datastore.get_context()
         scalems.context._lock._unlock_directory()
+
+
+def test_recovery(tmp_path):
+    """A workflow directory should be re-usable if it was shut down cleanly."""
+
+    # Follow the lifecycle of a workflow session.
+    with _context.scoped_chdir(tmp_path):
+        scalems.context._datastore.get_context()
+        with open(tmp_path / scalems.context._datastore._context_metadata_file,
+                  'r') as fh:
+            metadata: dict = json.load(fh)
+            assert 'instance' in metadata
+        scalems.context._datastore.finalize_context()
+        with open(tmp_path / scalems.context._datastore._context_metadata_file,
+                  'r') as fh:
+            metadata: dict = json.load(fh)
+            assert 'instance' not in metadata
+
+    # Open a new session to continue managing the previous workflow data.
+    with _context.scoped_chdir(tmp_path):
+        scalems.context._datastore.get_context()
+        with open(tmp_path / scalems.context._datastore._context_metadata_file,
+                  'r') as fh:
+            metadata: dict = json.load(fh)
+            assert 'instance' in metadata
+        scalems.context._datastore.finalize_context()
+        with open(tmp_path / scalems.context._datastore._context_metadata_file,
+                  'r') as fh:
+            metadata: dict = json.load(fh)
+            assert 'instance' not in metadata

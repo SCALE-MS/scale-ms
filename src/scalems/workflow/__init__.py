@@ -1137,7 +1137,7 @@ def scope(context):
 
     Within the context managed by *scope*, get_scope() will return *context*.
 
-    Not thread-safe. In general, this context manage should only be used in the
+    Not thread-safe. In general, this context manager should only be used in the
     root thread.
     """
     parent = get_scope()

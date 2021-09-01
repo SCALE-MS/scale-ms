@@ -11,14 +11,6 @@ Note: Enable more radical.pilot debugging information by exporting
 RADICAL_LOG_LVL=DEBUG before invocation.
 """
 
-import pathlib
-import subprocess
-
-import scalems.radical
-from scalems.context import cwd_lock
-from scalems.context import scoped_chdir
-from scalems.radical import Runtime
-
 try:
     # Import radical.pilot early because of interaction with the built-in logging module.
     import radical.pilot as rp
@@ -29,21 +21,21 @@ except ImportError:
 
 import logging
 import os
+import pathlib
 import shutil
+import subprocess
 import tempfile
 import warnings
 from contextlib import contextmanager
-from urllib.parse import urlparse, ParseResult
+from urllib.parse import ParseResult
+from urllib.parse import urlparse
 
 import pytest
 
-# Work around bug in radical.utils pending release 1.6.6
-# Ref https://github.com/SCALE-MS/scale-ms/issues/117
-from importlib import metadata
-from packaging import version
-
-ru_version = version.parse(metadata.version('radical.utils'))
-assert ru_version >= version.parse('1.6.6')
+import scalems.radical
+from scalems.context import cwd_lock
+from scalems.context import scoped_chdir
+from scalems.radical import Runtime
 
 logger = logging.getLogger('pytest_config')
 logger.setLevel(logging.DEBUG)

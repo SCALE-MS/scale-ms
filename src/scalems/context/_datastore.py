@@ -13,7 +13,7 @@ and we should not rely on it. Also, note the sequence with which module variable
 class definitions are released during shutdown.
 
 TODO: Make FileStore look more like a File interface, with open and close and context
-    manager support, and provide boolean status properties. Let get_context() return the
+    manager support, and provide boolean status properties. Let initialize_context() return the
     currently in-scope FileStore.
 """
 
@@ -21,7 +21,7 @@ __all__ = [
     'ContextError',
     'StaleFileStore',
     'finalize_context',
-    'get_context',
+    'initialize_context',
 ]
 
 import dataclasses
@@ -114,7 +114,7 @@ class FileStore:
                         else:
                             assert metadata_dict['instance'] == instance_id
                             w = scalems.exceptions.ProtocolWarning(
-                                'Inappropriate `get_context()` call. This process is '
+                                'Inappropriate `initialize_context()` call. This process is '
                                 f'already managing {metadata_file}'
                             )
                             warnings.warn(w)
@@ -135,10 +135,10 @@ class FileStore:
                 'Could not acquire ownership of working directory {}'.format(dir)) from e
 
 
-def get_context() -> FileStore:
+def initialize_context() -> FileStore:
     """Get a reference to an API Context instance.
 
-    If get_context() succeeds, the caller is responsible for calling `finalize_context()`
+    If initialize_context() succeeds, the caller is responsible for calling `finalize_context()`
     before the interpreter exits.
 
     Raises:
@@ -151,10 +151,10 @@ def get_context() -> FileStore:
 def finalize_context():
     """Mark the local Context data store as inactive.
 
-    Finalize the state of the file-backed Context. Allow future get_context()
+    Finalize the state of the file-backed Context. Allow future initialize_context()
     calls to succeed whether coming from this process or another.
 
-    Must be called at some point after a get_context() call succeeds in order
+    Must be called at some point after a initialize_context() call succeeds in order
     to clean up local state and allow other processes to use the data store.
     """
     # A Python `with` block (the context manager protocol) is the most appropriate way to enforce

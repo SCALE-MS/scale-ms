@@ -13,17 +13,18 @@ and we should not rely on it. Also, note the sequence with which module variable
 class definitions are released during shutdown.
 
 TODO: Make FileStore look more like a File interface, with open and close and context
-    manager support, and provide boolean status properties. Let initialize_context() return the
+    manager support, and provide boolean status properties. Let initialize_datastore() return the
     currently in-scope FileStore.
 """
 
 __all__ = [
     'ContextError',
     'StaleFileStore',
-    'finalize_context',
-    'initialize_context',
+    'finalize_datastore',
+    'initialize_datastore',
 ]
 
+import contextvars
 import dataclasses
 import json
 import logging
@@ -31,6 +32,10 @@ import os
 import pathlib
 import typing
 import warnings
+import weakref
+from contextvars import ContextVar
+from typing import Optional
+from weakref import ReferenceType
 
 import scalems.exceptions
 from ._lock import LockException
@@ -41,6 +46,9 @@ logger.debug('Importing {}'.format(__name__))
 
 _context_metadata_file = '.scalems_context_metadata.json'
 """Name to use for Context metadata files (module constant)."""
+
+
+_filestore: ContextVar[Optional[ReferenceType]] = contextvars.ContextVar('_filestore')
 
 
 class StaleFileStore(Exception):
@@ -114,7 +122,7 @@ class FileStore:
                         else:
                             assert metadata_dict['instance'] == instance_id
                             w = scalems.exceptions.ProtocolWarning(
-                                'Inappropriate `initialize_context()` call. This process is '
+                                'Inappropriate `initialize_datastore()` call. This process is '
                                 f'already managing {metadata_file}'
                             )
                             warnings.warn(w)
@@ -135,10 +143,39 @@ class FileStore:
                 'Could not acquire ownership of working directory {}'.format(dir)) from e
 
 
-def initialize_context() -> FileStore:
+def get_context() -> typing.Union[FileStore, None]:
+    """Get currently active workflow context, if any."""
+    ref = _filestore.get(None)
+    if ref is not None:
+        filestore = ref()
+        if filestore is None:
+            # Prune dead weakrefs.
+            _filestore.set(None)
+        return filestore
+    return None
+
+
+def set_context(datastore: FileStore):
+    """Set the active workflow context.
+
+    We do not yet provide for holding multiple metadata stores open at the same time.
+
+    Raises:
+        ContextError if a FileStore is already active.
+
+    """
+    current_context = get_context()
+    if current_context is not None:
+        raise ContextError(f'The context is already active: {current_context}')
+    else:
+        ref = weakref.ref(datastore)
+        _filestore.set(ref)
+
+
+def initialize_datastore() -> FileStore:
     """Get a reference to an API Context instance.
 
-    If initialize_context() succeeds, the caller is responsible for calling `finalize_context()`
+    If initialize_datastore() succeeds, the caller is responsible for calling `finalize_datastore()`
     before the interpreter exits.
 
     Raises:
@@ -148,13 +185,13 @@ def initialize_context() -> FileStore:
     return FileStore(dir=path)
 
 
-def finalize_context():
+def finalize_datastore(datastore: FileStore):
     """Mark the local Context data store as inactive.
 
-    Finalize the state of the file-backed Context. Allow future initialize_context()
+    Finalize the state of the file-backed Context. Allow future initialize_datastore()
     calls to succeed whether coming from this process or another.
 
-    Must be called at some point after a initialize_context() call succeeds in order
+    Must be called at some point after a initialize_datastore() call succeeds in order
     to clean up local state and allow other processes to use the data store.
     """
     # A Python `with` block (the context manager protocol) is the most appropriate way to enforce

@@ -312,7 +312,19 @@ class Runtime:
 
 
 @cache
-def _master_script() -> str:
+def master_script() -> str:
+    """Get the name of the RP raptor master script.
+
+    The script to run a RP Task based on a rp.raptor.Master is installed
+    with :py:mod`scalems`. Installation configures an "entry point" script
+    named ``scalems_rp_master``, but for generality this function should
+    be used to get the entry point name.
+
+    Before returning, this function confirms the availability of the entry point
+    script in the current Python environment. A client should arrange for
+    the script to be called in the execution environment and to confirm
+    that the (potentially remote) entry point matches the expected API.
+    """
     try:
         import pkg_resources
     except ImportError:
@@ -326,6 +338,35 @@ def _master_script() -> str:
         assert pkg_resources.get_entry_info('scalems', 'console_scripts',
                                             'scalems_rp_master').name == master_script
     return master_script
+
+
+@cache
+def worker_script() -> str:
+    """Get the name of the RP raptor master script.
+
+    The script to run a RP Task based on a rp.raptor.Worker is installed
+    with :py:mod`scalems`. Installation configures an "entry point" script
+    named ``scalems_rp_worker``, but for generality this function should
+    be used.
+
+    Before returning, this function confirms the availability of the entry point
+    script in the current Python environment. A client should arrange for
+    the script to be called in the execution environment and to confirm
+    that the (potentially remote) entry point matches the expected API.
+    """
+    try:
+        import pkg_resources
+    except ImportError:
+        pkg_resources = None
+    worker_script = 'scalems_rp_worker'
+    if pkg_resources is not None:
+        # It is not hugely important if we cannot perform this test.
+        # In reality, this should be performed at the execution site, and we can/should
+        # remove the check here once we have effective API compatibility checking.
+        # See https://github.com/SCALE-MS/scale-ms/issues/100
+        assert pkg_resources.get_entry_info('scalems', 'console_scripts',
+                                            'scalems_rp_worker').name == worker_script
+    return worker_script
 
 
 def _get_scheduler(name: str,
@@ -349,42 +390,28 @@ def _get_scheduler(name: str,
     # define a raptor.scalems master and launch it within the pilot
     td = rp.TaskDescription()
     td.uid = name
-
-    # This is the name that should be resolvable in an active venv for the script we
-    # install as
-    # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
-    master_script = _master_script()
-
-    td.executable = master_script
-
-    # Note: As of RP 1.6.7, the rp.radical.Master still accepts an optional config
-    # filename argument, but its use and future disposition are fluid and unclear.
-    # We do not seem to need one at the moment. If we do, it may end up looking
-    # something like the following.
-    #
-    # We can probably make the config file a permanent part of the local metadata,
-    # but we don't really have a scheme for managing local metadata right now.
-    # with tempfile.TemporaryDirectory() as dir:
-    #     config_file_name = 'raptor_scheduler_config.json'
-    #     config_file_path = os.path.join(dir, config_file_name)
-    #     with open(config_file_path, 'w') as fh:
-    #         encoded = scalems_rp_master.encode_as_dict(scheduler_config)
-    #         json.dump(encoded, fh, indent=2)
     td.arguments = []
-
     td.pre_exec = pre_exec
     # We are not using prepare_env at this point. We use the `venv` configured by the
     # caller.
     # td.named_env = 'scalems_env'
-    logger.debug('Launching RP scheduler.')
 
+    # This is the name that should be resolvable in an active venv for the script we
+    # install as
+    # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+    td.executable = master_script()
+
+    logger.debug('Launching RP scheduler.')
     # WARNING: The following line may block for several seconds. Consider using a
     # separate thread (if RP supports it).
     scheduler = task_manager.submit_tasks(td)
+
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
     # check type.
     scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
     logger.debug(f'Scheduler in state {scheduler.state}. Proceeding.')
+    # TODO: Generalize the exit status checker for the Master task and perform this
+    #  this check at the call site.
     if scheduler.state in rp.FINAL:
         if scheduler.stdout or scheduler.stderr:
             logger.error(f'scheduler.stdout: {scheduler.stdout}')

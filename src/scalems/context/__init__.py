@@ -1,7 +1,7 @@
 """Execution environment context management.
 """
 
-__all__ = ['scoped_chdir']
+__all__ = ['initialize_datastore', 'scoped_chdir', 'ContextError', 'StaleFileStore']
 
 import contextlib
 import logging
@@ -10,6 +10,10 @@ import pathlib
 import threading
 import typing
 import warnings
+
+from ._datastore import ContextError
+from ._datastore import initialize_datastore
+from ._datastore import StaleFileStore
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

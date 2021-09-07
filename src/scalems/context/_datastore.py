@@ -20,7 +20,6 @@ TODO: Make FileStore look more like a File interface, with open and close and co
 __all__ = [
     'ContextError',
     'StaleFileStore',
-    'finalize_datastore',
     'initialize_datastore',
 ]
 
@@ -30,6 +29,9 @@ import json
 import logging
 import os
 import pathlib
+import shutil
+import tempfile
+import threading
 import typing
 import warnings
 import weakref
@@ -44,7 +46,10 @@ from ._lock import scoped_directory_lock as _scoped_directory_lock
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
-_context_metadata_file = '.scalems_context_metadata.json'
+_data_subdirectory = '.scalems_0_0'
+"""Subdirectory name to use for managed filestore."""
+
+_metadata_filename = 'scalems_context_metadata.json'
 """Name to use for Context metadata files (module constant)."""
 
 
@@ -72,75 +77,228 @@ class FileStore:
     Fields:
         instance (int): Owner's PID.
         log (list): Access log for the data store.
-        path (pathlib.Path): filesystem path to metadata JSON file.
+        filepath (pathlib.Path): filesystem path to metadata JSON file.
+        directory (pathlib.Path): workflow directory.
 
     """
-    _data: Metadata
     _fields: typing.ClassVar = set([field.name for field in dataclasses.fields(Metadata)])
-    log: typing.Sequence[str]
-    path: pathlib.Path
+    _instances: typing.ClassVar = weakref.WeakValueDictionary()
 
-    def __setattr__(self, key, value):
-        # Note: called for all attribute assignments.
-        if key in self._fields:
-            setattr(self._data, key, value)
-        else:
-            raise AttributeError(
-                f'Cannot assign to field {key}'
-            )
+    _token: typing.Optional[contextvars.Token]
+    _data: Metadata
+    _directory: pathlib.Path
+    _update_lock: threading.Lock
+    _dirty: threading.Event
+    _log: typing.Sequence[str]
 
-    def __getattr__(self, item):
-        # Note: only called when default attribute access fails.
-        if item not in FileStore._fields:
-            raise AttributeError(f'No field called {item}.')
-        else:
-            return getattr(self._data, item)
+    @property
+    def log(self):
+        # Interface TBD...
+        for line in self._log:
+            yield line
 
-    def __init__(self, dir: pathlib.Path):
-        # TODO: Consider breaking up the complex initialization with multi-state
-        #  FileStore and separate creation function.
-        metadata_file = (pathlib.Path(dir) / _context_metadata_file).absolute()
-        self.__dict__['path'] = metadata_file
+    # TODO: Consider a caching proxy to the directory structure to reduce filesystem
+    #  calls.
+
+    @property
+    def directory(self):
+        """The work directory under management."""
+        return self._directory
+
+    @property
+    def datastore(self):
+        """Path to the data store for the workflow managed at *directory*"""
+        return self.directory / _data_subdirectory
+
+    @property
+    def filepath(self) -> pathlib.Path:
+        """Path to the metadata backing store."""
+        return self.datastore / _metadata_filename
+
+    @property
+    def instance(self):
+        return self._data.instance
+
+    def __repr__(self):
+        return f'<{self.__class__.__qualname__}, "{self.instance}:{self.directory}">'
+
+    def __init__(self, *,
+                 directory: pathlib.Path):
+        """Assemble the data structure.
+
+        Users should not create FileStore objects directly, but with
+        initialize_datastore() or through the WorkflowManager instance.
+
+        Once initialized, caller is responsible for calling the close() method either
+        directly or by using the instance as a Python context manager (in a `with`
+        expression).
+
+        No directory in the filesystem should be managed by more than one FileStore.
+        The FileStore class maintains a registry of instances to prevent instantiation of
+        a new FileStore for a directory that is already managed.
+
+        Raises:
+            ContextError if attempting to instantiate for a directory that is already
+            managed.
+        """
+        self._directory = pathlib.Path(directory).absolute()
+        if not self.directory.exists():
+            raise ValueError(f'workflow directory {self.directory} does not exist.')
 
         # TODO: Use a log file!
-        self.__dict__['log'] = []
+        self._log = []
 
-        instance_id = os.getpid()
+        self._update_lock = threading.Lock()
+        self._dirty = threading.Event()
+
         try:
-            with _scoped_directory_lock(dir):
-                logger.debug(f'Initializing {metadata_file}.')
-                if metadata_file.exists():
-                    logger.debug('Restoring metadata from previous metadata file.')
-                    with open(metadata_file, 'r') as fp:
+            with _scoped_directory_lock(directory):
+                existing_filestore = self._instances.get(directory, None)
+                if existing_filestore:
+                    raise ContextError(
+                        f'{directory} is already managed by {repr(existing_filestore)}'
+                    )
+                # The current interpreter process is not aware of an instance for
+                # *directory*
+
+                instance_id = os.getpid()
+
+                try:
+                    os.mkdir(self.datastore)
+                except FileExistsError:
+                    # Check if the existing filesystem state is due to a previous clean
+                    # shutdown, a previous dirty shutdown, or inappropriate concurrent access.
+                    if not self.filepath.exists():
+                        raise ContextError(
+                            f'{self.directory} contains invalid datastore '
+                            f'{self.datastore}.'
+                        )
+                    logger.debug('Restoring metadata from previous session.')
+                    with open(self.filepath, 'r') as fp:
                         metadata_dict = json.load(fp)
-                    if 'instance' in metadata_dict:
+                    if metadata_dict['instance'] is not None:
                         # The metadata file has an owner.
                         if metadata_dict['instance'] != instance_id:
-                            # This would be a good place to check a heart beat or otherwise
+                            # This would be a good place to check a heart beat or
+                            # otherwise
                             # try to confirm whether the previous owner is still active.
                             raise ContextError('Context is already in use.')
                         else:
                             assert metadata_dict['instance'] == instance_id
-                            w = scalems.exceptions.ProtocolWarning(
-                                'Inappropriate `initialize_datastore()` call. This process is '
-                                f'already managing {metadata_file}'
+                            raise scalems.exceptions.InternalError(
+                                'This process appears already to be managing '
+                                f'{self.filepath}, but is not '
+                                'registered in FileStore._instances.'
                             )
-                            warnings.warn(w)
                     else:
-                        # The metadata file has no owner
+                        # The metadata file has no owner. Presume clean shutdown
                         logger.debug(
                             f'Taking ownership of metadata file for PID {instance_id}')
                         metadata_dict['instance'] = instance_id
-                else:  # metadata_file does not yet exist.
-                    logger.debug(
-                        f'Creating metadata file for PID {instance_id}')
+                else:
+                    logger.debug(f'Created new data store {self.datastore}.')
                     metadata_dict = {'instance': instance_id}
-                self.__dict__['_data'] = Metadata(**metadata_dict)
-                with open(metadata_file, 'w') as fp:
-                    json.dump(dataclasses.asdict(self._data), fp)
+
+                metadata = Metadata(**metadata_dict)
+                with open(self.filepath, 'w') as fp:
+                    json.dump(dataclasses.asdict(metadata), fp)
+                FileStore._instances[self.directory] = self
+                self.__dict__['_data'] = metadata
+
         except LockException as e:
             raise ContextError(
-                'Could not acquire ownership of working directory {}'.format(dir)) from e
+                'Could not acquire ownership of working directory {}'.format(directory)) from e
+
+    def __enter__(self):
+        # Suggest doing the real work in open, and just check for valid state here.
+        # Add a reentrance check; only one code entity should be managing the FileStore
+        # lifetime.
+        self._token = _filestore.set(weakref.ref(self))
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        try:
+            self.close()
+        except (StaleFileStore, scalems.exceptions.ScopeError) as e:
+            warnings.warn(f'{repr(self)} could not be exited cleanly.')
+            logger.exception('FileStore.close() raised exception.', exc_info=e)
+        else:
+            _filestore.reset(self._token)
+            del self._token
+        # Indicate that we have not handled any exceptions.
+        if exc_value:
+            return False
+
+    def flush(self):
+        """Write the current metadata to the backing store, if there are pending
+        updates.
+
+        For atomic updates and better forensics, we write to a new file and *move* the
+        file to replace the previous metadata file. If an error occurs, the temporary
+        file will linger.
+
+        Changes to metadata must be
+        made with the update lock held and must end by setting the "dirty" condition
+        (notifying the watchers of "dirty"). flush() should acquire the update lock and
+        clear the "dirty" condition when successful. We can start with "dirty" as an
+        Event. If we need more elaborate logic, we can use a Condition.
+        It should be sufficient to use asyncio primitives, but we may need to use
+        primitives from the `threading` module to allow metadata updates directly
+        from RP task callbacks.
+
+        """
+        with self._update_lock:
+            if self._dirty.is_set():
+                with tempfile.NamedTemporaryFile(dir=self.datastore,
+                                                 delete=False,
+                                                 mode='w',
+                                                 prefix='flush_',
+                                                 suffix='.json') as fp:
+                    json.dump(dataclasses.asdict(self._data), fp)
+                shutil.move(fp.name, self.filepath)
+                self._dirty.clear()
+
+    def close(self):
+        """Flush, shut down, and disconnect the FileStore from the managed directory.
+
+        Raises:
+            StaleFileStore if called on an invalid or outdated handle.
+            ScopeError if called from a disallowed context, such as from a forked process.
+
+        """
+        current_instance = getattr(self, 'instance', None)
+        if current_instance is None or self.closed:
+            raise StaleFileStore(
+                'Called close() on an inactive FileStore.'
+            )
+        if current_instance != os.getpid():
+            raise scalems.exceptions.ScopeError(
+                'Calling close() on a FileStore from another process is not allowed.')
+
+        with _scoped_directory_lock(self.directory):
+            try:
+                with open(self.filepath, 'r') as fp:
+                    context = json.load(fp)
+                    stored_instance = context.get('instance', None)
+                    if stored_instance != current_instance:
+                        # Note that the StaleFileStore check will be more intricate as
+                        # metadata becomes more sophisticated.
+                        raise StaleFileStore(
+                            'Expected ownership by {}, but found {}'.format(
+                                current_instance,
+                                stored_instance))
+            except OSError as e:
+                raise StaleFileStore('Could not open metadata file.') from e
+
+            # del self._data.instance
+            self._data.instance = None
+            self._dirty.set()
+            self.flush()
+            del FileStore._instances[self.directory]
+
+    @property
+    def closed(self) -> bool:
+        return FileStore._instances.get(self.directory, None) is not self
 
 
 def get_context() -> typing.Union[FileStore, None]:
@@ -172,55 +330,15 @@ def set_context(datastore: FileStore):
         _filestore.set(ref)
 
 
-def initialize_datastore() -> FileStore:
-    """Get a reference to an API Context instance.
+def initialize_datastore(directory=None) -> FileStore:
+    """Get a reference to a workflow metadata store.
 
-    If initialize_datastore() succeeds, the caller is responsible for calling `finalize_datastore()`
-    before the interpreter exits.
-
-    Raises:
-        ContextError if context backing store could not be obtained.
+    If initialize_datastore() succeeds, the caller is responsible for calling the
+    `close()` method of the returned instance before the interpreter exits,
+    either directly or by using the instance as a Python context manager.
     """
-    path = pathlib.Path(os.getcwd())
-    return FileStore(dir=path)
-
-
-def finalize_datastore(datastore: FileStore):
-    """Mark the local Context data store as inactive.
-
-    Finalize the state of the file-backed Context. Allow future initialize_datastore()
-    calls to succeed whether coming from this process or another.
-
-    Must be called at some point after a initialize_datastore() call succeeds in order
-    to clean up local state and allow other processes to use the data store.
-    """
-    # A Python `with` block (the context manager protocol) is the most appropriate way to enforce
-    # scoped clean-up, but there may be other reasons (such as user-friendly procedural interface
-    # support) to try to use object lifetime or even interpreter process lifetime to try to
-    # finalize the Context metadata. A reasonable pattern might be to hold a "state machine"
-    # object, implemented as a generator. Attached (with a weakref) to the Context, it could
-    # be made responsible for advancing (updating) the context state, with a `finally` block
-    # to finalize the Context when the state machine reaches an end condition or the generator
-    # is otherwise finalized. See https://docs.python.org/3.6/reference/expressions.html#yield-expressions
-    # Note also that an object can probably be both a generator and a context manager.
-    # The standard library decorator helpers for these behaviors are not compatible, but such a
-    # duality might come in handy if we need to migrate from one protocol to the other or even support both.
-    path = os.getcwd()
-    metadata_filename = os.path.join(path, _context_metadata_file)
-    try:
-        file_context = open(metadata_filename, 'r')
-    except OSError as e:
-        raise StaleFileStore('Could not open metadata file.') from e
-    with file_context as fp:
-        current_instance = os.getpid()
-        context = json.load(fp)
-        stored_instance = None
-        if 'instance' in context:
-            stored_instance = context['instance']
-        if stored_instance != current_instance:
-            # Note that the StaleFileStore check will be more intricate as metadata becomes more sophisticated.
-            raise StaleFileStore('Expected ownership by {}, but found {}'.format(current_instance, stored_instance))
-    with _scoped_directory_lock(path):
-        del context['instance']
-        with open(metadata_filename, 'w') as fp:
-            json.dump(context, fp)
+    if directory is None:
+        directory = os.getcwd()
+    path = pathlib.Path(directory)
+    filestore = FileStore(directory=path)
+    return filestore

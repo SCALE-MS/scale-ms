@@ -18,55 +18,69 @@ def test_normal_lifecycle(tmp_path):
     """
     with _context.scoped_chdir(tmp_path):
         datastore = scalems.context._datastore.initialize_datastore()
-        scalems.context._datastore.finalize_datastore(datastore)
+        assert not datastore.closed
+        assert datastore.instance == os.getpid()
+        with open(datastore.filepath, 'r') as fh:
+            assert json.load(fh)['instance'] == os.getpid()
+        datastore.close()
+        assert datastore.closed
+        with open(datastore.filepath, 'r') as fh:
+            data = json.load(fh)
+        assert 'instance' in data
+        assert data['instance'] is None
 
         datastore = scalems.context._datastore.initialize_datastore()
         # Multiple calls to initialize_datastore() currently succeed as long as they are from
         # the process ID and not concurrent.
-        with pytest.warns(scalems.exceptions.ProtocolWarning):
+        with pytest.raises(scalems.context.ContextError):
             scalems.context._datastore.initialize_datastore()
 
-        scalems.context._datastore.finalize_datastore(datastore)
+        datastore.close()
         # finalize_datastore() must be called exactly once for a data store that has been
         # opened.
-        with pytest.raises(scalems.context._datastore.StaleFileStore):
-            scalems.context._datastore.finalize_datastore(datastore)
+        with pytest.raises(scalems.context.StaleFileStore):
+            datastore.close()
 
     # Confirm some assumptions about implementation details.
-    filepath = tmp_path / scalems.context._datastore._context_metadata_file
+    filepath = tmp_path.joinpath(
+        scalems.context._datastore._data_subdirectory
+    ).joinpath(
+        scalems.context._datastore._metadata_filename)
+
     with _context.scoped_chdir(tmp_path):
         datastore = scalems.context._datastore.initialize_datastore()
         assert datastore.instance == os.getpid()
-        assert datastore.path == filepath
+        assert datastore.filepath == filepath
         with pytest.raises(AttributeError):
             datastore.log = list()
-        datastore.log.append('Testing')
-        with pytest.raises(AttributeError):
-            datastore.foo = 1
-        scalems.context._datastore.finalize_datastore(datastore)
+        # TODO: log interface.
+        # datastore.log.append('Testing')
+        datastore.close()
     with open(filepath, 'r') as fh:
         metadata: dict = json.load(fh)
         # A finalized record should not have an owning *instance*.
-        assert 'instance' not in metadata
+        assert metadata['instance'] is None
 
 
 def test_nonfinalized(tmp_path):
     """Failure to call finalize_datastore() should have well-defined behavior."""
     with _context.scoped_chdir(tmp_path):
-        scalems.context._datastore.initialize_datastore()
+        with scalems.context._datastore.initialize_datastore() as datastore:
+            metadata_path = datastore.filepath
+        # Fake a bad shutdown.
+        with open(metadata_path, 'w') as fp:
+            json.dump({'instance': 0}, fp)
         # In the future, more sophisticated tests might check that Singleton behavior or scoping
         # protections aren't violated.
         # Right now, we have to manipulate the filesystem with knowledge of the implementation
         # details in order to effectively test.
-        with open(scalems.context._datastore._context_metadata_file, 'w') as fp:
-            json.dump({'instance': 0}, fp)
-        with pytest.raises(scalems.context._datastore.ContextError):
-            scalems.context._datastore.initialize_datastore()
+        with pytest.raises(scalems.context.ContextError):
+            datastore = scalems.context._datastore.initialize_datastore()
         # We may want to assert constraints on the filesystem state we expect to encounter
         # even when a lock is left unexpectedly, but initially all we know is that a
         # dangling lock may result from an unclean process termination.
         scalems.context._lock._lock_directory()
-        with pytest.raises(scalems.context._datastore.ContextError):
+        with pytest.raises(scalems.context.ContextError):
             scalems.context._datastore.initialize_datastore()
         scalems.context._lock._unlock_directory()
 
@@ -78,15 +92,16 @@ def test_contention(tmp_path):
         datastore = scalems.context._datastore.initialize_datastore()
         scalems.context._lock._lock_directory()
         with pytest.raises(scalems.context._lock.LockException):
-            scalems.context._datastore.finalize_datastore(datastore)
+            datastore.close()
         scalems.context._lock._unlock_directory()
-        scalems.context._datastore.finalize_datastore(datastore)
+        datastore.close()
 
+        metadata_path = datastore.filepath
         expected_instance = os.getpid()
         unexpected_instance = expected_instance + 1
-        with open(scalems.context._datastore._context_metadata_file, 'w') as fp:
+        with open(metadata_path, 'w') as fp:
             json.dump({'instance': unexpected_instance}, fp)
-        with pytest.raises(scalems.context._datastore.ContextError):
+        with pytest.raises(scalems.context.ContextError):
             scalems.context._datastore.initialize_datastore()
 
         scalems.context._lock._lock_directory()
@@ -100,26 +115,15 @@ def test_recovery(tmp_path):
 
     # Follow the lifecycle of a workflow session.
     with _context.scoped_chdir(tmp_path):
-        datastore = scalems.context._datastore.initialize_datastore()
-        with open(tmp_path / scalems.context._datastore._context_metadata_file,
+        with scalems.context.initialize_datastore() as datastore:
+            metadata_path = datastore.filepath
+        with open(metadata_path,
                   'r') as fh:
             metadata: dict = json.load(fh)
-            assert 'instance' in metadata
-        scalems.context._datastore.finalize_datastore(datastore)
-        with open(tmp_path / scalems.context._datastore._context_metadata_file,
-                  'r') as fh:
-            metadata: dict = json.load(fh)
-            assert 'instance' not in metadata
+            assert metadata['instance'] is None
 
-    # Open a new session to continue managing the previous workflow data.
-    with _context.scoped_chdir(tmp_path):
-        datastore = scalems.context._datastore.initialize_datastore()
-        with open(tmp_path / scalems.context._datastore._context_metadata_file,
-                  'r') as fh:
-            metadata: dict = json.load(fh)
-            assert 'instance' in metadata
-        scalems.context._datastore.finalize_datastore(datastore)
-        with open(tmp_path / scalems.context._datastore._context_metadata_file,
-                  'r') as fh:
-            metadata: dict = json.load(fh)
-            assert 'instance' not in metadata
+        with scalems.context.initialize_datastore() as datastore:
+            with open(metadata_path,
+                      'r') as fh:
+                metadata: dict = json.load(fh)
+                assert metadata['instance'] == os.getpid()

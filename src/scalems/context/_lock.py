@@ -70,6 +70,11 @@ class _Lock:
     If the caller has not explicitly released the Lock before it is destroyed,
     a warning is issued and the __del__ method attempts to remove the object.
     """
+    @property
+    def name(self):
+        """The name of the filesystem object provided when the lock was established."""
+        return self._filesystem_object
+
     def __init__(self, filesystem_object=None):
         if not os.path.exists(filesystem_object):
             raise ValueError('Provided object is not a usable filesystem token.')
@@ -96,7 +101,9 @@ class _Lock:
 
     def __del__(self):
         if self._filesystem_object is not None:
-            warnings.warn('Lock object was not explicitly released! Token: {}'.format(self._filesystem_object))
+            warnings.warn(
+                'Lock object was not explicitly released! '
+                f'Token: {self._filesystem_object}')
             obj = self._filesystem_object
             self._filesystem_object = None
             if os.path.exists(obj):
@@ -122,7 +129,8 @@ def scoped_directory_lock(path: typing.Union[str, bytes, os.PathLike] = None):
         welcome.
 
     Caveats:
-        * No check is currently performed on subdirectories or parents of the path to be locked.
+        * No check is currently performed on subdirectories or parents of the path
+          to be locked.
         * The directory created as a lock token is assumed to remain empty.
     """
     if path is None:
@@ -141,5 +149,7 @@ def scoped_directory_lock(path: typing.Union[str, bytes, os.PathLike] = None):
         # This may be a bug or a feature. Time will tell. But we should be very
         # careful about automatically removing non-empty directories on behalf
         # of users.
-        if lock.is_active():
+        if not lock.is_active():
+            warnings.warn(f'Lock object {lock.name} does not exist!')
+        else:
             lock.release()

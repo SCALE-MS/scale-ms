@@ -29,7 +29,6 @@ import json
 import logging
 import os
 import pathlib
-import shutil
 import tempfile
 import threading
 import typing
@@ -101,12 +100,12 @@ class FileStore:
     #  calls.
 
     @property
-    def directory(self):
+    def directory(self) -> pathlib.Path:
         """The work directory under management."""
         return self._directory
 
     @property
-    def datastore(self):
+    def datastore(self) -> pathlib.Path:
         """Path to the data store for the workflow managed at *directory*"""
         return self.directory / _data_subdirectory
 
@@ -141,9 +140,7 @@ class FileStore:
             ContextError if attempting to instantiate for a directory that is already
             managed.
         """
-        self._directory = pathlib.Path(directory).absolute()
-        if not self.directory.exists():
-            raise ValueError(f'workflow directory {self.directory} does not exist.')
+        self._directory = pathlib.Path(directory).resolve()
 
         # TODO: Use a log file!
         self._log = []
@@ -164,7 +161,7 @@ class FileStore:
                 instance_id = os.getpid()
 
                 try:
-                    os.mkdir(self.datastore)
+                    self.datastore.mkdir()
                 except FileExistsError:
                     # Check if the existing filesystem state is due to a previous clean
                     # shutdown, a previous dirty shutdown, or inappropriate concurrent access.
@@ -174,7 +171,7 @@ class FileStore:
                             f'{self.datastore}.'
                         )
                     logger.debug('Restoring metadata from previous session.')
-                    with open(self.filepath, 'r') as fp:
+                    with self.filepath.open() as fp:
                         metadata_dict = json.load(fp)
                     if metadata_dict['instance'] is not None:
                         # The metadata file has an owner.
@@ -255,7 +252,7 @@ class FileStore:
                                                  prefix='flush_',
                                                  suffix='.json') as fp:
                     json.dump(dataclasses.asdict(self._data), fp)
-                shutil.move(fp.name, self.filepath)
+                pathlib.Path(fp.name).rename(self.filepath)
                 self._dirty.clear()
 
     def close(self):

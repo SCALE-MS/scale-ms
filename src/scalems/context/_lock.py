@@ -5,6 +5,7 @@ __all__ = ['LockException', 'scoped_directory_lock']
 import contextlib
 import logging
 import os
+import pathlib
 import typing
 import warnings
 
@@ -39,9 +40,10 @@ def _lock_directory(path=None):
     """
     if path is None:
         path = os.getcwd()
-    token_path = os.path.join(path, _lock_directory_name)
+    path = pathlib.Path(path).resolve()
+    token_path = path.joinpath(_lock_directory_name)
     try:
-        os.mkdir(token_path)
+        token_path.mkdir()
     except FileExistsError as e:
         # Directory lock already exists.
         raise LockException('{} already exists'.format(token_path)) from e
@@ -55,9 +57,9 @@ def _unlock_directory(path=None):
     """
     if path is None:
         path = os.getcwd()
-    token_path = os.path.join(path, _lock_directory_name)
-    assert os.path.exists(token_path)
-    os.rmdir(token_path)
+    token_path = pathlib.Path(path) / _lock_directory_name
+    assert token_path.exists()
+    token_path.rmdir()
 
 
 class _Lock:

@@ -32,7 +32,7 @@ async def test_exec_local(cleandir):
         assert isinstance(cmd, scalems.workflow.ItemView)
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
-        # TODO: #82
+        # TODO(#82): Enable scalems.run()
         # scalems.run(cmd)
         # TODO: Remove Session.run() from public interface (use scalems.run())
         # await context.run()
@@ -45,7 +45,7 @@ async def test_exec_local(cleandir):
     with scalems.workflow.scope(scalems.local.workflow_manager(asyncio.get_event_loop())) as context:
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
-        # TODO: #82
+        # TODO(#82): Enable scalems.run()
         # scalems.run(cmd)
         async with context.dispatch():
             # TODO: Input type checking.

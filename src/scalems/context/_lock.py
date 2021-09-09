@@ -1,6 +1,8 @@
 """Provide locking protocol for scalems.context data stores."""
 
-__all__ = ['LockException', 'scoped_directory_lock']
+__all__ = ['LockException',
+           'is_locked',
+           'scoped_directory_lock']
 
 import contextlib
 import logging
@@ -18,6 +20,15 @@ _lock_directory_name = '.scalems_lock'
 
 class LockException(Exception):
     """The requested lock could not be obtained."""
+
+
+def is_locked(path: pathlib.Path):
+    """Look for evidence of a scalems lock without attempting a lock."""
+    lock_names = (_lock_directory_name,)
+    for name in lock_names:
+        if path.joinpath(name).exists():
+            return True
+    return False
 
 
 def _lock_directory(path=None):

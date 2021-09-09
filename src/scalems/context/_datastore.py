@@ -39,6 +39,7 @@ from typing import Optional
 from weakref import ReferenceType
 
 import scalems.exceptions
+from ._lock import is_locked
 from ._lock import LockException
 from ._lock import scoped_directory_lock as _scoped_directory_lock
 
@@ -149,14 +150,20 @@ class FileStore:
         self._dirty = threading.Event()
 
         try:
-            with _scoped_directory_lock(directory):
-                existing_filestore = self._instances.get(directory, None)
+            with _scoped_directory_lock(self._directory):
+                existing_filestore = self._instances.get(self._directory, None)
                 if existing_filestore:
                     raise ContextError(
                         f'{directory} is already managed by {repr(existing_filestore)}'
                     )
                 # The current interpreter process is not aware of an instance for
                 # *directory*
+
+                for parent in self._directory.parents:
+                    if is_locked(parent) or parent.joinpath(_data_subdirectory).exists():
+                        raise ContextError(
+                            f'Cannot establish scalems work directory {directory} '
+                            f'because it is nested in work directory {parent}.')
 
                 instance_id = os.getpid()
 
@@ -167,7 +174,7 @@ class FileStore:
                     # shutdown, a previous dirty shutdown, or inappropriate concurrent access.
                     if not self.filepath.exists():
                         raise ContextError(
-                            f'{self.directory} contains invalid datastore '
+                            f'{self._directory} contains invalid datastore '
                             f'{self.datastore}.'
                         )
                     logger.debug('Restoring metadata from previous session.')
@@ -199,7 +206,7 @@ class FileStore:
                 metadata = Metadata(**metadata_dict)
                 with open(self.filepath, 'w') as fp:
                     json.dump(dataclasses.asdict(metadata), fp)
-                FileStore._instances[self.directory] = self
+                FileStore._instances[self._directory] = self
                 self.__dict__['_data'] = metadata
 
         except LockException as e:

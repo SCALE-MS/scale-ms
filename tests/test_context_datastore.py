@@ -2,6 +2,7 @@
 
 import json
 import os
+import tempfile
 
 import pytest
 import scalems.context as _context
@@ -84,8 +85,11 @@ def test_nonfinalized(tmp_path):
 
 
 def test_contention(tmp_path):
-    """If two processes try to use the same data store, we should be able to
-    detect and prevent it."""
+    """Test various ways data stores could collide.
+
+    If two processes try to use the same data store, we should be able to
+    detect and prevent it.
+    """
     with _context.scoped_chdir(tmp_path):
         datastore = scalems.context._datastore.initialize_datastore()
         scalems.context._lock._lock_directory()
@@ -106,6 +110,35 @@ def test_contention(tmp_path):
         with pytest.raises(scalems.context._datastore.ContextError):
             scalems.context._datastore.initialize_datastore()
         scalems.context._lock._unlock_directory()
+
+
+def test_nesting(tmp_path):
+    """Test various ways data stores could collide.
+
+    We should check for old scalems data store versions or broken/invalid directory
+    structures.
+    """
+    # initialization should check for locks in parent directories.
+    with _context._lock.scoped_directory_lock(tmp_path):
+        with tempfile.TemporaryDirectory(dir=tmp_path) as path:
+            with _context.scoped_chdir(path):
+                with pytest.raises(scalems.context._datastore.ContextError):
+                    scalems.context._datastore.initialize_datastore(directory=path)
+
+    # initialization should check for unexpected nesting in the work dir.
+    with scalems.context._datastore.initialize_datastore(directory=tmp_path) as datastore:
+        root_path = datastore.directory
+        assert root_path == tmp_path
+        datastore_path = datastore.datastore
+    with tempfile.TemporaryDirectory(dir=root_path) as path:
+        with _context.scoped_chdir(path):
+            with pytest.raises(scalems.context._datastore.ContextError):
+                scalems.context._datastore.initialize_datastore()
+
+    # initialization should check for unexpected nesting in the datastore itself.
+    with _context.scoped_chdir(datastore_path):
+        with pytest.raises(scalems.context._datastore.ContextError):
+            scalems.context._datastore.initialize_datastore()
 
 
 def test_recovery(tmp_path):

@@ -42,10 +42,8 @@ def test_normal_lifecycle(tmp_path):
             datastore.close()
 
     # Confirm some assumptions about implementation details.
-    filepath = tmp_path.joinpath(
-        scalems.context._datastore._data_subdirectory
-    ).joinpath(
-        scalems.context._datastore._metadata_filename)
+    filepath = tmp_path.joinpath(scalems.context._datastore._data_subdirectory,
+                                 scalems.context._datastore._metadata_filename)
 
     with _context.scoped_chdir(tmp_path):
         datastore = scalems.context._datastore.initialize_datastore()

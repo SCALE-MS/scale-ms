@@ -69,18 +69,11 @@ class FileStore:
     """Handle to the SCALE-MS nonvolatile data store for a workflow context.
 
     Not thread safe. User is responsible for serializing access, as necessary.
-
-    Fields:
-        instance (int): Owner's PID.
-        log (list): Access log for the data store.
-        filepath (pathlib.Path): filesystem path to metadata JSON file.
-        directory (pathlib.Path): workflow directory.
-
     """
     _fields: typing.ClassVar = set([field.name for field in dataclasses.fields(Metadata)])
     _instances: typing.ClassVar = weakref.WeakValueDictionary()
 
-    _token: typing.Optional[contextvars.Token]
+    _token: contextvars.Token = None
     _data: Metadata
     _directory: pathlib.Path
     _update_lock: threading.Lock
@@ -231,10 +224,14 @@ class FileStore:
                 'Could not acquire ownership of working directory {}'.format(directory)) from e
 
     def __enter__(self):
-        # Suggest doing the real work in open, and just check for valid state here.
-        # Add a reentrance check; only one code entity should be managing the FileStore
-        # lifetime.
         self._token = _filestore.set(weakref.ref(self))
+        if self._token.old_value is not contextvars.Token.MISSING:
+            _filestore.reset(self._token)
+            del self._token
+            raise ContextError(
+                'FileStore is not reentrant'
+            )
+
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):

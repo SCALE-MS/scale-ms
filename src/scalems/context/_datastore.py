@@ -11,10 +11,6 @@ We can also use a contextvars.ContextVar to hold a weakref to the FileStore, and
 a finalizer to perform a check, but the check could come late in the interpreter shutdown
 and we should not rely on it. Also, note the sequence with which module variables and
 class definitions are released during shutdown.
-
-TODO: Make FileStore look more like a File interface, with open and close and context
-    manager support, and provide boolean status properties. Let initialize_datastore() return the
-    currently in-scope FileStore.
 """
 
 __all__ = [
@@ -46,7 +42,7 @@ from ._lock import scoped_directory_lock as _scoped_directory_lock
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
-_data_subdirectory = '.scalems_0_0'
+_data_subdirectory = 'scalems_0_0'
 """Subdirectory name to use for managed filestore."""
 
 _metadata_filename = 'scalems_context_metadata.json'
@@ -102,17 +98,38 @@ class FileStore:
 
     @property
     def directory(self) -> pathlib.Path:
-        """The work directory under management."""
+        """The work directory under management.
+
+        Generally, this is the current working directory when a scalems script is
+        launched. The user is free to use the work directory to stage input and output
+        files with the exception of the single scalems datastore
+        directory. See `FileStore.datastore`.
+
+        scalems will create a hidden "lock" directory briefly when starting up or
+        shutting down. You may need to manually remove the lock directory after a
+        particularly bad crash.
+        """
         return self._directory
 
     @property
     def datastore(self) -> pathlib.Path:
-        """Path to the data store for the workflow managed at *directory*"""
+        """Path to the data store for the workflow managed at *directory*.
+
+        scalems creates a subdirectory at the root of a workflow in which to manage
+        internal data. Editing files or directories in this subdirectory will affect
+        workflow state and validity.
+
+        The name reflects the SCALE-MS data format version and is not user-configurable.
+        """
         return self.directory / _data_subdirectory
 
     @property
     def filepath(self) -> pathlib.Path:
-        """Path to the metadata backing store."""
+        """Path to the metadata backing store.
+
+        This is the metadata file used by scalems to track workflow state and
+        file-backed data. Its format is closely related to the scalems API level.
+        """
         return self.datastore / _metadata_filename
 
     @property

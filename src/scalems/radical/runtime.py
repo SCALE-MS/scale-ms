@@ -44,6 +44,7 @@ import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
+from scalems.radical.raptor import master_script
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -309,64 +310,6 @@ class Runtime:
                 raise ValueError(f'{uid} does not describe a valid Pilot') from e
             else:
                 return self.pilot(pilot)
-
-
-@cache
-def master_script() -> str:
-    """Get the name of the RP raptor master script.
-
-    The script to run a RP Task based on a rp.raptor.Master is installed
-    with :py:mod`scalems`. Installation configures an "entry point" script
-    named ``scalems_rp_master``, but for generality this function should
-    be used to get the entry point name.
-
-    Before returning, this function confirms the availability of the entry point
-    script in the current Python environment. A client should arrange for
-    the script to be called in the execution environment and to confirm
-    that the (potentially remote) entry point matches the expected API.
-    """
-    try:
-        import pkg_resources
-    except ImportError:
-        pkg_resources = None
-    master_script = 'scalems_rp_master'
-    if pkg_resources is not None:
-        # It is not hugely important if we cannot perform this test.
-        # In reality, this should be performed at the execution site, and we can/should
-        # remove the check here once we have effective API compatibility checking.
-        # See https://github.com/SCALE-MS/scale-ms/issues/100
-        assert pkg_resources.get_entry_info('scalems', 'console_scripts',
-                                            'scalems_rp_master').name == master_script
-    return master_script
-
-
-@cache
-def worker_script() -> str:
-    """Get the name of the RP raptor master script.
-
-    The script to run a RP Task based on a rp.raptor.Worker is installed
-    with :py:mod`scalems`. Installation configures an "entry point" script
-    named ``scalems_rp_worker``, but for generality this function should
-    be used.
-
-    Before returning, this function confirms the availability of the entry point
-    script in the current Python environment. A client should arrange for
-    the script to be called in the execution environment and to confirm
-    that the (potentially remote) entry point matches the expected API.
-    """
-    try:
-        import pkg_resources
-    except ImportError:
-        pkg_resources = None
-    worker_script = 'scalems_rp_worker'
-    if pkg_resources is not None:
-        # It is not hugely important if we cannot perform this test.
-        # In reality, this should be performed at the execution site, and we can/should
-        # remove the check here once we have effective API compatibility checking.
-        # See https://github.com/SCALE-MS/scale-ms/issues/100
-        assert pkg_resources.get_entry_info('scalems', 'console_scripts',
-                                            'scalems_rp_worker').name == worker_script
-    return worker_script
 
 
 def _get_scheduler(name: str,

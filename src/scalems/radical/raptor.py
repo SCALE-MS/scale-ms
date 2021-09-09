@@ -2,10 +2,28 @@
 Define the connective tissue for SCALE-MS tasks embedded in rp.Task arguments.
 """
 
+import functools
 import typing
 
-import radical.pilot as rp
+try:
+    import radical.pilot as rp
+    # TODO (#100): This would be a good place to add some version checking.
+except ImportError:
+    raise RuntimeError('RADICAL Pilot installation not found.')
+else:
+    # We import rp before `logging` to avoid warnings when rp monkey-patches the
+    # logging module. This `try` suite helps prevent auto-code-formatters from
+    # rearranging the import order of built-in versus third-party modules.
+    import logging
 
+logger = logging.getLogger(__name__)
+logger.debug('Importing {}'.format(__name__))
+
+try:
+    cache = functools.cache
+except AttributeError:
+    # Note: functools.cache does not appear until Python 3.9
+    cache = functools.lru_cache(maxsize=None)
 
 _RaptorReturnType = typing.Tuple[typing.Text, typing.Text, typing.SupportsInt]
 """Raptor worker task return values are interpreted as a tuple (out, err, ret).
@@ -115,3 +133,61 @@ class _RaptorTaskDescription(typing.Protocol):
 
 
 RequestInputList = typing.List[_RequestInput]
+
+
+@cache
+def master_script() -> str:
+    """Get the name of the RP raptor master script.
+
+    The script to run a RP Task based on a rp.raptor.Master is installed
+    with :py:mod`scalems`. Installation configures an "entry point" script
+    named ``scalems_rp_master``, but for generality this function should
+    be used to get the entry point name.
+
+    Before returning, this function confirms the availability of the entry point
+    script in the current Python environment. A client should arrange for
+    the script to be called in the execution environment and to confirm
+    that the (potentially remote) entry point matches the expected API.
+    """
+    try:
+        import pkg_resources
+    except ImportError:
+        pkg_resources = None
+    master_script = 'scalems_rp_master'
+    if pkg_resources is not None:
+        # It is not hugely important if we cannot perform this test.
+        # In reality, this should be performed at the execution site, and we can/should
+        # remove the check here once we have effective API compatibility checking.
+        # See https://github.com/SCALE-MS/scale-ms/issues/100
+        assert pkg_resources.get_entry_info('scalems', 'console_scripts',
+                                            'scalems_rp_master').name == master_script
+    return master_script
+
+
+@cache
+def worker_script() -> str:
+    """Get the name of the RP raptor master script.
+
+    The script to run a RP Task based on a rp.raptor.Worker is installed
+    with :py:mod`scalems`. Installation configures an "entry point" script
+    named ``scalems_rp_worker``, but for generality this function should
+    be used.
+
+    Before returning, this function confirms the availability of the entry point
+    script in the current Python environment. A client should arrange for
+    the script to be called in the execution environment and to confirm
+    that the (potentially remote) entry point matches the expected API.
+    """
+    try:
+        import pkg_resources
+    except ImportError:
+        pkg_resources = None
+    worker_script = 'scalems_rp_worker'
+    if pkg_resources is not None:
+        # It is not hugely important if we cannot perform this test.
+        # In reality, this should be performed at the execution site, and we can/should
+        # remove the check here once we have effective API compatibility checking.
+        # See https://github.com/SCALE-MS/scale-ms/issues/100
+        assert pkg_resources.get_entry_info('scalems', 'console_scripts',
+                                            'scalems_rp_worker').name == worker_script
+    return worker_script

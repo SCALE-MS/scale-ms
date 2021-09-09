@@ -215,6 +215,9 @@ Base classes
                                   simulation=initial_input)
         loop.run()
 
+.. autoclass:: scalems.context._file.FileReference
+    :members:
+
 Logging
 =======
 
@@ -225,3 +228,5 @@ Exceptions
 
 .. automodule:: scalems.exceptions
     :members:
+
+.. autoclass:: scalems.context._file.DataLocalizationError

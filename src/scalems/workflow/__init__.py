@@ -325,6 +325,44 @@ class WorkflowManager:
         This allows intermediate updates to be propagated and could be a superset of
         the additem hook.
 
+    Notes:
+
+        workflow manager maintains the workflow state without expensive or stateful
+        volatile resources, and can mediate updates to the managed workflow at any
+        time. Items enter the graph in an IDLE state. The WorkflowManager can provide
+        Futures for the results of the managed items. For IDLE items,
+        the WorkflowManager retains a weakref to the issued Futures, which it can use
+        to make sure that there is only zero or one Future for a particular result.
+
+        WorkflowManager collaborates with Queuer to transition the graph to an "active"
+        or "executing" state. This transition is mediated through the dispatcher_lock.
+
+        Queuer sequences and queues workflow items to be handled, pushing them to a
+        dispatch_queue. No state change to the workflow item seems necessary at this
+        time.
+
+        The dispatch_queue is read by an ExecutionManager. Items may be processed
+        immediately or staged in a command_queue. Workflow items are then either
+        SUBMITTED or BLOCKED (awaiting dependencies). Optionally, Items may be marked
+        ELIGIBLE and re-queued for batch submission.
+
+        If the ExecutionManager is able to submit a task, the Task has a call-back
+        registered for the workflow item. The WorkflowManager needs to convert any
+        Future weakrefs to strong references when items are SUBMITTED, and the workflow
+        Futures are subscribed to the item. Tasks are wrapped in a scalems object that
+        the WorkflowManager is able to take ownership of. BLOCKED items are wrapped in
+        Tasks which are subscribed to their dependencies (WorkflowItems should already
+        be subscribed to WorkflowItem Futures for any dependencies) and stored by the
+        ExecutionManager. When the call-backs for all of the dependencies indicate the
+        Item should be processed into an upcoming workload, the Item becomes ELIGIBLE,
+        and its wrapper Task (in collaboration with the ExecutionManager) puts it in
+        the command_queue.
+
+        As an optimization, and to support co-scheduling, a WorkflowItem call-back can
+        provide notification of state changes. For instance, a BLOCKED item may become
+        ELIGIBLE once all of its dependencies are SUBMITTED, when the actual Executor
+        has some degree of data flow management capabilities.
+
     """
     tasks: TaskMap
 
@@ -362,6 +400,8 @@ class WorkflowManager:
 
         if not callable(executor_factory):
             raise TypeError('*executor_factory* argument must be a callable.')
+        # TODO: Resolve circular reference between `execution` and `workflow` modules.
+        # self._executor_factory: ExecutorFactory = executor_factory
         self._executor_factory = executor_factory
 
         # Basic Context implementation details
@@ -536,12 +576,31 @@ class WorkflowManager:
             #
             # Note: the executor owns a rp.Session during operation.
             async with executor as dispatching_session:
+                # Note: *executor* (sms.execution.RuntimeManager) returns itself when
+                # "entered", then we yield it below. Now that RuntimeManager is
+                # fairly normalized, we could pass the dispatcher to a (new)
+                # context manager member function
+                # and let the RuntimeManager handle all of this *dispatcher* logic.
+                # The WorkflowManager could pass itself as a simpler interface
+                # * to the Queuer for the `subscribe` add_item hook and
+                # * to the RuntimeManager to provide a WorkflowEditor.edit_item.
+                # E.g.
+                #     @asynccontextmanager
+                #     async def RuntimeManager.manage(
+                #       dispatcher: Queuer,
+                #       subscriber: WorkflowEditor))
+                # Consider also the similarity of RuntimeManager-WorkflowManager-Queuer
+                # to a Model-View-Controller.
                 async with dispatcher:
                     # We can surrender control here and leave the executor and
                     # dispatcher tasks active while evaluating a `with` block suite
                     # for the `dispatch` context manager.
                     yield dispatching_session
-                # Executor receives a *stop* command in __aexit__.
+                    # When leaving the `with` suite, Queuer.__aexit__ sends a *stop*
+                    # command to the queue.
+                # The *stop* command will be picked up by sms.execution.manage_execution()
+                # (as the RuntimeManager's *runner_task*), which will be awaited in
+                # RuntimeManager.__exit__().
 
         except Exception as e:
             logger.exception(

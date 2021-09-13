@@ -3,7 +3,8 @@
 Manage workflow context for RADICAL Pilot.
 
 Command Line Invocation Example:
-    ``python -m scalems.radical --resource local.localhost --venv $HOME/myvenv --access local myworkflow.py``
+    ``python -m scalems.radical --resource local.localhost --venv $HOME/myvenv --access
+    local myworkflow.py``
 
 For required and optional command line arguments:
     ``python -m scalems.radical --help``
@@ -34,15 +35,18 @@ Locally prepared package distribution archives can be used, such as by staging w
     Refer to https://github.com/SCALE-MS/scale-ms/issues/141
     for the status of `scalems` support for automatic execution environment bootstrapping.
 
-Use ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
-definition, and activate alternative Task venvs using ``pre_exec``. The user (or client) is
+Use ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP
+resource
+definition, and activate alternative Task venvs using ``pre_exec``. The user (or
+client) is
 then responsible for maintaining venv(s) with the correct RCT stack (matching the API
 used by the client-side RCT stack), the `scalems` package, and any dependencies of the
 workflow.
 
 Upcoming RP features:
 
-    There is some work underway to place full venvs at run time, specifically to handle use
+    There is some work underway to place full venvs at run time, specifically to handle
+    use
     cases in which it is important to run the Python stack from a local filesystem on an
     HPC compute node. So far, this is limited to use of conda freeze.
 
@@ -103,7 +107,6 @@ try:
 except AttributeError:
     # Note: functools.cache does not appear until Python 3.9
     cache = functools.lru_cache(maxsize=None)
-
 
 parser = _make_parser(__package__, parents=[_runtime_parser()])
 
@@ -193,7 +196,21 @@ class RPTaskFailure(ScaleMSError):
         self.failed_task = task.as_dict()
 
 
+class RPInternalError(ScaleMSError):
+    """RADICAL Pilot is misbehaving, probably due to a bug.
+
+    Please report the potential bug.
+    """
+
+
 class RPFinalTaskState:
+    # TODO: Provide a bridge between the threading and asyncio Event primitives so that
+    #  we can effectively `await` for the events. Presumably this would look like an
+    #  asyncio.Future created from a threading.Future of a watcher of the three Events.
+    #  Use asyncio.wrap_future() to wrap a threading.Future to an asyncio.Future.
+    #  If there is not an adapter, we can loop.run_in_executor() to run the
+    #  threading.Event watcher in a separate thread.
+    # For future reference, check out the `sched` module.
     def __init__(self):
         self.canceled = threading.Event()
         self.done = threading.Event()
@@ -215,7 +232,9 @@ def _rp_callback(obj: rp.Task,
     Register with *task* to be called when the rp.Task state changes.
     """
     if final is None:
-        raise APIError('This function is strictly for dynamically prepared RP callbacks through functools.partial.')
+        raise APIError(
+            'This function is strictly for dynamically prepared RP callbacks through '
+            'functools.partial.')
     logger.debug(f'Callback triggered by {repr(obj)} state change to {repr(state)}.')
     try:
         # Note: assertions and exceptions are not useful in RP callbacks.
@@ -239,7 +258,6 @@ def _rp_callback(obj: rp.Task,
 
 
 async def _rp_task_watcher(task: rp.Task,  # noqa: C901
-                           future: asyncio.Future,
                            final: RPFinalTaskState,
                            ready: asyncio.Event) -> rp.Task:
     """Manage the relationship between an RP.Task and a scalems Future.
@@ -251,7 +269,6 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
 
     Arguments:
         task: RADICAL Pilot Task, submitted by caller.
-        future: asyncio.Future to which *task* results should be propagated.
         final: thread-safe event handler for the RP task call-back to announce it has run.
         ready: output parameter, set when coroutine has run enough to perform its
         responsibilities.
@@ -273,70 +290,68 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
     Caller should await the *ready* event before assuming the watcher task is doing its
     job.
     """
+
+    async def wait_for_final(state: RPFinalTaskState) -> RPFinalTaskState:
+        """Function to watch for final event.
+
+        This is a poor design. We should replace with a queuing system for state
+        transitions as described in scalems.workflow.
+        """
+        while not state:
+            # TODO: What is the right adapter between asyncio and threading event waits?
+            await asyncio.sleep(0.05)
+        return state
+
+    event_watcher = asyncio.create_task(wait_for_final(final))
+
     try:
         ready.set()
 
-        def finished():
-            return future.done() or final
-
-        while not finished():
-            # Let the watcher wake up periodically to check for state changes.
-            # TODO: (#96) Use a control thread to manage *threading* primitives and
+        while not event_watcher.done():
+            # TODO(#96): Use a control thread to manage *threading* primitives and
             #  translate to asyncio primitives.
-            done, pending = await asyncio.wait([future],
-                                               timeout=0.05,
+            # Let the watcher wake up periodically to check for suspicious state.
+
+            _rp_task_was_complete = task.state in rp.FINAL
+
+            done, pending = await asyncio.wait([event_watcher],
+                                               timeout=60.0,
                                                return_when=asyncio.FIRST_COMPLETED)
-            if future.cancelled():
-                assert future in done
-                if task.state != rp.states.CANCELED:
-                    logger.debug(
-                        'Propagating cancellation from scalems future to rp task.')
-                    task.cancel()
-                return task
-            if final:
-                logger.debug(f'Handling finalization for RP task {task.uid}')
+
+            if _rp_task_was_complete and not event_watcher.done():
+                event_watcher.cancel()
+                raise RPInternalError('RP Callbacks are taking too long to complete. '
+                                      f'Abandoning {repr(task)}. Please report bug.')
+
+            if event_watcher in done:
+                assert final
+                logger.debug(f'Handling finalization for RP task {task.uid}.')
                 if final.failed.is_set():
-                    if not future.cancelled():
-                        assert not future.done()
-                        assert future in pending
-                        logger.debug('Propagating RP Task failure.')
-                        # TODO: Provide more useful error feedback.
-                        future.set_exception(RPTaskFailure(f'{task.uid} failed.',
-                                                           task=task))
+                    # TODO(#92): Provide more useful error feedback.
+                    raise RPTaskFailure(f'{task.uid} failed.', task=task)
                 elif final.canceled.is_set():
-                    logger.debug('Propagating RP Task cancellation to scalems future.')
-                    future.cancel()
-                    raise asyncio.CancelledError("Managed RP.Task was cancelled.")
-                else:
-                    assert final.done.is_set()
-                    if not future.cancelled():
-                        logger.debug('Publishing RP Task result to scalems Future.')
-                        # TODO: Manage result type better.
-                        result = task.as_dict()
-                        future.set_result(result)
+                    # Act as if RP called Task.cancel() on us.
+                    raise asyncio.CancelledError()
+                assert final.done.is_set()
+
+                logger.debug(
+                    f'Publishing results from RP Task {task.uid}.')
+                # TODO: Manage result type.
                 return task
-            if task.state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
-                if not final:
-                    # This log message is possible because the RP callbacks are handled
-                    # (sequentially) in a separate thread than the task manager.
-                    # If we see this log message, we need to make sure that
-                    # the Future is getting correctly set in a subsequent iteration.
-                    # If it occurs regularly, we should consider whether to use the
-                    # call-back at all.
-                    logger.debug(f'RP Task {task.uid} is in state {task.state}, '
-                                 'but RPFinalTaskState Event has not yet been triggered. '
-                                 'Possible race condition.')
+
+        raise scalems.exceptions.InternalError(
+            'Logic error. This line should not have been reached.')
 
     except asyncio.CancelledError as e:
         logger.debug(
-            'Propagating scalems manager task cancellation to scalems future and rp '
-            'task.')
-        future.cancel()
-        task.cancel()
+            f'Received cancellation in watcher task for {repr(task)}')
+        if task.state not in rp.CANCELED:
+            logger.debug(f'Propagating cancellation to {repr(task)}.')
+            task.cancel()
         raise e
 
 
-async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
+async def rp_task(rptask: rp.Task) -> asyncio.Task:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 
     Schedule an asyncio Task to receive the result of the RP Task. The asyncio
@@ -352,16 +367,15 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     set_exception()) because RP will be making the call from another thread without
     mediation by the asyncio event loop.
 
-    As such, we also need to provide a thread-safe event handler to propagate the
-    RP Task call-back to the asyncio Future.
+    As such, we provide a thread-safe event handler to propagate the
+    RP Task call-back to to this asyncio.Task result.
+    (See `_rp_callback()` and `RPFinalTaskState`)
 
-    Canceling the returned task will cause both *rptask* and *future* to be canceled.
-    Canceling *rptask* will cause this task and *future* to be canceled.
-    Canceling *future* will cause *rptask* to be canceled, but will not cancel this task.
+    Canceling the returned task will cause *rptask* to be canceled.
+    Canceling *rptask* will cause this task to be canceled.
 
     Arguments:
         rptask: RADICAL Pilot Task that has already been submitted.
-        future: Future to which rptask results will be published.
 
     Returns:
         A Task that, when awaited, returns the rp.Task instance in its final state.
@@ -374,16 +388,23 @@ async def rp_task(rptask: rp.Task, future: asyncio.Future) -> asyncio.Task:
     functools.update_wrapper(callback, _rp_callback)
 
     # Note: register_callback() does not provide a return value to use for
-    # TaskManager.unregister_callback.
+    # TaskManager.unregister_callback and we cannot provide *callback* with a reference
+    # to itself until after it is created, so we will get a reference here that we can
+    # provide through the *cb_data* argument of rp.Task callbacks.
     cb_data: weakref.ReferenceType = weakref.ref(callback)
 
     rptask.register_callback(callback, cb_data=cb_data, metric=rp.constants.TASK_STATE)
+
+    if rptask.state in rp.FINAL:
+        # rptask may have reached FINAL state before callback was registered.
+        # Call it once. For simplicity, let the task_watcher logic proceed normally.
+        logger.warning(f'RP Task {repr(rptask)} finished suspiciously fast.')
+        callback(rptask, rptask.state, cb_data)
 
     asyncio.get_running_loop().slow_callback_duration = 0.2
     watcher_started = asyncio.Event()
     waiter = asyncio.create_task(watcher_started.wait())
     wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask,
-                                                        future=future,
                                                         final=final,
                                                         ready=watcher_started))
 
@@ -509,16 +530,48 @@ async def submit(*,
                  scheduler: str = None) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
-    Registers a Future for the task result with *item*.
+    Submits an rp.Task and returns an asyncio.Task watcher for the submitted task.
+
+    Creates a Future, registering a done_callback to publish the task result with
+    *item.set_result()*.
+
+    A callback is registered with the rp.Task to set an Event on completion. An
+    asyncio.Task watcher task monitors the Event(s) and gets a reference to an
+    asyncio.Future through which results can be published to the scalems workflow item.
+    (Currently the Future is created in this function, but should probably be acquired
+    directly from the *item* itself.) The watcher task waits for the rp.Task
+    finalization event or for the Future to be cancelled. Periodically, the watcher
+    task "wakes up" to check if something has gone wrong, such as the rp.Task
+    completing without setting the finalization event.
+
+    Caveats:
+        There is an unavoidable race condition in the check performed by the watcher
+        task. We don't know how long after an rp.Task completes before its callbacks
+        will run and we can't check whether the callback has been scheduled. The
+        watcher task cannot be allowed to complete successfully until we know that the
+        callback has either run or will never run.
+
+        The delay between the rp.Task state change and the callback execution should be
+        less than a second. We can allow the watcher to wake up occasionally (on the
+        order of minutes), so we can assume that it will never take more than a full
+        iteration of the waiting loop for the callback to propagate, unless there is a
+        bug in RP. For simplicity, we can just note whether `rptask.state in rp.FINAL`
+        before the watcher goes to sleep and raise an error if the callback is not
+        triggered in an iteration where we have set such a flag.
+
+        If our watcher sends a cancellation to the rp.Task, there is no need to
+        continue to monitor the rp.Task state and the watcher may exit.
 
     Args:
         item: The workflow item to be submitted
         task_manager: A radical.pilot.TaskManager instance
                       through which the task should be submitted.
+        pre_exec: `radical.pilot.Task.pre_exec` prototype.
         scheduler (str): The string name of the "scheduler," corresponding to
                          the UID of a Task running a rp.raptor.Master.
 
-    Returns an asyncio.Task for a submitted rp.Task.
+    Returns:
+         asyncio.Task: a "Future[rp.Task]" for a rp.Task in its final state.
 
     The caller *must* await the result of the coroutine to obtain an asyncio.Task that
     can be cancelled or awaited as a proxy to direct RP task management. The Task will
@@ -526,59 +579,11 @@ async def submit(*,
     caller should check the status of the task immediately before making assumptions
     about whether a Future has been successfully bound to the managed workflow item.
 
-    The *submitted* (output) event is likely a short-term placeholder and subject to
-    change. For instance, the use case for waiting on such an event could be met by
-    waiting on the state change of the workflow item to a SUBMITTED state. However,
-    note that this function will block for a short time at the
-    rp.TaskManager.submit_tasks() call, so it is useful to separate the submission
-    event from the completion of this coroutine early in development while we decide
-    whether and how to relegate RP calls to threads separated from that of the event
-    loop.
-
     The returned asyncio.Task can be used to cancel the rp.Task (and the Future)
     or to await the RP.Task cleanup.
 
-    To submit tasks as a batch, await an array of submit_rp_task() results in the
+    To submit tasks as a batch, await an array of submit() results in the
     same dispatching context. (TBD)
-
-    Notes:
-
-        workflow manager maintains the workflow state without expensive or stateful
-        volatile resources, and can mediate updates to the managed workflow at any
-        time. Items enter the graph in an IDLE state. The WorkflowManager can provide
-        Futures for the results of the managed items. For IDLE items,
-        the WorkflowManager retains a weakref to the issued Futures, which it can use
-        to make sure that there is only zero or one Future for a particular result.
-
-        WorkflowManager collaborates with Queuer to transition the graph to an "active"
-        or "executing" state. This transition is mediated through the dispatcher_lock.
-
-        Queuer sequences and queues workflow items to be handled, pushing them to a
-        dispatch_queue. No state change to the workflow item seems necessary at this
-        time.
-
-        The dispatch_queue is read by an ExecutionManager. Items may be processed
-        immediately or staged in a command_queue. Workflow items are then either
-        SUBMITTED or BLOCKED (awaiting dependencies). Optionally, Items may be marked
-        ELIGIBLE and re-queued for batch submission.
-
-        If the ExecutionManager is able to submit a task, the Task has a call-back
-        registered for the workflow item. The WorkflowManager needs to convert any
-        Future weakrefs to strong references when items are SUBMITTED, and the workflow
-        Futures are subscribed to the item. Tasks are wrapped in a scalems object that
-        the WorkflowManager is able to take ownership of. BLOCKED items are wrapped in
-        Tasks which are subscribed to their dependencies (WorkflowItems should already
-        be subscribed to WorkflowItem Futures for any dependencies) and stored by the
-        ExecutionManager. When the call-backs for all of the dependencies indicate the
-        Item should be processed into an upcoming workload, the Item becomes ELIGIBLE,
-        and its wrapper Task (in collaboration with the ExecutionManager) puts it in
-        the command_queue.
-
-        As an optimization, and to support co-scheduling, a WorkflowItem call-back can
-        provide notification of state changes. For instance, a BLOCKED item may become
-        ELIGIBLE once all of its dependencies are SUBMITTED, when the actual Executor
-        has some degree of data flow management capabilities.
-
     """
 
     # TODO: Optimization: skip tasks that are already done (cached results available).
@@ -598,19 +603,10 @@ async def submit(*,
     else:
         raise APIError('Caller must provide the UID of a submitted *scheduler* task.')
 
-    loop = asyncio.get_running_loop()
-    rp_task_result_future = loop.create_future()
-
-    # Warning: in the long run, we should not extend the life of the reference returned
-    # by edit_item, and we need to consider the robust way to publish item results.
-    # TODO: Translate RP result to item result type.
-    rp_task_result_future.add_done_callback(functools.partial(scalems_callback,
-                                                              item=item))
-
     # TODO: Move slow blocking RP calls to a separate RP control thread.
     task = task_manager.submit_tasks(rp_task_description)
 
-    rp_task_watcher = await rp_task(rptask=task, future=rp_task_result_future)
+    rp_task_watcher = await rp_task(rptask=task)
 
     if rp_task_watcher.done():
         if rp_task_watcher.cancelled():
@@ -620,23 +616,39 @@ async def submit(*,
         if e is not None:
             raise DispatchError('Task for {item} failed during dispatching.') from e
 
+    # Warning: in the long run, we should not extend the life of the reference returned
+    # by edit_item, and we need to consider the robust way to publish item results.
+    # TODO: Translate RP result to item result type.
+    rp_task_watcher.add_done_callback(functools.partial(scalems_callback,
+                                                        item=item))
+    # TODO: If *item* acquires a `cancel` method, we need to subscribe to it and
+    #  respond by unregistering the callback and canceling the future.
+
     return rp_task_watcher
 
 
 def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
-    """Process the completed Future for an rp.Task.
+    """Propagate the results of a Future to the subscribed *item*.
 
     Partially bind *item* to use this as the argument to *fut.add_done_callback()*.
 
     Warning: in the long run, we should not extend the life of the reference returned
     by edit_item, and we need to consider the robust way to publish item results.
+
+    Note:
+        This is not currently RP-specific and we should look at how best to factor
+        results publishing for workflow items. It may be that this function is the
+        appropriate place to convert RP Task results to scalems results.
     """
     assert fut.done()
     if fut.cancelled():
         logger.info(f'Task supporting {item} has been cancelled.')
     else:
-        if fut.exception():
-            logger.info(f'Task supporting {item} failed: {fut.exception()}')
+        # The following should not throw because we just checked for `done()` and
+        # `cancelled()`
+        e = fut.exception()
+        if e:
+            logger.info(f'Task supporting {item} failed: {e}')
         else:
             # TODO: Construct an appropriate scalems Result from the rp Task.
             item.set_result(fut.result())

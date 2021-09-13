@@ -84,11 +84,20 @@ _BackendT = typing.TypeVar('_BackendT', contravariant=True)
 
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
-    """Client side manager for dispatching work loads and managing data flow."""
+    """Client side manager for dispatching work loads and managing data flow.
+
+    A RuntimeManager is instantiated within the scope of the
+    `scalems.workflow.WorkflowManager.dispatch` context manager using the
+    `scalems.workflow.WorkflowManager._executor_factory`. Within the
+    """
     # TODO: Address the circular dependency of
     #  WorkflowManager->ExecutorFactory->RuntimeManager->WorkflowManager
+    #  * source_context should be a WorkflowEditor interface or just a weakref to
+    #    edit_item.
+    #  * the `item: Task` argument to `AbstractWorkflowUpdater.submit()` should be
+    #    decoupled from the WorkflowManager implementation.
     source_context: WorkflowManager
-    submitted_tasks: typing.List[asyncio.Task]
+    submitted_tasks: typing.MutableSet[asyncio.Task]
 
     _runtime_configuration: _BackendT = None
 
@@ -127,7 +136,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                  loop: asyncio.AbstractEventLoop,
                  configuration: _BackendT,
                  dispatcher_lock=None):
-        self.submitted_tasks = []
+        self.submitted_tasks = set()
 
         # TODO: Only hold a queue in an active context manager.
         self._command_queue = asyncio.Queue()
@@ -291,8 +300,14 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                     if not self._command_queue.empty():
                         logger.error('Command queue never emptied.')
 
-                    # Wait for the watchers.
-                    if len(self.submitted_tasks) > 0:
+                    if len(self.submitted_tasks) == 0:
+                        logger.debug('No tasks to wait for. Continuing to shut down.')
+                    else:
+                        # Wait for the tasks.
+                        # For scalems.radical, the returned values are the rp.Task
+                        # objects in their final states.
+                        # QUESTION: How long should we wait before canceling tasks?
+                        # TODO: Handle some sort of job maximum wall time parameter.
                         results = await asyncio.gather(*self.submitted_tasks)
                         # TODO: Log something useful about the results.
                         assert len(results) == len(self.submitted_tasks)
@@ -476,7 +491,7 @@ async def manage_execution(executor: RuntimeManager,
                     else:
                         logger.debug(f'Task {task} already done. Continuing.')
                 else:
-                    executor.submitted_tasks.append(task)
+                    executor.submitted_tasks.add(task)
 
         except Exception as e:
             logger.debug('Leaving queue runner due to exception.')
@@ -488,8 +503,9 @@ async def manage_execution(executor: RuntimeManager,
             queue.task_done()
 
 
-class ExecutorFactory(typing.Protocol[_BackendT]):
-    def __call__(self,
-                 manager: WorkflowManager,
-                 params: typing.Optional[_BackendT] = None) -> RuntimeManager[_BackendT]:
-        ...
+# TODO: Resolve circular reference between `execution` and `workflow` modules.
+# class ExecutorFactory(typing.Protocol[_BackendT]):
+#     def __call__(self,
+#                  manager: WorkflowManager,
+#                  params: typing.Optional[_BackendT] = None) -> RuntimeManager[_BackendT]:
+#         ...

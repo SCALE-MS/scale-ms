@@ -239,8 +239,7 @@ def _rp_callback(obj: rp.Task,
     try:
         # Note: assertions and exceptions are not useful in RP callbacks.
         if state in (rp.states.DONE, rp.states.CANCELED, rp.states.FAILED):
-            # TODO: Pending https://github.com/radical-cybertools/radical.pilot/issues
-            #  /2444
+            # TODO: Pending https://github.com/radical-cybertools/radical.pilot/issues/2444
             # tmgr: rp.TaskManager = obj.tmgr
             # ref = cb_data()
             # tmgr.unregister_callback(cb=ref, metrics='TASK_STATE',
@@ -552,17 +551,16 @@ async def submit(*,
         watcher task cannot be allowed to complete successfully until we know that the
         callback has either run or will never run.
 
-        To simplify, we can let the watcher
-        propagate failures or cancellations from the rp.Task if they are discovered
-        before the Event is set (by the rp.Task callback), but we should have some sort
-        of timer that we monitor to see if it is taking too long for rp.Task results to
-        propagate through the Event watcher.
+        The delay between the rp.Task state change and the callback execution should be
+        less than a second. We can allow the watcher to wake up occasionally (on the
+        order of minutes), so we can assume that it will never take more than a full
+        iteration of the waiting loop for the callback to propagate, unless there is a
+        bug in RP. For simplicity, we can just note whether `rptask.state in rp.FINAL`
+        before the watcher goes to sleep and raise an error if the callback is not
+        triggered in an iteration where we have set such a flag.
 
         If our watcher sends a cancellation to the rp.Task, there is no need to
         continue to monitor the rp.Task state and the watcher may exit.
-
-        TODO: We need to be sure whether an rp.Task in an rp.FINAL state is guaranteed
-            to have performed its callbacks.
 
     Args:
         item: The workflow item to be submitted
@@ -573,7 +571,7 @@ async def submit(*,
                          the UID of a Task running a rp.raptor.Master.
 
     Returns:
-         asyncio.Task: for the watcher of a submitted rp.Task.
+         asyncio.Task: a "Future[rp.Task]" for a rp.Task in its final state.
 
     The caller *must* await the result of the coroutine to obtain an asyncio.Task that
     can be cancelled or awaited as a proxy to direct RP task management. The Task will

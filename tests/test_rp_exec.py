@@ -107,6 +107,8 @@ logger.setLevel(logging.DEBUG)
 async def test_exec_rp(pilot_description, rp_venv, cleandir):
     """Test that we are able to launch and shut down a RP dispatched execution session.
     """
+    import radical.pilot as rp
+
     # Hopefully, this requirement is temporary.
     if rp_venv is None:
         pytest.skip('This test requires a user-provided static RP venv.')
@@ -145,11 +147,11 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
         logger.debug(cmd2.result())
 
     # TODO: Output typing.
-    out1: dict = cmd1.result()
-    for output in out1['description']['output_staging']:
+    out1: rp.Task = cmd1.result()
+    for output in out1.description['output_staging']:
         assert os.path.exists(output['target'])
-    out2: dict = cmd2.result()
-    for output in out2['description']['output_staging']:
+    out2: rp.Task = cmd2.result()
+    for output in out2.description['output_staging']:
         assert os.path.exists(output['target'])
         if output['target'].endswith('stdout'):
             with open(output['target'], 'r') as fh:

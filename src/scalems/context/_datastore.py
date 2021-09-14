@@ -91,6 +91,58 @@ class FilesView(typing.Mapping[str, pathlib.Path]):
             yield key
 
 
+class Mode(typing.TypedDict):
+    read: bool
+    write: bool
+    binary: bool
+
+
+def _parse_mode(mode: str) -> Mode:
+    _mode = Mode(read=True, write=False, binary=True)
+    if 'r' in mode:
+        _mode['read'] = True
+    else:
+        raise ValueError('Only read-only file objects are currently supported.')
+    if 'b' in mode:
+        _mode['binary'] = True
+    else:
+        _mode['binary'] = False
+    return _mode
+
+
+_T = typing.TypeVar('_T')
+
+
+def get_to_thread() \
+        -> typing.Callable[
+            [
+                typing.Callable[..., _T],
+                typing.Tuple[typing.Any, ...],
+                typing.Dict[str, typing.Any]
+            ],
+            typing.Coroutine[typing.Any, typing.Any, _T]]:
+    """Provide a to_thread function.
+
+    asyncio.to_thread() appears in Python 3.9, but we only require 3.8 as of this writing.
+    """
+    try:
+        from asyncio import to_thread as _to_thread
+    except ImportError:
+        async def _to_thread(__func: typing.Callable[..., _T],
+                             *args: typing.Any,
+                             **kwargs: typing.Any) -> _T:
+            """Mock Python to_thread for Py 3.8."""
+            wrapped_function: typing.Callable[[], _T] = functools.partial(__func, *args,
+                                                                          **kwargs)
+            assert callable(wrapped_function)
+            loop = asyncio.get_event_loop()
+            coro: typing.Awaitable[_T] = loop.run_in_executor(
+                None, wrapped_function)
+            result = await coro
+            return result
+    return _to_thread
+
+
 class FileStore:
     """Handle to the SCALE-MS nonvolatile data store for a workflow context.
 
@@ -392,19 +444,8 @@ class FileStore:
         TODO: Move more of these checks to the task creation so we can catch errors
             earlier.
         """
-        _mode = {
-            'read': True,
-            'write': False,
-            'binary': True
-        }
-        if 'r' in mode:
-            _mode['read'] = True
-        else:
-            raise ValueError('Only read-only file objects are currently supported.')
-        if 'b' in mode:
-            _mode['binary'] = True
-        else:
-            _mode['binary'] = False
+        _mode = _parse_mode(mode)
+        if not _mode['binary']:
             if encoding is None:
                 encoding = locale.getpreferredencoding(False)
             try:
@@ -429,32 +470,18 @@ class FileStore:
         if not path.exists() or not path.is_file():
             raise ValueError(f'Path {obj} is not a valid file.')
 
-        try:
-            from asyncio import to_thread
-        except ImportError:
-            from typing import Callable, Any
-            _T = typing.TypeVar('_T')
-
-            async def to_thread(__func: Callable[..., _T],
-                                *args: Any,
-                                **kwargs: Any) -> _T:
-                """Mock Python to_thread for Py 3.8."""
-                wrapped_function: Callable[[], _T] = functools.partial(__func, *args,
-                                                                       **kwargs)
-                assert callable(wrapped_function)
-                loop = asyncio.get_event_loop()
-                coro: typing.Awaitable[_T] = loop.run_in_executor(
-                    None, wrapped_function)
-                result = await coro
-                return result
+        to_thread = get_to_thread()
 
         filename = None
         tmpfile_target = self.datastore.joinpath(
             self._tmpfile_prefix + str(scalems.utility.next_monotonic_integer()))
         try:
             # 1. Copy the file.
+            kwargs = dict(
+                src=path, dst=tmpfile_target, follow_symlinks=False
+            )
             _path = await to_thread(
-                shutil.copyfile, src=path, dst=tmpfile_target, follow_symlinks=False)
+                shutil.copyfile, **kwargs)
             assert tmpfile_target == _path
             assert tmpfile_target.exists()
             # We have now secured a copy of the file. We could just schedule the remaining
@@ -495,7 +522,8 @@ class FileStore:
                              exc_info=e)
             # Something went wrong. Let's try to clean up as best we can.
             if key and key in self._data.files:
-                ...
+                pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
+                del self._data.files[key]
             if isinstance(filename, pathlib.Path):
                 filename.unlink(missing_ok=True)
             if tmpfile_target.exists():

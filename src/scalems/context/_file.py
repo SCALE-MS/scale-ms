@@ -2,7 +2,9 @@
 
 __all__ = ['FileReference', 'DataLocalizationError']
 
+import abc
 import pathlib
+import typing
 
 from scalems.exceptions import ScopeError
 
@@ -16,7 +18,8 @@ class DataLocalizationError(ScopeError):
     """
 
 
-class FileReference:
+@typing.runtime_checkable
+class FileReference(typing.Protocol):
     """Reference to a managed file.
 
     A FileReference is an :py:class:`os.PathLike` object.
@@ -29,6 +32,7 @@ class FileReference:
         handle: scalems.FileReference = filestore.add_file(...)
     """
 
+    @abc.abstractmethod
     def __fspath__(self) -> str:
         """Represent the local filesystem path, if possible.
 
@@ -40,8 +44,9 @@ class FileReference:
             DataLocalizationError: if the file has not been transferred to the local
             file store.
         """
-        ...
+        raise NotImplementedError
 
+    @abc.abstractmethod
     def is_local(self, context=None) -> bool:
         """Check for file existence in a given context.
 
@@ -49,9 +54,10 @@ class FileReference:
         If *context* is specified, checks whether the referenced file is locally
         available in the given context.
         """
-        ...
+        raise NotImplementedError
 
-    async def localize(self, context=None):
+    @abc.abstractmethod
+    async def localize(self, context=None) -> 'FileReference':
         """Make sure that the referenced file is available locally for a given context.
 
         With no arguments, *localize()* affects the currently active FileStore.
@@ -77,7 +83,7 @@ class FileReference:
         Raises:
             DataLocalizationError: if the referenced file has not been localized.
         """
-        ...
+        return context.files[self.key()]
 
     def as_uri(self, context=None) -> str:
         """Get an appropriate URI for a referenced file, whether or not it is available.
@@ -91,4 +97,18 @@ class FileReference:
         extensions for RADICAL Pilot
         :py:mod:`staging directives <radical.pilot.staging_directives>`.
         """
-        ...
+        return self.path(context=context).as_uri()
+
+    @abc.abstractmethod
+    def filestore(self):
+        """Get a handle to the managing filestore for this reference."""
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def key(self):
+        """Get the identifying key for the file reference.
+
+        The return value may not be human readable, but may be necessary for locating
+        the referenced file through the filestore.
+        """
+        raise NotImplementedError

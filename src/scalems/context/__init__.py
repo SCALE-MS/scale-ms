@@ -1,7 +1,12 @@
 """Execution environment context management.
 """
 
-__all__ = ['initialize_datastore', 'scoped_chdir', 'ContextError', 'StaleFileStore']
+__all__ = (
+    'describe_file',
+    'initialize_datastore',
+    'scoped_chdir',
+    'ContextError',
+    'StaleFileStore')
 
 import contextlib
 import logging
@@ -12,12 +17,12 @@ import typing
 import warnings
 
 from ._datastore import ContextError
+from ._datastore import describe_file
 from ._datastore import initialize_datastore
 from ._datastore import StaleFileStore
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
-
 
 cwd_lock = threading.Lock()
 

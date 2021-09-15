@@ -13,19 +13,21 @@ and we should not rely on it. Also, note the sequence with which module variable
 class definitions are released during shutdown.
 """
 
-__all__ = [
+__all__ = (
     'ContextError',
     'StaleFileStore',
+    'describe_file',
     'initialize_datastore',
-]
+)
 
+import abc
 import asyncio
 import codecs
 import contextvars
 import dataclasses
+import enum
 import functools
 import hashlib
-import io
 import json
 import locale
 import logging
@@ -83,7 +85,14 @@ class FilesView(typing.Mapping[str, pathlib.Path]):
         self._files = files
 
     def __getitem__(self, k: str) -> pathlib.Path:
+        if not isinstance(k, str):
+            raise TypeError('Key type must be str.')
         return pathlib.Path(self._files[k])
+
+    def __contains__(self, o: object) -> bool:
+        if not isinstance(o, str):
+            raise TypeError('Key type must be str.')
+        return super().__contains__(o)
 
     def __len__(self) -> int:
         return len(self._files)
@@ -93,23 +102,120 @@ class FilesView(typing.Mapping[str, pathlib.Path]):
             yield key
 
 
-class Mode(typing.TypedDict):
-    read: bool
-    write: bool
-    binary: bool
+class AccessFlags(enum.Flag):
+    NO_ACCESS = 0
+    READ = enum.auto()
+    WRITE = enum.auto()
 
 
-def _parse_mode(mode: str) -> Mode:
-    _mode = Mode(read=True, write=False, binary=True)
+class AbstractFile(typing.Protocol):
+    """Abstract base for file types."""
+    access: AccessFlags
+
+    # _params: dict = None
+    #
+    # def __repr__(self):
+    #     params = ', '.join([f'{key}={value}' for key, value in self._params.items()])
+    #     return f'{self.__class__.__qualname__}({params})'
+
+    @abc.abstractmethod
+    def __fspath__(self) -> str:
+        raise NotImplementedError
+
+    def path(self) -> pathlib.Path:
+        return pathlib.Path(os.fspath(self))
+
+    def fingerprint(self) -> bytes:
+        """Get a checksum or other suitable fingerprint for the file data."""
+        with open(os.fspath(self), 'rb') as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                m = hashlib.sha256(data)
+        checksum: bytes = m.digest()
+        return checksum
+
+    # @abc.abstractmethod
+    # def serialize(self) -> bytes:
+    #     ...
+    #
+    # @abc.abstractmethod
+    # @classmethod
+    # def deserialize(cls, stream: bytes):
+    #     ...
+
+
+class BaseBinary(AbstractFile):
+    """Base class for binary file types."""
+    _path: pathlib.Path
+
+    def __init__(self,
+                 path: typing.Union[str, pathlib.Path, os.PathLike],
+                 access: AccessFlags = AccessFlags.READ):
+        self._path = pathlib.Path(path).resolve()
+        self.access = access
+
+    def __fspath__(self) -> str:
+        return str(self._path)
+
+    def path(self) -> pathlib.Path:
+        return self._path
+
+
+class BaseText(BaseBinary):
+    """Base class for text file types."""
+    encoding = locale.getpreferredencoding(False)
+
+    def __init__(self, path, access: AccessFlags = AccessFlags.READ, encoding=None):
+        if encoding is None:
+            encoding = locale.getpreferredencoding(False)
+        try:
+            codecs.getencoder(encoding)
+        except LookupError:
+            raise ValueError('Specify a valid character encoding for text files.')
+        self.encoding = encoding
+        super().__init__(path=path, access=access)
+
+    def fingerprint(self) -> bytes:
+        m = hashlib.sha256()
+        # Use universal newlines and utf-8 encoding for text file fingerprinting.
+        with open(self._path, 'r', encoding=self.encoding) as f:
+            # If we knew more about the text file size or line length, or if we already
+            # had an open buffer, socket, or mmap, we could  optimize this in subclasses.
+            for line in f:
+                m.update(line.encode('utf8'))
+        checksum: bytes = m.digest()
+        return checksum
+
+
+def describe_file(obj: typing.Union[str, pathlib.Path, os.PathLike],
+                  mode='rb',
+                  encoding: str = None,
+                  file_type_hint=None) -> AbstractFile:
+    """Describe an existing local file."""
+    access = AccessFlags.NO_ACCESS
     if 'r' in mode:
-        _mode['read'] = True
+        access |= AccessFlags.READ
+        if 'w' in mode:
+            access |= AccessFlags.WRITE
     else:
-        raise ValueError('Only read-only file objects are currently supported.')
+        # If neither 'r' nor 'w' is provided, still assume 'w'
+        access |= AccessFlags.WRITE
+    # TODO: Confirm requested access permissions.
+
+    if file_type_hint:
+        raise scalems.exceptions.MissingImplementationError(
+            'Extensible file types not yet supported.')
+
     if 'b' in mode:
-        _mode['binary'] = True
+        if encoding is not None:
+            raise TypeError('*encoding* argument is not supported for binary files.')
+        file = BaseBinary(path=obj, access=access)
     else:
-        _mode['binary'] = False
-    return _mode
+        file = BaseText(path=obj, access=access, encoding=encoding)
+
+    if not file.path().exists():
+        raise ValueError('Not an existing file.')
+
+    return file
 
 
 _T = typing.TypeVar('_T')
@@ -316,7 +422,11 @@ class FileStore:
                     directory)) from e
 
     def __enter__(self):
-        self._token = _filestore.set(weakref.ref(self))
+        if self._token:
+            raise ContextError(
+                'FileStore is not reentrant'
+            )
+        token = _filestore.set(weakref.ref(self))
         # TODO: Clarify reentrance behavior (global versus internal locking).
         # There shouldn't really be any problem with reentrance for regular `with`
         # block, though maybe we should confirm that we are in the same process and
@@ -324,11 +434,11 @@ class FileStore:
         # (i.e. `__aenter__`, `__aexit__`). If necessary, we can use a Semaphore to
         # count recursion depth across Contexts and/or cache a Semaphore value in a
         # ContextVar to watch for errors.
-        if self._token.old_value in {self, contextvars.Token.MISSING}:
+        if token.old_value in {self, contextvars.Token.MISSING}:
+            self._token = token
             return self
         else:
-            _filestore.reset(self._token)
-            del self._token
+            _filestore.reset(token)
             raise ContextError(
                 'FileStore is not reentrant'
             )
@@ -418,9 +528,8 @@ class FileStore:
         return FileStore._instances.get(self.directory, None) is not self
 
     async def add_file(self,
-                       obj: typing.Union[str, pathlib.Path, os.PathLike, FileReference],
-                       key: str = None,
-                       mode='rb', encoding=None) -> FileReference:
+                       obj: typing.Union[AbstractFile, FileReference],
+                       _name: str = None) -> FileReference:
         """Add a file to the file store.
 
         This involves placing (copying) the file, reading the file to fingerprint it,
@@ -428,9 +537,10 @@ class FileStore:
         after fingerprinting to remove a layer of indirection, even though this
         generates additional load on the filesystem.
 
-        The caller is allowed to provide a *key* to use for the filename instead of the
-        calculated name, but the file will still be fingerprinted and the caller must
-        be sure the key is unique. (This use case should be limited to internal use or
+        The caller is allowed to provide a *_name* to use for the filename,
+        but this is strongly discouraged. The file will still be fingerprinted and the
+        caller must be sure the key is unique across all software components that may
+        by using the FileStore. (This use case should be limited to internal use or
         core functionality to minimize namespace collisions.)
 
         If the file is provided as a memory buffer or io.IOBase subclass, further
@@ -446,15 +556,6 @@ class FileStore:
         TODO: Move more of these checks to the task creation so we can catch errors
             earlier.
         """
-        _mode = _parse_mode(mode)
-        if not _mode['binary']:
-            if encoding is None:
-                encoding = locale.getpreferredencoding(False)
-            try:
-                codecs.getencoder(encoding)
-            except LookupError:
-                raise ValueError('Specify a valid character encoding for text files.')
-
         # Note: We can use a more effective and flexible `try: ... except: ...` check
         # once we actually have FileReference support ready to use here, at which point
         # we can consider removing runtime_checkable from FileReference to avoid false
@@ -463,18 +564,11 @@ class FileStore:
         if isinstance(obj, FileReference):
             raise scalems.exceptions.MissingImplementationError(
                 'FileReference input not yet supported.')
-        if isinstance(obj, (str, os.PathLike)):
-            obj = pathlib.Path(obj)
-        if not isinstance(obj, pathlib.Path):
-            raise TypeError(f'{obj.__class__.__qualname__} could not be interpreted as '
-                            f'a filesystem path.')
-        path: pathlib.Path = obj.resolve()
-        if not path.exists() or not path.is_file():
-            raise ValueError(f'Path {obj} is not a valid file.')
-
+        path: pathlib.Path = obj.path()
         to_thread = get_to_thread()
 
         filename = None
+        key = None
         tmpfile_target = self.datastore.joinpath(
             self._tmpfile_prefix + str(scalems.utility.next_monotonic_integer()))
         try:
@@ -493,30 +587,28 @@ class FileStore:
             # finished and schedule a checksum verification that localize() must wait for.
 
             # 2. Fingerprint the file.
-            m = hashlib.sha256()
-            if _mode['binary']:
-                with open(tmpfile_target, 'rb') as f:
-                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-                        m.update(data)
-            else:
-                assert encoding
-                with open(tmpfile_target, 'r', encoding=encoding) as f:
-                    for line in f:
-                        m.update(line.encode(encoding))
-            checksum: bytes = m.digest()
+            checksum = await to_thread(obj.fingerprint, **{})
 
             # 3. Choose a key.
-            if key is None:
-                key = checksum.hex()
+            key = checksum.hex()
 
             # 4. Write metadata.
-            filename = self.datastore.joinpath(key)
-            tmpfile_target.rename(filename)
+            if _name is None:
+                _name = key
+            filename = self.datastore.joinpath(_name)
             with self._update_lock:
                 if key in self._data.files:
                     # TODO: Support caching. Use existing file if checksums match.
                     raise scalems.exceptions.DuplicateKeyError(
                         f'FileStore is already managing a file with key {key}.')
+                if str(filename) in self._data.files.values():
+                    raise scalems.exceptions.DuplicateKeyError(
+                        f'FileStore already has {filename}.')
+                else:
+                    if filename.exists():
+                        raise StaleFileStore(f'Unexpected file in filestore: {filename}.')
+                os.rename(tmpfile_target, filename)
+                logger.debug(f'Placed {filename}')
                 self._data.files[key] = str(filename)
 
             return _FileReference(filestore=self, key=key)
@@ -553,6 +645,7 @@ class _FileReference(FileReference):
             raise scalems.exceptions.ProtocolError(
                 'Cannot create reference to unmanaged file.')
         self._key = key
+        self._repr = f'<FileReference key:{key} path:{self._filestore.files[key]}>'
 
     def __fspath__(self) -> str:
         return str(self._filestore.files[self._key])
@@ -595,6 +688,9 @@ class _FileReference(FileReference):
                 'Path resolution dispatching is not yet implemented.'
             )
         return context.files[self._key].as_uri()
+
+    def __repr__(self):
+        return self._repr
 
 
 def get_context() -> typing.Union[FileStore, None]:

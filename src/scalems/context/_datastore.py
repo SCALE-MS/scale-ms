@@ -25,9 +25,11 @@ import contextvars
 import dataclasses
 import functools
 import hashlib
+import io
 import json
 import locale
 import logging
+import mmap
 import os
 import pathlib
 import shutil
@@ -494,7 +496,8 @@ class FileStore:
             m = hashlib.sha256()
             if _mode['binary']:
                 with open(tmpfile_target, 'rb') as f:
-                    m.update(f)
+                    with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                        m.update(data)
             else:
                 assert encoding
                 with open(tmpfile_target, 'r', encoding=encoding) as f:

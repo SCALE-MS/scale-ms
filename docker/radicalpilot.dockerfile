@@ -13,25 +13,54 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         curl \
         dnsutils \
-        gcc \
-        git \
         iputils-ping \
         language-pack-en \
         locales \
-        openmpi-bin \
-        openssh-server \
-        python3.8-dev \
-        python3-venv \
-        python-dev-is-python3 \
-        tox \
-        vim && \
+        && \
     rm -rf /var/lib/apt/lists/*
 
 RUN locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8
 
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y --no-install-recommends \
+        gcc \
+        git \
+        openmpi-bin \
+        openssh-server \
+        vim \
+        wget && \
+    rm -rf /var/lib/apt/lists/*
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+    apt-get -y --no-install-recommends install \
+        libmpich-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+# Note that mpic++ can be configured with `update-alternatives` for openmpi or mpich.
+# See https://stackoverflow.com/a/66538359/5351807
+# The mpic++ (both mpic++.openmpi and mpic++.mpich) uses g++ by default
+# (and so is not affected by alternatives for "c++").
+# mpic++.openmpi can be redirected with environment variables (e.g. OMPI_CXX=clang++ mpic++ ...).
+# It is not clear whether mpic++.mpich can be similarly configured, and it might be better
+# to do fancy tool chain manipulation through Spack instead of the Ubuntu system tools.
+
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y \
+        python3.8-dev \
+        python3.9-dev \
+        python3.8-venv \
+        python3.9-venv \
+        python-dev-is-python3 \
+        tox && \
+    rm -rf /var/lib/apt/lists/*
 
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 8
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 9
 
 # Reference https://docs.docker.com/engine/examples/running_ssh_service/
 RUN mkdir /var/run/sshd

@@ -13,28 +13,40 @@ and we should not rely on it. Also, note the sequence with which module variable
 class definitions are released during shutdown.
 """
 
-__all__ = [
+__all__ = (
     'ContextError',
     'StaleFileStore',
+    'describe_file',
     'initialize_datastore',
-]
+)
 
+import abc
+import asyncio
+import codecs
 import contextvars
 import dataclasses
+import enum
+import functools
+import hashlib
 import json
+import locale
 import logging
+import mmap
 import os
 import pathlib
+import shutil
 import tempfile
 import threading
 import typing
 import warnings
 import weakref
 from contextvars import ContextVar
+from typing import Iterator
 from typing import Optional
 from weakref import ReferenceType
 
 import scalems.exceptions
+from ._file import FileReference
 from ._lock import is_locked
 from ._lock import LockException
 from ._lock import scoped_directory_lock as _scoped_directory_lock
@@ -47,7 +59,6 @@ _data_subdirectory = 'scalems_0_0'
 
 _metadata_filename = 'scalems_context_metadata.json'
 """Name to use for Context metadata files (module constant)."""
-
 
 _filestore: ContextVar[Optional[ReferenceType]] = contextvars.ContextVar('_filestore')
 
@@ -63,29 +74,203 @@ class ContextError(Exception):
 @dataclasses.dataclass
 class Metadata:
     instance: int
+    files: typing.MutableMapping[str, str] = dataclasses.field(
+        default_factory=dict)
+
+
+class FilesView(typing.Mapping[str, pathlib.Path]):
+    """Read-only viewer for files metadata."""
+
+    def __init__(self, files: typing.Mapping[str, str]):
+        self._files = files
+
+    def __getitem__(self, k: str) -> pathlib.Path:
+        if not isinstance(k, str):
+            raise TypeError('Key type must be str.')
+        return pathlib.Path(self._files[k])
+
+    def __contains__(self, o: object) -> bool:
+        if not isinstance(o, str):
+            raise TypeError('Key type must be str.')
+        return super().__contains__(o)
+
+    def __len__(self) -> int:
+        return len(self._files)
+
+    def __iter__(self) -> Iterator[str]:
+        for key in self._files:
+            yield key
+
+
+class AccessFlags(enum.Flag):
+    NO_ACCESS = 0
+    READ = enum.auto()
+    WRITE = enum.auto()
+
+
+class AbstractFile(typing.Protocol):
+    """Abstract base for file types."""
+    access: AccessFlags
+
+    # _params: dict = None
+    #
+    # def __repr__(self):
+    #     params = ', '.join([f'{key}={value}' for key, value in self._params.items()])
+    #     return f'{self.__class__.__qualname__}({params})'
+
+    @abc.abstractmethod
+    def __fspath__(self) -> str:
+        raise NotImplementedError
+
+    def path(self) -> pathlib.Path:
+        return pathlib.Path(os.fspath(self))
+
+    def fingerprint(self) -> bytes:
+        """Get a checksum or other suitable fingerprint for the file data."""
+        with open(os.fspath(self), 'rb') as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                m = hashlib.sha256(data)
+        checksum: bytes = m.digest()
+        return checksum
+
+    # @abc.abstractmethod
+    # def serialize(self) -> bytes:
+    #     ...
+    #
+    # @abc.abstractmethod
+    # @classmethod
+    # def deserialize(cls, stream: bytes):
+    #     ...
+
+
+class BaseBinary(AbstractFile):
+    """Base class for binary file types."""
+    _path: pathlib.Path
+
+    def __init__(self,
+                 path: typing.Union[str, pathlib.Path, os.PathLike],
+                 access: AccessFlags = AccessFlags.READ):
+        self._path = pathlib.Path(path).resolve()
+        self.access = access
+
+    def __fspath__(self) -> str:
+        return str(self._path)
+
+    def path(self) -> pathlib.Path:
+        return self._path
+
+
+class BaseText(BaseBinary):
+    """Base class for text file types."""
+    encoding = locale.getpreferredencoding(False)
+
+    def __init__(self, path, access: AccessFlags = AccessFlags.READ, encoding=None):
+        if encoding is None:
+            encoding = locale.getpreferredencoding(False)
+        try:
+            codecs.getencoder(encoding)
+        except LookupError:
+            raise ValueError('Specify a valid character encoding for text files.')
+        self.encoding = encoding
+        super().__init__(path=path, access=access)
+
+    def fingerprint(self) -> bytes:
+        m = hashlib.sha256()
+        # Use universal newlines and utf-8 encoding for text file fingerprinting.
+        with open(self._path, 'r', encoding=self.encoding) as f:
+            # If we knew more about the text file size or line length, or if we already
+            # had an open buffer, socket, or mmap, we could  optimize this in subclasses.
+            for line in f:
+                m.update(line.encode('utf8'))
+        checksum: bytes = m.digest()
+        return checksum
+
+
+def describe_file(obj: typing.Union[str, pathlib.Path, os.PathLike],
+                  mode='rb',
+                  encoding: str = None,
+                  file_type_hint=None) -> AbstractFile:
+    """Describe an existing local file."""
+    access = AccessFlags.NO_ACCESS
+    if 'r' in mode:
+        access |= AccessFlags.READ
+        if 'w' in mode:
+            access |= AccessFlags.WRITE
+    else:
+        # If neither 'r' nor 'w' is provided, still assume 'w'
+        access |= AccessFlags.WRITE
+    # TODO: Confirm requested access permissions.
+
+    if file_type_hint:
+        raise scalems.exceptions.MissingImplementationError(
+            'Extensible file types not yet supported.')
+
+    if 'b' in mode:
+        if encoding is not None:
+            raise TypeError('*encoding* argument is not supported for binary files.')
+        file = BaseBinary(path=obj, access=access)
+    else:
+        file = BaseText(path=obj, access=access, encoding=encoding)
+
+    if not file.path().exists():
+        raise ValueError('Not an existing file.')
+
+    return file
+
+
+_T = typing.TypeVar('_T')
+
+
+def get_to_thread() \
+        -> typing.Callable[
+            [
+                typing.Callable[..., _T],
+                typing.Tuple[typing.Any, ...],
+                typing.Dict[str, typing.Any]
+            ],
+            typing.Coroutine[typing.Any, typing.Any, _T]]:
+    """Provide a to_thread function.
+
+    asyncio.to_thread() appears in Python 3.9, but we only require 3.8 as of this writing.
+    """
+    try:
+        from asyncio import to_thread as _to_thread
+    except ImportError:
+        async def _to_thread(__func: typing.Callable[..., _T],
+                             *args: typing.Any,
+                             **kwargs: typing.Any) -> _T:
+            """Mock Python to_thread for Py 3.8."""
+            wrapped_function: typing.Callable[[], _T] = functools.partial(__func, *args,
+                                                                          **kwargs)
+            assert callable(wrapped_function)
+            loop = asyncio.get_event_loop()
+            coro: typing.Awaitable[_T] = loop.run_in_executor(
+                None, wrapped_function)
+            result = await coro
+            return result
+    return _to_thread
 
 
 class FileStore:
     """Handle to the SCALE-MS nonvolatile data store for a workflow context.
 
     Not thread safe. User is responsible for serializing access, as necessary.
-
-    Fields:
-        instance (int): Owner's PID.
-        log (list): Access log for the data store.
-        filepath (pathlib.Path): filesystem path to metadata JSON file.
-        directory (pathlib.Path): workflow directory.
-
     """
     _fields: typing.ClassVar = set([field.name for field in dataclasses.fields(Metadata)])
     _instances: typing.ClassVar = weakref.WeakValueDictionary()
 
-    _token: typing.Optional[contextvars.Token]
+    _token: contextvars.Token = None
     _data: Metadata
-    _directory: pathlib.Path
+    _datastore: pathlib.Path = None
+    _directory: pathlib.Path = None
+    _filepath: pathlib.Path = None
     _update_lock: threading.Lock
     _dirty: threading.Event
     _log: typing.Sequence[str]
+
+    @property
+    def _tmpfile_prefix(self) -> str:
+        return f'tmp_{self.instance}_'
 
     @property
     def log(self):
@@ -121,7 +306,9 @@ class FileStore:
 
         The name reflects the SCALE-MS data format version and is not user-configurable.
         """
-        return self.directory / _data_subdirectory
+        if self._datastore is None:
+            self._datastore = self.directory / _data_subdirectory
+        return self._datastore
 
     @property
     def filepath(self) -> pathlib.Path:
@@ -130,7 +317,9 @@ class FileStore:
         This is the metadata file used by scalems to track workflow state and
         file-backed data. Its format is closely related to the scalems API level.
         """
-        return self.datastore / _metadata_filename
+        if self._filepath is None:
+            self._filepath = self.datastore / _metadata_filename
+        return self._filepath
 
     @property
     def instance(self):
@@ -188,7 +377,8 @@ class FileStore:
                     self.datastore.mkdir()
                 except FileExistsError:
                     # Check if the existing filesystem state is due to a previous clean
-                    # shutdown, a previous dirty shutdown, or inappropriate concurrent access.
+                    # shutdown, a previous dirty shutdown, or inappropriate concurrent
+                    # access.
                     if not self.filepath.exists():
                         raise ContextError(
                             f'{self._directory} contains invalid datastore '
@@ -228,14 +418,30 @@ class FileStore:
 
         except LockException as e:
             raise ContextError(
-                'Could not acquire ownership of working directory {}'.format(directory)) from e
+                'Could not acquire ownership of working directory {}'.format(
+                    directory)) from e
 
     def __enter__(self):
-        # Suggest doing the real work in open, and just check for valid state here.
-        # Add a reentrance check; only one code entity should be managing the FileStore
-        # lifetime.
-        self._token = _filestore.set(weakref.ref(self))
-        return self
+        if self._token:
+            raise ContextError(
+                'FileStore is not reentrant'
+            )
+        token = _filestore.set(weakref.ref(self))
+        # TODO: Clarify reentrance behavior (global versus internal locking).
+        # There shouldn't really be any problem with reentrance for regular `with`
+        # block, though maybe we should confirm that we are in the same process and
+        # thread. The complications should only arise with asyncronous `with` blocks
+        # (i.e. `__aenter__`, `__aexit__`). If necessary, we can use a Semaphore to
+        # count recursion depth across Contexts and/or cache a Semaphore value in a
+        # ContextVar to watch for errors.
+        if token.old_value in {self, contextvars.Token.MISSING}:
+            self._token = token
+            return self
+        else:
+            _filestore.reset(token)
+            raise ContextError(
+                'Only one FileStore may be active at a time.'
+            )
 
     def __exit__(self, exc_type, exc_value, traceback):
         try:
@@ -321,6 +527,171 @@ class FileStore:
     def closed(self) -> bool:
         return FileStore._instances.get(self.directory, None) is not self
 
+    async def add_file(self,
+                       obj: typing.Union[AbstractFile, FileReference],
+                       _name: str = None) -> FileReference:
+        """Add a file to the file store.
+
+        This involves placing (copying) the file, reading the file to fingerprint it,
+        and then writing metadata for the file. For clarity, we also rename the file
+        after fingerprinting to remove a layer of indirection, even though this
+        generates additional load on the filesystem.
+
+        The caller is allowed to provide a *_name* to use for the filename,
+        but this is strongly discouraged. The file will still be fingerprinted and the
+        caller must be sure the key is unique across all software components that may
+        by using the FileStore. (This use case should be limited to internal use or
+        core functionality to minimize namespace collisions.)
+
+        If the file is provided as a memory buffer or io.IOBase subclass, further
+        optimization is possible to reduce the filesystem interaction to a single
+        buffered write, but such optimizations are not provided natively by
+        FileStore.add_file(). Instead, such optimizations may be provided by utility
+        functions that produce FileReference objects that FileStore.add_file() can
+        consume.
+
+        In addition to TypeError and ValueError for invalid inputs, propagates
+        exceptions raised by failed attempts to access the provided file object.
+
+        TODO: Move more of these checks to the task creation so we can catch errors
+            earlier.
+        """
+        # Note: We can use a more effective and flexible `try: ... except: ...` check
+        # once we actually have FileReference support ready to use here, at which point
+        # we can consider removing runtime_checkable from FileReference to avoid false
+        # confidence. However, we may prefer to convert FileReference to an abc.ABC so
+        # that we can actually functools.singledispatchmethod on the provided object.
+        if isinstance(obj, FileReference):
+            raise scalems.exceptions.MissingImplementationError(
+                'FileReference input not yet supported.')
+        path: pathlib.Path = obj.path()
+        to_thread = get_to_thread()
+
+        filename = None
+        key = None
+        tmpfile_target = self.datastore.joinpath(
+            self._tmpfile_prefix + str(scalems.utility.next_monotonic_integer()))
+        try:
+            # 1. Copy the file.
+            kwargs = dict(
+                src=path, dst=tmpfile_target, follow_symlinks=False
+            )
+            _path = await to_thread(
+                shutil.copyfile, **kwargs)
+            assert tmpfile_target == _path
+            assert tmpfile_target.exists()
+            # We have now secured a copy of the file. We could just schedule the remaining
+            # operations and return. For the initial implementation though, we will wait
+            # until we have read the file. When optimizing for inputs that are already
+            # fingerprinted, we could return before FileReference.localize() has
+            # finished and schedule a checksum verification that localize() must wait for.
+
+            # 2. Fingerprint the file.
+            checksum = await to_thread(obj.fingerprint, **{})
+
+            # 3. Choose a key.
+            key = checksum.hex()
+
+            # 4. Write metadata.
+            if _name is None:
+                _name = key
+            filename = self.datastore.joinpath(_name)
+            with self._update_lock:
+                if key in self._data.files:
+                    # TODO: Support caching. Use existing file if checksums match.
+                    raise scalems.exceptions.DuplicateKeyError(
+                        f'FileStore is already managing a file with key {key}.')
+                if str(filename) in self._data.files.values():
+                    raise scalems.exceptions.DuplicateKeyError(
+                        f'FileStore already has {filename}.')
+                else:
+                    if filename.exists():
+                        raise StaleFileStore(f'Unexpected file in filestore: {filename}.')
+                os.rename(tmpfile_target, filename)
+                logger.debug(f'Placed {filename}')
+                self._data.files[key] = str(filename)
+
+            return _FileReference(filestore=self, key=key)
+        except Exception as e:
+            logger.exception(f'Unhandled exception while trying to store {obj}',
+                             exc_info=e)
+            # Something went wrong. Let's try to clean up as best we can.
+            if key and key in self._data.files:
+                pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
+                del self._data.files[key]
+            if isinstance(filename, pathlib.Path):
+                filename.unlink(missing_ok=True)
+            if tmpfile_target.exists():
+                logger.warning(f'Temporary file left at {tmpfile_target}')
+
+    @property
+    def files(self) -> typing.Mapping[str, pathlib.Path]:
+        """Proxy to the managed files metadata.
+
+        Note that the view is frozen at the time of attribute lookup, not at the
+        time of use, so a reference to FileStore.files will not provide a dynamic proxy
+        for later use. This design point could be reconsidered, but seems consistent with
+        SCALE-MS notions of scoped access.
+        """
+        if self.closed:
+            raise StaleFileStore('FileStore is closed.')
+        return FilesView(self._data.files)
+
+
+class _FileReference(FileReference):
+    def __init__(self, filestore: FileStore, key: str):
+        self._filestore: FileStore = filestore
+        if key not in self._filestore.files:
+            raise scalems.exceptions.ProtocolError(
+                'Cannot create reference to unmanaged file.')
+        self._key = key
+        self._repr = f'<FileReference key:{key} path:{self._filestore.files[key]}>'
+
+    def __fspath__(self) -> str:
+        return str(self._filestore.files[self._key])
+
+    def is_local(self, context=None) -> bool:
+        if context is None:
+            context = self._filestore
+        return self._key in context.files
+
+    async def localize(self, context=None) -> FileReference:
+        if context is None:
+            context = self._filestore
+        if context is not self._filestore:
+            raise scalems.exceptions.MissingImplementationError(
+                'Push subscription not yet implemented.'
+            )
+        assert self._key in context.files
+        return self
+
+    def path(self, context=None) -> pathlib.Path:
+        if context is None:
+            context = self._filestore
+        if context is not self._filestore:
+            raise scalems.exceptions.MissingImplementationError(
+                'Path resolution dispatching is not yet implemented.'
+            )
+        return context.files[self._key]
+
+    def filestore(self):
+        return self._filestore
+
+    def key(self):
+        return self._key
+
+    def as_uri(self, context=None) -> str:
+        if context is None:
+            context = self._filestore
+        if context is not self._filestore:
+            raise scalems.exceptions.MissingImplementationError(
+                'Path resolution dispatching is not yet implemented.'
+            )
+        return context.files[self._key].as_uri()
+
+    def __repr__(self):
+        return self._repr
+
 
 def get_context() -> typing.Union[FileStore, None]:
     """Get currently active workflow context, if any."""
@@ -363,3 +734,70 @@ def initialize_datastore(directory=None) -> FileStore:
     path = pathlib.Path(directory)
     filestore = FileStore(directory=path)
     return filestore
+
+
+@functools.singledispatch
+def get_file_reference(obj, filestore=None, mode='rb')\
+        -> typing.Awaitable[FileReference]:
+    """Get a FileReference for the provided object.
+
+    If *filestore* is provided, use the given FileStore to manage the FileReference.
+    Otherwise, use the FileStore for the current WorkflowManager.
+
+    This is a dispatching function. Handlers for particular object types must are
+    registered by decorating with ``@get_file_reference.register``. See
+    :py:decorator:`functools.singledispatch`.
+
+    Set *text* to ``True`` for text files.
+
+    TODO: Try to detect file type. See, for instance, https://pypi.org/project/python-magic/
+    """
+    try:
+        return filestore.get_file_reference(obj, mode=mode)
+    except AttributeError:
+        # We don't mind if *filestore* does not provide this method.
+        pass
+    # We might expect *filestore* to raise NotImplemented or TypeError if it is
+    # unable to handle the dispatch. This would not be an error in itself, except that
+    # we do not have any other fall-back dispatching for types that have not been
+    # registered.
+    raise TypeError(f'Cannot convert {obj.__class__.__qualname__} to FileReference.')
+
+
+@get_file_reference.register(pathlib.Path)
+def _(obj, filestore=None, mode='rb') -> typing.Awaitable[FileReference]:
+    """Add a file to the file store.
+
+    This involves placing (copying) the file, reading the file to fingerprint it,
+    and then writing metadata for the file. For clarity, we also rename the file
+    after fingerprinting to remove a layer of indirection, even though this
+    generates additional load on the filesystem.
+
+    In addition to TypeError and ValueError for invalid inputs, propagates
+    exceptions raised by failed attempts to access the provided file object.
+    """
+    if filestore is None:
+        filestore = get_context()
+    else:
+        # TODO: Check whether filestore is local or whether we need to proxy the object.
+        ...
+
+    path: pathlib.Path = obj.resolve()
+    # Should we assume that a Path object is intended to refer to a local file? We don't
+    # want to  be ambiguous if the same path exists locally and remotely.
+    if not path.exists() or not path.is_file():
+        raise ValueError(f'Path {obj} is not a valid file.')
+
+    task = asyncio.create_task(
+        filestore.add_file(describe_file(path, mode=mode)))
+    return task
+
+
+@get_file_reference.register(str)
+def _(obj, *args, **kwargs) -> typing.Awaitable[FileReference]:
+    return get_file_reference(pathlib.Path(obj), *args, **kwargs)
+
+
+@get_file_reference.register(os.PathLike)
+def _(obj, *args, **kwargs) -> typing.Awaitable[FileReference]:
+    return get_file_reference(os.fspath(obj), *args, **kwargs)

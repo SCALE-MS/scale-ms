@@ -42,7 +42,7 @@ jobs:
       id: cache-venv
       with:
         path: ~/testenv
-        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}
+        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-${{ hashFiles('requirements-testing.txt') }}
     - name: Set up venv
       if: steps.cache-venv.outputs.cache-hit != 'true'
       run: |
@@ -106,6 +106,7 @@ jobs:
         (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
         (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
     - name: "Upload coverage to Codecov"
+      continue-on-error: true
       uses: codecov/codecov-action@v2
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -189,6 +190,7 @@ jobs:
         coverage xml -o coverage2.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
     - name: "Upload coverage to Codecov"
+      continue-on-error: true
       uses: codecov/codecov-action@v2
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -297,6 +299,7 @@ jobs:
         coverage xml -o coverage2.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
     - name: "Upload coverage to Codecov"
+      continue-on-error: true
       uses: codecov/codecov-action@v2
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
@@ -415,6 +418,7 @@ jobs:
         coverage xml -o coverage2.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
     - name: "Upload coverage to Codecov"
+      continue-on-error: true
       uses: codecov/codecov-action@v2
       with:
         token: ${{ secrets.CODECOV_TOKEN }}

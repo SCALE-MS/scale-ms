@@ -58,7 +58,8 @@ master_doc = 'index'
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
     'https://docs.python.org/3/': None,
-    'https://radicalpilot.readthedocs.io/en/stable/': None
+    'https://radicalpilot.readthedocs.io/en/stable/': None,
+    'https://radicalsaga.readthedocs.io/en/stable/': None
 }
 
 # -- Options for HTML output -------------------------------------------------

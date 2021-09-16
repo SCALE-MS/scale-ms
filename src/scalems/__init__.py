@@ -33,6 +33,7 @@ Invocation:
 __all__ = [
     # core UI
     'app',
+    'FileReference',
     # tools / commands
     'executable',
     # utilities and helpers
@@ -51,6 +52,7 @@ from .workflow import get_scope
 from .subprocess import executable
 from .utility import app
 from .utility import ScriptEntryPoint
+from .context._file import FileReference
 
 __version__ = get_versions()['version']
 del get_versions

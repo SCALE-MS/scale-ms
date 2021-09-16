@@ -440,7 +440,7 @@ class FileStore:
         else:
             _filestore.reset(token)
             raise ContextError(
-                'FileStore is not reentrant'
+                'Only one FileStore may be active at a time.'
             )
 
     def __exit__(self, exc_type, exc_value, traceback):
@@ -737,7 +737,8 @@ def initialize_datastore(directory=None) -> FileStore:
 
 
 @functools.singledispatch
-def get_file_reference(obj, filestore=None) -> typing.Awaitable[FileReference]:
+def get_file_reference(obj, filestore=None, mode='rb')\
+        -> typing.Awaitable[FileReference]:
     """Get a FileReference for the provided object.
 
     If *filestore* is provided, use the given FileStore to manage the FileReference.
@@ -746,9 +747,13 @@ def get_file_reference(obj, filestore=None) -> typing.Awaitable[FileReference]:
     This is a dispatching function. Handlers for particular object types must are
     registered by decorating with ``@get_file_reference.register``. See
     :py:decorator:`functools.singledispatch`.
+
+    Set *text* to ``True`` for text files.
+
+    TODO: Try to detect file type. See, for instance, https://pypi.org/project/python-magic/
     """
     try:
-        return filestore.get_file_reference(obj)
+        return filestore.get_file_reference(obj, mode=mode)
     except AttributeError:
         # We don't mind if *filestore* does not provide this method.
         pass
@@ -760,7 +765,7 @@ def get_file_reference(obj, filestore=None) -> typing.Awaitable[FileReference]:
 
 
 @get_file_reference.register(pathlib.Path)
-def _(obj, filestore=None) -> typing.Awaitable[FileReference]:
+def _(obj, filestore=None, mode='rb') -> typing.Awaitable[FileReference]:
     """Add a file to the file store.
 
     This involves placing (copying) the file, reading the file to fingerprint it,
@@ -776,22 +781,23 @@ def _(obj, filestore=None) -> typing.Awaitable[FileReference]:
     else:
         # TODO: Check whether filestore is local or whether we need to proxy the object.
         ...
+
     path: pathlib.Path = obj.resolve()
     # Should we assume that a Path object is intended to refer to a local file? We don't
     # want to  be ambiguous if the same path exists locally and remotely.
     if not path.exists() or not path.is_file():
         raise ValueError(f'Path {obj} is not a valid file.')
-    # Bind a coroutine to a Context with the active filestore to avoid race conditions.
-    with filestore:
-        task = asyncio.create_task(filestore.add_file(path))
+
+    task = asyncio.create_task(
+        filestore.add_file(describe_file(path, mode=mode)))
     return task
 
 
 @get_file_reference.register(str)
-def _(obj, filestore=None) -> typing.Awaitable[FileReference]:
-    return get_file_reference(pathlib.Path(obj), filestore=filestore)
+def _(obj, *args, **kwargs) -> typing.Awaitable[FileReference]:
+    return get_file_reference(pathlib.Path(obj), *args, **kwargs)
 
 
 @get_file_reference.register(os.PathLike)
-def _(obj, filestore=None) -> typing.Awaitable[FileReference]:
-    return get_file_reference(os.fspath(obj), filestore=filestore)
+def _(obj, *args, **kwargs) -> typing.Awaitable[FileReference]:
+    return get_file_reference(os.fspath(obj), *args, **kwargs)

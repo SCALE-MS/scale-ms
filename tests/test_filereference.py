@@ -247,3 +247,16 @@ async def test_simple_binary_file(tmp_path):
             os.unlink(filename)
 
     assert datastore.closed
+
+
+@pytest.mark.asyncio
+async def test_dispatching(tmp_path):
+    with initialize_datastore(tmp_path) as datastore:
+        with text_file() as textfile:
+            fileref = await scalems.context._datastore.get_file_reference(
+                textfile,
+                mode='r')
+        assert fileref.key() in datastore.files
+        with fileref.path().open('r') as fh:
+            assert all([sample == read.rstrip() for sample, read in zip(
+                sample_text, fh)])

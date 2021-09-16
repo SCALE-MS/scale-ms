@@ -12,7 +12,6 @@ import urllib.parse
 
 import pytest
 import scalems.context
-import scalems.context as _context
 import scalems.exceptions
 from scalems.context import initialize_datastore, describe_file
 
@@ -76,9 +75,7 @@ def test_hash():
     data8 = sample_data
     data7 = int \
         .from_bytes(sample_data, byteorder=sys.byteorder) \
-        .to_bytes(
-        length=len(sample_data) - 1,
-        byteorder=sys.byteorder)
+        .to_bytes(length=len(sample_data) - 1, byteorder=sys.byteorder)
     assert int.from_bytes(data1, byteorder=sys.byteorder) == sample_value
     assert int.from_bytes(data7, byteorder=sys.byteorder) == sample_value
     assert int.from_bytes(data8, byteorder=sys.byteorder) == sample_value
@@ -228,9 +225,7 @@ async def test_simple_binary_file(tmp_path):
         try:
             new_data = int\
                 .from_bytes(sample_data, byteorder=sys.byteorder)\
-                .to_bytes(
-                length=len(sample_data) - 1,
-                byteorder=sys.byteorder)
+                .to_bytes(length=len(sample_data) - 1, byteorder=sys.byteorder)
             assert int.from_bytes(new_data, byteorder=sys.byteorder) == sample_value
             with open(filename, 'wb') as fh:
                 fh.write(new_data)

@@ -42,7 +42,7 @@ jobs:
       id: cache-venv
       with:
         path: ~/testenv
-        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}
+        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-${{ hashFiles('requirements-testing.txt') }}
     - name: Set up venv
       if: steps.cache-venv.outputs.cache-hit != 'true'
       run: |

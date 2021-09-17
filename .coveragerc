@@ -11,15 +11,24 @@ exclude_lines =
     # Don't complain about missing debug-only code:
     def __repr__
     if self\.debug
+    if args\.pycharm
 
     # Don't complain if tests don't hit defensive assertion code:
     raise AssertionError
-    raise NotImplementedError
+    raise .*MissingImplementationError
+    raise RuntimeError
+    raise .*APIError
+    raise .*InternalError
     raise NotImplemented
+    raise argparse.ArgumentTypeError
+    except Exception
+    except BaseException
 
     # Don't complain if non-runnable code isn't run:
     if 0:
     if __name__ == .__main__.:
+    raise NotImplementedError
+    \.\.\.
 
 ignore_errors = True
 

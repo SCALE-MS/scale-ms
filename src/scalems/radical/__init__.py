@@ -732,9 +732,9 @@ class RPDispatchingExecutor(RuntimeManager):
         finally:
             _configuration.reset(token)
 
-    def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
+    async def runtime_startup(self) -> asyncio.Task:
         configuration: Configuration = self.configuration()
-        self.runtime = _connect_rp(configuration)
+        self.runtime = await _connect_rp(configuration)
 
         if self.runtime is None or self.runtime.session.closed:
             raise ProtocolError('Cannot process queue without a RP Session.')
@@ -743,10 +743,12 @@ class RPDispatchingExecutor(RuntimeManager):
         # TODO: Make runtime_startup optional. Let it return a resource that is
         #  provided to the normalized run_executor(), or maybe use it to configure the
         #  Submitter that will be provided to the run_executor.
+        runner_started = asyncio.Event()
         runner_task = asyncio.create_task(
             scalems.execution.manage_execution(
                 self,
                 processing_state=runner_started))
+        await runner_started.wait()
         # TODO: Note the expected scope of the runner_task lifetime with respect to
         #  the global state changes (i.e. ContextVars and locks).
         return runner_task

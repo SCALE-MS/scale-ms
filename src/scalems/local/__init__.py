@@ -242,9 +242,11 @@ class LocalExecutor(_execution.RuntimeManager):
     def updater(self) -> WorkflowUpdater:
         return WorkflowUpdater(runtime=self)
 
-    def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
+    async def runtime_startup(self) -> asyncio.Task:
+        runner_started = asyncio.Event()
         runner_task = asyncio.create_task(
             _execution.manage_execution(
                 executor=self,
                 processing_state=runner_started))
+        await runner_started.wait()
         return runner_task

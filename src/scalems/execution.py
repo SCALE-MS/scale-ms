@@ -80,7 +80,7 @@ class RuntimeDescriptor:
         self.private_name = '_runtime_state'
 
 
-_BackendT = typing.TypeVar('_BackendT', contravariant=True)
+_BackendT = typing.TypeVar('_BackendT')
 
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
@@ -99,11 +99,11 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     source_context: WorkflowManager
     submitted_tasks: typing.MutableSet[asyncio.Task]
 
-    _runtime_configuration: _BackendT = None
+    _runtime_configuration: _BackendT
 
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
-    _queue_runner_task: asyncio.Task = None
+    _queue_runner_task: typing.Union[None, asyncio.Task] = None
 
     runtime = RuntimeDescriptor()
     """Get/set the current runtime state information.
@@ -189,18 +189,19 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
             ...
 
     @abc.abstractmethod
-    def runtime_startup(self, runner_started: asyncio.Event) -> asyncio.Task:
+    async def runtime_startup(self) -> asyncio.Task:
         """Runtime startup hook.
 
         If the runtime manager uses a Session, this is the place to acquire it.
 
-        Arguments:
-            runner_started: an Event to be set as the runtime becomes ready to process
-            its queue.
+        This coroutine itself returns a Task. This allows the caller to yield until
+        until the runtime manager is actually ready.
 
-        The *runner_started* argument allows inexpensive synchronization. The caller may
-        yield until until the runtime queue processing task has run far enough to be
-        well behaved if it later encounters an error or is subsequently canceled.
+        Implementations may perform additional checks before returning to ensure that
+        the runtime queue processing task has run far enough to be well behaved if it
+        later encounters an error or is subsequently canceled. Also, blocking
+        interfaces used by the runtime manager could be wrapped in separate thread
+        executors so that the asyncio event loop doesn't have to block on this call.
         """
         ...
 
@@ -221,21 +222,21 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 # TODO: Clarify dispatcher state machine and remove/replace assertions.
                 assert not self._dispatcher_lock.locked()
                 async with self._dispatcher_lock:
-                    runner_started = asyncio.Event()
-                    runner_task = self.runtime_startup(runner_started)
-                    is_started = asyncio.create_task(runner_started.wait())
-                    done, pending = await asyncio.wait((is_started, runner_task),
-                                                       return_when=asyncio.FIRST_COMPLETED)
-                    if runner_task in done:
-                        logger.error('Runner task stopped early.')
+                    runner_task: asyncio.Task = await self.runtime_startup()
+                    if runner_task.done():
                         if runner_task.cancelled():
                             raise DispatchError('Runner unexpectedly canceled while '
                                                 'starting dispatching.')
                         else:
                             e = runner_task.exception()
-                            logger.exception('Runner task failed with an exception.',
-                                             exc_info=e)
-                            raise e
+                            if e:
+                                logger.exception('Runner task failed with an exception.',
+                                                 exc_info=e)
+                                raise e
+                            else:
+                                logger.warning(
+                                    'Runner task stopped unusually early, but did not '
+                                    'raise an exception.')
                     self._queue_runner_task = runner_task
 
                 # Note: it would probably be most useful to return something with a
@@ -485,11 +486,14 @@ async def manage_execution(executor: RuntimeManager,
                         logger.info('Stopping queue processing after unexpected '
                                     f'cancellation of task {task}')
                         return
-                    elif task.exception():
-                        logger.error(f'Task failed: {task}')
-                        raise task.exception()
                     else:
-                        logger.debug(f'Task {task} already done. Continuing.')
+                        exc = task.exception()
+                        if exc:
+                            logger.error(
+                                f'Task {task} failed much to fast. Stopping execution.')
+                            raise exc
+                        else:
+                            logger.debug(f'Task {task} already done. Continuing.')
                 else:
                     executor.submitted_tasks.add(task)
 
@@ -497,8 +501,6 @@ async def manage_execution(executor: RuntimeManager,
             logger.debug('Leaving queue runner due to exception.')
             raise e
         finally:
-            # Warning: there is a tiny chance that we could receive a
-            # asyncio.CancelledError at this line and fail to decrement the queue.
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             queue.task_done()
 

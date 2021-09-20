@@ -28,6 +28,13 @@ See Also:
     https://github.com/SCALE-MS/scale-ms/issues/55
 
 """
+
+__all__ = (
+    'parser',
+    'Configuration',
+    'Runtime',
+)
+
 import argparse
 import asyncio
 import contextvars
@@ -364,7 +371,7 @@ def _get_scheduler(name: str,
     return scheduler
 
 
-def _connect_rp(config: Configuration) -> Runtime:
+async def _connect_rp(config: Configuration) -> Runtime:
     """Establish the RP Session.
 
     Acquire a maximally re-usable set of RP resources. The scope established by

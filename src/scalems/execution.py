@@ -80,7 +80,7 @@ class RuntimeDescriptor:
         self.private_name = '_runtime_state'
 
 
-_BackendT = typing.TypeVar('_BackendT', contravariant=True)
+_BackendT = typing.TypeVar('_BackendT')
 
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
@@ -99,11 +99,11 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     source_context: WorkflowManager
     submitted_tasks: typing.MutableSet[asyncio.Task]
 
-    _runtime_configuration: _BackendT = None
+    _runtime_configuration: _BackendT
 
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
-    _queue_runner_task: asyncio.Task = None
+    _queue_runner_task: typing.Union[None, asyncio.Task] = None
 
     runtime = RuntimeDescriptor()
     """Get/set the current runtime state information.
@@ -485,11 +485,14 @@ async def manage_execution(executor: RuntimeManager,
                         logger.info('Stopping queue processing after unexpected '
                                     f'cancellation of task {task}')
                         return
-                    elif task.exception():
-                        logger.error(f'Task failed: {task}')
-                        raise task.exception()
                     else:
-                        logger.debug(f'Task {task} already done. Continuing.')
+                        exc = task.exception()
+                        if exc:
+                            logger.error(
+                                f'Task {task} failed much to fast. Stopping execution.')
+                            raise exc
+                        else:
+                            logger.debug(f'Task {task} already done. Continuing.')
                 else:
                     executor.submitted_tasks.add(task)
 
@@ -497,8 +500,6 @@ async def manage_execution(executor: RuntimeManager,
             logger.debug('Leaving queue runner due to exception.')
             raise e
         finally:
-            # Warning: there is a tiny chance that we could receive a
-            # asyncio.CancelledError at this line and fail to decrement the queue.
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             queue.task_done()
 

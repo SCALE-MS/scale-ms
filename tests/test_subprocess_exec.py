@@ -42,6 +42,9 @@ async def test_exec_local(cleandir):
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
             assert fh.read().startswith('hi there')
+    # We need to close the filestore before we begin to initialize a new
+    # WorkflowManager so that we don't try to take over an actively managed filestore.
+    context.close()
     with scalems.workflow.scope(scalems.local.workflow_manager(asyncio.get_event_loop())) as context:
         # TODO: Future interface allows client to force resolution of dependencies.
         # cmd.result()
@@ -55,3 +58,6 @@ async def test_exec_local(cleandir):
         assert result.stdout.name == 'stdout.txt'
         with open(result.stdout) as fh:
             assert fh.read().startswith('hello world')
+    # We need to close the filestore before removing the temporary directory to avoid
+    # errors.
+    context.close()

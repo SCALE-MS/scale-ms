@@ -411,6 +411,8 @@ class WorkflowManager:
         # TODO: Tasks should only writable within a WorkflowEditor context.
         self.tasks = TaskMap()  # Map UIDs to task Futures.
 
+        if directory is None:
+            directory = os.getcwd()
         try:
             self._filestoremanager = FileStoreManager(directory=directory)
         except Exception as e:
@@ -425,6 +427,25 @@ class WorkflowManager:
         self._event_hooks: typing.Mapping[str, typing.MutableSet[AddItemCallback]] = {
             'add_item': set()
         }
+
+    @property
+    def closed(self):
+        return self._filestoremanager is None
+
+    def close(self):
+        """Finalize and release resources.
+
+        While not usually necessary, an explicit call to close() can force the backing
+        data store to be closed and allow exceptions to be caught at a clear point.
+
+        Once close() is called, additional attempts to access the managed workflow may
+        raise ScopeError.
+        """
+        if self._dispatcher is not None:
+            raise APIError('Cannot close a WorkflowManager that is actively dispatching work.')
+        if self._filestoremanager is not None:
+            self._filestoremanager.close()
+            self._filestoremanager = None
 
     def loop(self):
         return self._asyncio_event_loop
@@ -480,6 +501,8 @@ class WorkflowManager:
         Grant the caller full access to the managed task.
 
         """
+        if self.closed:
+            raise ScopeError('WorkflowManager is closed.')
         # TODO: Use a proxy object that is easier to inspect and roll back.
         item = self.tasks[identifier]
 
@@ -538,6 +561,8 @@ class WorkflowManager:
         .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
 
         """
+        if self.closed:
+            raise ScopeError('WorkflowManager is closed.')
 
         # 1. Bind a new executor to its queue.
         # 2. Bind a dispatcher to the executor.
@@ -682,6 +707,9 @@ class WorkflowManager:
     #     ...
 
     def add_item(self, task_description) -> ItemView:
+        if self.closed:
+            raise ScopeError('WorkflowManager is closed.')
+
         # # TODO: Resolve implementation details for *operation*.
         # if operation != 'scalems.executable':
         #     raise MissingImplementationError('No implementation for {} in {}'.format(
@@ -778,6 +806,8 @@ class WorkflowManager:
 
     def datastore(self):
         """Get a handle to the non-volatile backing data store."""
+        if self.closed:
+            raise ScopeError('WorkflowManager is closed.')
         return self._filestoremanager.filestore()
 
 

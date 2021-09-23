@@ -752,6 +752,20 @@ class FileStoreManager:
             logger.error('Managed FileStore is no longer available.')
             return None
 
+    def close(self):
+        if self.filestore_generator is None:
+            return False
+        else:
+            store = self.filestore()
+            if store is not None:
+                store.close()
+            try:
+                next(self.filestore_generator)
+            except StopIteration:
+                logger.debug(f'{self} has been closed.')
+            self.filestore_generator = None
+            return True
+
 
 @functools.singledispatch
 def get_file_reference(obj, filestore=None, mode='rb')\

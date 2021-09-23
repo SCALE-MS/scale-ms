@@ -194,7 +194,7 @@ async def test_simple_text_file(tmp_path):
     finally:
         os.unlink(filename)
 
-    datastore.close()
+    manager.close()
 
 
 @pytest.mark.asyncio

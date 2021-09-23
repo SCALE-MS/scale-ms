@@ -52,7 +52,7 @@ from .workflow import get_scope
 from .subprocess import executable
 from .utility import app
 from .utility import ScriptEntryPoint
-from .context._file import FileReference
+from .context import FileReference
 
 __version__ = get_versions()['version']
 del get_versions

@@ -52,6 +52,8 @@ from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from .raptor import master_script
+from .. import FileReference
+from ..context import describe_file
 from ..context._datastore import FileStore
 
 logger = logging.getLogger(__name__)

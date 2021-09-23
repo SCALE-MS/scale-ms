@@ -7,6 +7,7 @@ __all__ = (
     'scoped_chdir',
     'ContextError',
     'StaleFileStore',
+    'FileReference',
     'FileStore',
     'FileStoreManager',
 )
@@ -25,6 +26,7 @@ from ._datastore import StaleFileStore
 from ._datastore import get_file_reference
 from ._datastore import FileStore
 from ._datastore import FileStoreManager
+from ._file import FileReference
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

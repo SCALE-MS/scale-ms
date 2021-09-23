@@ -13,7 +13,8 @@ import urllib.parse
 import pytest
 import scalems.context
 import scalems.exceptions
-from scalems.context import initialize_datastore, describe_file
+from scalems.context import describe_file
+from scalems.context import FileStoreManager
 
 sample_text = (
     'Hi there!',
@@ -129,129 +130,134 @@ def test_hash():
 
 @pytest.mark.asyncio
 async def test_simple_text_file(tmp_path):
-    with initialize_datastore(tmp_path) as datastore:
-        with text_file() as filename:
-            # Add the file to the file store.
-            future = asyncio.ensure_future(
-                datastore.add_file(
-                    describe_file(filename, mode='r')))
-            await future
-            assert future.done()
-            fileref: scalems.FileReference = future.result()
+    manager = FileStoreManager(directory=tmp_path)
+    datastore = manager.filestore()
+    with text_file() as filename:
+        # Add the file to the file store.
+        future = asyncio.ensure_future(
+            datastore.add_file(
+                describe_file(filename, mode='r')))
+        await future
+        assert future.done()
+        fileref: scalems.FileReference = future.result()
 
-            with pytest.raises(scalems.exceptions.DuplicateKeyError):
-                await datastore.add_file(describe_file(filename, mode='r'))
-            with pytest.raises(scalems.exceptions.DuplicateKeyError):
-                await datastore.add_file(
-                    describe_file(filename, mode='r'),
-                    _name='spam')
+        with pytest.raises(scalems.exceptions.DuplicateKeyError):
+            await datastore.add_file(describe_file(filename, mode='r'))
+        with pytest.raises(scalems.exceptions.DuplicateKeyError):
+            await datastore.add_file(
+                describe_file(filename, mode='r'),
+                _name='spam')
 
-        assert not os.path.exists(filename)
-        assert fileref.path().exists()
+    assert not os.path.exists(filename)
+    assert fileref.path().exists()
 
-        assert fileref.filestore() is datastore
-        assert fileref.key() in datastore.files
-        assert fileref.is_local()
-        assert await fileref.localize() is fileref
-        uri = fileref.as_uri()
-        path = urllib.parse.urlparse(uri).path
-        assert path == str(fileref.path())
+    assert fileref.filestore() is datastore
+    assert fileref.key() in datastore.files
+    assert fileref.is_local()
+    assert await fileref.localize() is fileref
+    uri = fileref.as_uri()
+    path = urllib.parse.urlparse(uri).path
+    assert path == str(fileref.path())
 
-        with open(fileref.path(), 'r') as fh:
-            assert all([sample == read.rstrip() for sample, read in zip(
-                sample_text, fh)])
+    with open(fileref.path(), 'r') as fh:
+        assert all([sample == read.rstrip() for sample, read in zip(
+            sample_text, fh)])
 
-        key = fileref.key()
-        assert isinstance(key, str)
-        assert len(key) > 0
+    key = fileref.key()
+    assert isinstance(key, str)
+    assert len(key) > 0
 
-        # Make sure a small change is caught.
-        duplicate = fileref.path().name
-        try:
-            with open(filename, 'w') as fh:
-                fh.write('\n'.join(sample_text))
-            with open(filename, 'r') as fh1:
-                with text_file() as f:
-                    with open(f, 'r') as fh2:
-                        assert not all(
-                            [line1.encode() == line2.encode()
-                             for line1, line2 in zip(fh1, fh2)])
-            assert key in datastore.files
-            assert fileref.path() in datastore.files.values()
-            with pytest.raises(scalems.exceptions.DuplicateKeyError):
-                await datastore.add_file(
-                    describe_file(filename, mode='r'),
-                    _name=duplicate)
+    # Make sure a small change is caught.
+    duplicate = fileref.path().name
+    try:
+        with open(filename, 'w') as fh:
+            fh.write('\n'.join(sample_text))
+        with open(filename, 'r') as fh1:
+            with text_file() as f:
+                with open(f, 'r') as fh2:
+                    assert not all(
+                        [line1.encode() == line2.encode()
+                         for line1, line2 in zip(fh1, fh2)])
+        assert key in datastore.files
+        assert fileref.path() in datastore.files.values()
+        with pytest.raises(scalems.exceptions.DuplicateKeyError):
+            await datastore.add_file(
+                describe_file(filename, mode='r'),
+                _name=duplicate)
 
-            fileref: scalems.FileReference = await datastore.add_file(
-                describe_file(filename, mode='r'))
-            assert fileref.key() != key
-            assert fileref.path().name != duplicate
-            assert str(fileref.path()) != path
+        fileref: scalems.FileReference = await datastore.add_file(
+            describe_file(filename, mode='r'))
+        assert fileref.key() != key
+        assert fileref.path().name != duplicate
+        assert str(fileref.path()) != path
 
-        finally:
-            os.unlink(filename)
+    finally:
+        os.unlink(filename)
 
-    assert datastore.closed
+    datastore.close()
 
 
 @pytest.mark.asyncio
 async def test_simple_binary_file(tmp_path):
-    with initialize_datastore(tmp_path) as datastore:
-        with binary_file() as filename:
-            # Add the file to the file store.
-            future = asyncio.ensure_future(datastore.add_file(
-                describe_file(filename, mode='rb')))
-            await future
-            assert future.done()
-            fileref: scalems.FileReference = future.result()
+    manager = FileStoreManager(directory=tmp_path)
+    datastore = manager.filestore()
+    with binary_file() as filename:
+        # Add the file to the file store.
+        future = asyncio.ensure_future(datastore.add_file(
+            describe_file(filename, mode='rb')))
+        await future
+        assert future.done()
+        fileref: scalems.FileReference = future.result()
 
-            with pytest.raises(scalems.exceptions.DuplicateKeyError):
-                await datastore.add_file(describe_file(filename, mode='rb'))
-        assert not os.path.exists(filename)
-        assert fileref.path().exists()
+        with pytest.raises(scalems.exceptions.DuplicateKeyError):
+            await datastore.add_file(describe_file(filename, mode='rb'))
+    assert not os.path.exists(filename)
+    assert fileref.path().exists()
 
-        with open(fileref.path(), 'rb') as fh:
-            data: bytes = fh.read()
-            assert int.from_bytes(data,
-                                  byteorder=sys.byteorder) == sample_value
+    with open(fileref.path(), 'rb') as fh:
+        data: bytes = fh.read()
+        assert int.from_bytes(data,
+                              byteorder=sys.byteorder) == sample_value
 
-        key = fileref.key()
-        assert isinstance(key, str)
-        assert len(key) > 0
+    key = fileref.key()
+    assert isinstance(key, str)
+    assert len(key) > 0
 
-        # Make sure a small change is caught.
-        duplicate = fileref.path().name
-        try:
-            new_data = int\
-                .from_bytes(sample_data, byteorder=sys.byteorder)\
-                .to_bytes(length=len(sample_data) - 1, byteorder=sys.byteorder)
-            assert int.from_bytes(new_data, byteorder=sys.byteorder) == sample_value
-            with open(filename, 'wb') as fh:
-                fh.write(new_data)
-            with pytest.raises(scalems.exceptions.DuplicateKeyError):
-                await datastore.add_file(
-                    describe_file(filename, mode='rb'),
-                    _name=duplicate)
-            fileref = await datastore.add_file(describe_file(filename, mode='rb'))
-            new_key = fileref.key()
-            assert new_key != key
-            assert isinstance(new_key, str)
-            assert len(new_key) > 0
-        finally:
-            os.unlink(filename)
-
+    # Make sure a small change is caught.
+    duplicate = fileref.path().name
+    try:
+        new_data = int\
+            .from_bytes(sample_data, byteorder=sys.byteorder)\
+            .to_bytes(length=len(sample_data) - 1, byteorder=sys.byteorder)
+        assert int.from_bytes(new_data, byteorder=sys.byteorder) == sample_value
+        with open(filename, 'wb') as fh:
+            fh.write(new_data)
+        with pytest.raises(scalems.exceptions.DuplicateKeyError):
+            await datastore.add_file(
+                describe_file(filename, mode='rb'),
+                _name=duplicate)
+        fileref = await datastore.add_file(describe_file(filename, mode='rb'))
+        new_key = fileref.key()
+        assert new_key != key
+        assert isinstance(new_key, str)
+        assert len(new_key) > 0
+    finally:
+        os.unlink(filename)
+    del manager
     assert datastore.closed
 
 
 @pytest.mark.asyncio
 async def test_dispatching(tmp_path):
-    with initialize_datastore(tmp_path) as datastore:
-        with text_file() as textfile:
-            fileref = await scalems.context._datastore.get_file_reference(
-                textfile,
-                mode='r')
-        assert fileref.key() in datastore.files
-        with fileref.path().open('r') as fh:
-            assert all([sample == read.rstrip() for sample, read in zip(
-                sample_text, fh)])
+    manager = FileStoreManager(directory=tmp_path)
+    datastore = manager.filestore()
+    with text_file() as textfile:
+        fileref = await scalems.context._datastore.get_file_reference(
+            textfile,
+            filestore=datastore,
+            mode='r')
+    assert fileref.key() in datastore.files
+    with fileref.path().open('r') as fh:
+        assert all([sample == read.rstrip() for sample, read in zip(
+            sample_text, fh)])
+    del manager

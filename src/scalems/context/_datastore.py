@@ -469,7 +469,7 @@ class FileStore:
         """
         current_instance = getattr(self, 'instance', None)
         if current_instance is None:
-            raise StaleFileStore('{self} is already closed.')
+            raise StaleFileStore(f'{self} is already closed.')
         elif current_instance != os.getpid():
             raise scalems.exceptions.ScopeError(
                 'Calling close() on a FileStore from another process is not allowed.')

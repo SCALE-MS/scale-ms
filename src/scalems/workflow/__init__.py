@@ -27,10 +27,12 @@ import dataclasses
 import functools
 import json
 import logging
+import os
 import queue as _queue
 import typing
 import weakref
 
+from scalems.context import FileStoreManager
 from scalems.dispatching import _CommandQueueAddItem
 from scalems.dispatching import _CommandQueueControlItem
 from scalems.dispatching import QueueItem
@@ -372,7 +374,8 @@ class WorkflowManager:
 
     def __init__(self, *,
                  loop: asyncio.AbstractEventLoop,
-                 executor_factory):
+                 executor_factory,
+                 directory: typing.Union[str, os.PathLike] = None):
         """
         The event loop for the program should be launched in the root thread,
         preferably early in the application launch.
@@ -407,6 +410,14 @@ class WorkflowManager:
         # Basic Context implementation details
         # TODO: Tasks should only writable within a WorkflowEditor context.
         self.tasks = TaskMap()  # Map UIDs to task Futures.
+
+        try:
+            self._filestoremanager = FileStoreManager(directory=directory)
+        except Exception as e:
+            logger.exception('Could not initialize FileStoreManager for {directory}.',
+                             exc_info=e)
+            raise ValueError('Need a usable local workflow *directory*.') from e
+        # TODO: Restore workflow state from filestore.
 
         self._dispatcher: typing.Optional[Queuer] = None
         self._dispatcher_lock = asyncio.Lock()
@@ -764,6 +775,10 @@ class WorkflowManager:
             callback(_CommandQueueAddItem({'add_item': uid}))
 
         return task_view
+
+    def datastore(self):
+        """Get a handle to the non-volatile backing data store."""
+        return self._filestoremanager.filestore()
 
 
 @functools.singledispatch

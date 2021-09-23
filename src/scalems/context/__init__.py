@@ -3,10 +3,12 @@
 
 __all__ = (
     'describe_file',
-    'initialize_datastore',
+    'get_file_reference',
     'scoped_chdir',
     'ContextError',
-    'StaleFileStore')
+    'StaleFileStore',
+    'FileStoreManager',
+)
 
 import contextlib
 import logging
@@ -18,8 +20,9 @@ import warnings
 
 from ._datastore import ContextError
 from ._datastore import describe_file
-from ._datastore import initialize_datastore
 from ._datastore import StaleFileStore
+from ._datastore import get_file_reference
+from ._datastore import FileStoreManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))

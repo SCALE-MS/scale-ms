@@ -48,10 +48,13 @@ import warnings
 from radical import pilot as rp
 
 import scalems.utility as _utility
+from .. import FileReference
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
-from scalems.radical.raptor import master_script
+from .raptor import master_script
+from ..context import describe_file
+from ..context._datastore import FileStore
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -143,6 +146,7 @@ class Configuration:
     """
     # Note that the use cases for this dataclass interact with module ContextVars,
     # pending refinement.
+    datastore: FileStore = None
     # TODO: Check that the resource is defined.
     execution_target: str = 'local.localhost'
     rp_resource_params: dict = dataclasses.field(default_factory=dict)

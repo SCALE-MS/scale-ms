@@ -12,6 +12,7 @@ Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 import asyncio
 import logging
 import os
+import sys
 import time
 
 import pytest
@@ -157,6 +158,25 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
             with open(output['target'], 'r') as fh:
                 line = fh.readline()
                 assert line.rstrip() == 'hello world'
+
+    import gc
+    # gc.set_debug(gc.DEBUG_LEAK)
+
+    # `manager = None` Does not finalize the FileStoreManager because there are
+    # references to the WorkflowManager or FileStoreManager in several frames still
+    # floating around. Consider only passing WorkflowManager by weakref, etc.
+    assert sys.getrefcount(manager) == 4
+    # At this point there are 4 references to `manager`, though 1 would be removed
+    # through garbage collection.
+    # gc.collect()
+    # assert sys.getrefcount(manager) == 3
+    # TODO: Get ref count for manager down to 1 without garbage collection and confirm
+    #  that the following results in finalization.
+    del manager
+    # logger.debug(gc.garbage)
+    gc.collect()  # Forces the FileStoreManager generator to be closed.
+    # Rather than worry about when gc happens, we could use an alternate protocol,
+    # or just allow a WorkflowManager.close() method.
 
     # Test active context scoping.
     assert scalems.workflow.get_scope() is original_context

@@ -17,7 +17,8 @@ __all__ = (
     'ContextError',
     'StaleFileStore',
     'describe_file',
-    'initialize_datastore',
+    'get_file_reference',
+    'FileStoreManager'
 )
 
 import abc
@@ -38,12 +39,8 @@ import shutil
 import tempfile
 import threading
 import typing
-import warnings
 import weakref
-from contextvars import ContextVar
 from typing import Iterator
-from typing import Optional
-from weakref import ReferenceType
 
 import scalems.exceptions
 from ._file import FileReference
@@ -59,8 +56,6 @@ _data_subdirectory = 'scalems_0_0'
 
 _metadata_filename = 'scalems_context_metadata.json'
 """Name to use for Context metadata files (module constant)."""
-
-_filestore: ContextVar[Optional[ReferenceType]] = contextvars.ContextVar('_filestore')
 
 
 class StaleFileStore(Exception):
@@ -109,7 +104,10 @@ class AccessFlags(enum.Flag):
 
 
 class AbstractFile(typing.Protocol):
-    """Abstract base for file types."""
+    """Abstract base for file types.
+
+    See :py:func:`describe_file`.
+    """
     access: AccessFlags
 
     # _params: dict = None
@@ -326,7 +324,7 @@ class FileStore:
         return self._data.instance
 
     def __repr__(self):
-        return f'<{self.__class__.__qualname__}, "{self.instance}:{self.directory}">'
+        return str(self._repr)
 
     def __init__(self, *,
                  directory: pathlib.Path):
@@ -335,9 +333,9 @@ class FileStore:
         Users should not create FileStore objects directly, but with
         initialize_datastore() or through the WorkflowManager instance.
 
-        Once initialized, caller is responsible for calling the close() method either
-        directly or by using the instance as a Python context manager (in a `with`
-        expression).
+        Once initialized, caller is responsible for calling the close() method.
+        The easiest way to do this is to avoid creating the FileStore directly,
+        and instead use a FileStoreManager object.
 
         No directory in the filesystem should be managed by more than one FileStore.
         The FileStore class maintains a registry of instances to prevent instantiation of
@@ -420,41 +418,13 @@ class FileStore:
             raise ContextError(
                 'Could not acquire ownership of working directory {}'.format(
                     directory)) from e
-
-    def __enter__(self):
-        if self._token:
-            raise ContextError(
-                'FileStore is not reentrant'
-            )
-        token = _filestore.set(weakref.ref(self))
-        # TODO: Clarify reentrance behavior (global versus internal locking).
-        # There shouldn't really be any problem with reentrance for regular `with`
-        # block, though maybe we should confirm that we are in the same process and
-        # thread. The complications should only arise with asyncronous `with` blocks
-        # (i.e. `__aenter__`, `__aexit__`). If necessary, we can use a Semaphore to
-        # count recursion depth across Contexts and/or cache a Semaphore value in a
-        # ContextVar to watch for errors.
-        if token.old_value in {self, contextvars.Token.MISSING}:
-            self._token = token
-            return self
-        else:
-            _filestore.reset(token)
-            raise ContextError(
-                'Only one FileStore may be active at a time.'
-            )
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            self.close()
-        except (StaleFileStore, scalems.exceptions.ScopeError) as e:
-            warnings.warn(f'{repr(self)} could not be exited cleanly.')
-            logger.exception('FileStore.close() raised exception.', exc_info=e)
-        else:
-            _filestore.reset(self._token)
-            del self._token
-        # Indicate that we have not handled any exceptions.
-        if exc_value:
-            return False
+        self._repr = '<{cls} pid={pid} dir={dir}>'.format(
+            cls=self.__class__.__qualname__,
+            pid=self.instance,
+            dir=self.directory
+        )
+        assert FileStore._instances.get(self.directory) is self
+        logger.debug(f'FileStore {self} open.')
 
     def flush(self):
         """Write the current metadata to the backing store, if there are pending
@@ -482,6 +452,10 @@ class FileStore:
                                                  prefix='flush_',
                                                  suffix='.json') as fp:
                     json.dump(dataclasses.asdict(self._data), fp)
+                if self.closed:
+                    logger.error(f'Leaving temporary metadata file {fp.name} from '
+                                 f'attempt to flush stale {self}.')
+                    raise StaleFileStore('Cannot flush stale FileStore.')
                 pathlib.Path(fp.name).rename(self.filepath)
                 self._dirty.clear()
 
@@ -494,16 +468,24 @@ class FileStore:
 
         """
         current_instance = getattr(self, 'instance', None)
-        if current_instance is None or self.closed:
-            raise StaleFileStore(
-                'Called close() on an inactive FileStore.'
-            )
-        if current_instance != os.getpid():
+        if current_instance is None:
+            raise StaleFileStore('{self} is already closed.')
+        elif current_instance != os.getpid():
             raise scalems.exceptions.ScopeError(
                 'Calling close() on a FileStore from another process is not allowed.')
 
-        with _scoped_directory_lock(self.directory):
-            try:
+        if self.directory in FileStore._instances:
+            actual_manager = FileStore._instances[self.directory]
+            if actual_manager is not self:
+                raise StaleFileStore(
+                    f'{self.directory} is currently managed by {actual_manager}')
+        else:
+            # Since FileStore._instances is a WeakValueDict, the entry may already be
+            # gone if this call to `close` is happening during garbage collection.
+            logger.debug(f'FileStore._instances[{self.directory}] is already empty')
+
+        try:
+            with _scoped_directory_lock(self.directory):
                 with open(self.filepath, 'r') as fp:
                     context = json.load(fp)
                     stored_instance = context.get('instance', None)
@@ -514,23 +496,31 @@ class FileStore:
                             'Expected ownership by {}, but found {}'.format(
                                 current_instance,
                                 stored_instance))
-            except OSError as e:
-                raise StaleFileStore('Could not open metadata file.') from e
-
             # del self._data.instance
             self._data.instance = None
             self._dirty.set()
             self.flush()
             del FileStore._instances[self.directory]
+        except OSError as e:
+            raise ContextError(
+                'Trouble with workflow directory access during shutdown.') from e
+
+        logger.debug(f'FileStore {self} closed.')
 
     @property
     def closed(self) -> bool:
-        return FileStore._instances.get(self.directory, None) is not self
+        if self._data.instance is None:
+            if FileStore._instances.get(self.directory, None) is not self:
+                return True
+        return False
 
     async def add_file(self,
                        obj: typing.Union[AbstractFile, FileReference],
                        _name: str = None) -> FileReference:
         """Add a file to the file store.
+
+        We require file paths to be wrapped in a special type so that we can enforce
+        that some error checking is possible before the coroutine actually runs. See
 
         This involves placing (copying) the file, reading the file to fingerprint it,
         and then writing metadata for the file. For clarity, we also rename the file
@@ -552,9 +542,6 @@ class FileStore:
 
         In addition to TypeError and ValueError for invalid inputs, propagates
         exceptions raised by failed attempts to access the provided file object.
-
-        TODO: Move more of these checks to the task creation so we can catch errors
-            earlier.
         """
         # Note: We can use a more effective and flexible `try: ... except: ...` check
         # once we actually have FileReference support ready to use here, at which point
@@ -564,6 +551,8 @@ class FileStore:
         if isinstance(obj, FileReference):
             raise scalems.exceptions.MissingImplementationError(
                 'FileReference input not yet supported.')
+        if self.closed:
+            raise StaleFileStore('Cannot add file to a closed FileStore.')
         path: pathlib.Path = obj.path()
         to_thread = get_to_thread()
 
@@ -693,47 +682,63 @@ class _FileReference(FileReference):
         return self._repr
 
 
-def get_context() -> typing.Union[FileStore, None]:
-    """Get currently active workflow context, if any."""
-    ref = _filestore.get(None)
-    if ref is not None:
-        filestore = ref()
-        if filestore is None:
-            # Prune dead weakrefs.
-            _filestore.set(None)
-        return filestore
-    return None
+def filestore_generator(directory=None):
+    """Generator function to manage a FileStore instance.
 
+    Initializes a FileStore and yields (a weak reference to) it an arbitrary number of
+    times. When the generator is garbage collected, or otherwise interrupted, properly
+    closes the FileStore before finishing.
 
-def set_context(datastore: FileStore):
-    """Set the active workflow context.
+    This is a simple "coroutine" using the extended generator functionality from PEP 342.
+    See Also:
+        https://docs.python.org/3/howto/functional.html#passing-values-into-a-generator
 
-    We do not yet provide for holding multiple metadata stores open at the same time.
-
-    Raises:
-        ContextError if a FileStore is already active.
-
-    """
-    current_context = get_context()
-    if current_context is not None:
-        raise ContextError(f'The context is already active: {current_context}')
-    else:
-        ref = weakref.ref(datastore)
-        _filestore.set(ref)
-
-
-def initialize_datastore(directory=None) -> FileStore:
-    """Get a reference to a workflow metadata store.
-
-    If initialize_datastore() succeeds, the caller is responsible for calling the
-    `close()` method of the returned instance before the interpreter exits,
-    either directly or by using the instance as a Python context manager.
     """
     if directory is None:
         directory = os.getcwd()
     path = pathlib.Path(directory)
     filestore = FileStore(directory=path)
-    return filestore
+    try:
+        while not filestore.closed:
+            message = (yield weakref.ref(filestore))
+            # We do not yet have any protocols requiring us to send messages to the
+            # filestore when getting it.
+            assert message is None
+            # Note that we could also do interesting things with nested generators/coroutines
+            # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
+            #                to be raised upon exit from the generator."
+    finally:
+        # The expected use case is that the generator will be abandoned when the owner
+        # of the FileStoreManager is destroyed, resulting in
+        # the Python interpreter calling the `close()` method, raising a GeneratorExit
+        # exception at the above `yield`. We don't need to catch that explicitly. We
+        # just need to clean up when the filestore is no longer in use.
+        logger.debug(f'filestore_generator is closing {filestore}.')
+        try:
+            filestore.close()
+        except Exception as e:
+            logger.exception(f'Exception while trying to close {filestore}.',
+                             exc_info=e)
+            # logger.debug(
+            #     f'Exception while trying to close {filestore}: {e}'
+            # )
+        else:
+            assert filestore.closed
+
+
+class FileStoreManager:
+    def __init__(self, directory=None):
+        self.filestore_generator = filestore_generator(directory=directory)
+        # Make sure generator function runs up to the first yield.
+        next(self.filestore_generator)
+
+    def filestore(self):
+        try:
+            ref = next(self.filestore_generator)
+            return ref()
+        except StopIteration:
+            logger.error('Managed FileStore is no longer available.')
+            return None
 
 
 @functools.singledispatch
@@ -777,7 +782,9 @@ def _(obj, filestore=None, mode='rb') -> typing.Awaitable[FileReference]:
     exceptions raised by failed attempts to access the provided file object.
     """
     if filestore is None:
-        filestore = get_context()
+        raise scalems.exceptions.MissingImplementationError(
+            'There is not yet a "default" data store. *filestore* must be provided.'
+        )
     else:
         # TODO: Check whether filestore is local or whether we need to proxy the object.
         ...

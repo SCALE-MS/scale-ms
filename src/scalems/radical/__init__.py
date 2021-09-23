@@ -151,7 +151,7 @@ def executor_factory(manager: scalems.workflow.WorkflowManager,
     return executor
 
 
-def workflow_manager(loop: asyncio.AbstractEventLoop):
+def workflow_manager(loop: asyncio.AbstractEventLoop, directory=None):
     """Manage a workflow context for RADICAL Pilot work loads.
 
     The rp.Session is created when the Python Context Manager is "entered",
@@ -169,7 +169,11 @@ def workflow_manager(loop: asyncio.AbstractEventLoop):
         The importer of this module should be sure to import radical.pilot
         before importing the built-in logging module to avoid spurious warnings.
     """
-    return scalems.workflow.WorkflowManager(loop=loop, executor_factory=executor_factory)
+    return scalems.workflow.WorkflowManager(
+        loop=loop,
+        executor_factory=executor_factory,
+        directory=directory
+    )
 
 
 class RPResult:
@@ -725,7 +729,10 @@ class RPDispatchingExecutor(RuntimeManager):
                 and len(self._runtime_configuration.execution_target) > 0:
             configuration_dict[
                 'execution_target'] = self._runtime_configuration.execution_target
+        configuration_dict['datastore'] = self.source_context.datastore()
+
         c = Configuration(**configuration_dict)
+
         token = _configuration.set(c)
         try:
             yield c
@@ -733,8 +740,8 @@ class RPDispatchingExecutor(RuntimeManager):
             _configuration.reset(token)
 
     async def runtime_startup(self) -> asyncio.Task:
-        configuration: Configuration = self.configuration()
-        self.runtime = await _connect_rp(configuration)
+        config: Configuration = configuration()
+        self.runtime = await _connect_rp(config)
 
         if self.runtime is None or self.runtime.session.closed:
             raise ProtocolError('Cannot process queue without a RP Session.')

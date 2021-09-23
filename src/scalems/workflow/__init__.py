@@ -414,7 +414,7 @@ class WorkflowManager:
         try:
             self._filestoremanager = FileStoreManager(directory=directory)
         except Exception as e:
-            logger.exception('Could not initialize FileStoreManager for {directory}.',
+            logger.exception(f'Could not initialize FileStoreManager for {directory}.',
                              exc_info=e)
             raise ValueError('Need a usable local workflow *directory*.') from e
         # TODO: Restore workflow state from filestore.

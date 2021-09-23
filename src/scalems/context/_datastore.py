@@ -17,7 +17,9 @@ __all__ = (
     'ContextError',
     'StaleFileStore',
     'describe_file',
+    'filestore_generator',
     'get_file_reference',
+    'FileStore',
     'FileStoreManager'
 )
 
@@ -467,40 +469,44 @@ class FileStore:
             ScopeError if called from a disallowed context, such as from a forked process.
 
         """
-        current_instance = getattr(self, 'instance', None)
-        if current_instance is None:
-            raise StaleFileStore(f'{self} is already closed.')
-        elif current_instance != os.getpid():
-            raise scalems.exceptions.ScopeError(
-                'Calling close() on a FileStore from another process is not allowed.')
-
-        if self.directory in FileStore._instances:
-            actual_manager = FileStore._instances[self.directory]
-            if actual_manager is not self:
-                raise StaleFileStore(
-                    f'{self.directory} is currently managed by {actual_manager}')
-        else:
+        actual_manager = FileStore._instances.get(self._directory, None)
+        if actual_manager is None:
             # Since FileStore._instances is a WeakValueDict, the entry may already be
             # gone if this call to `close` is happening during garbage collection.
             logger.debug(f'FileStore._instances[{self.directory}] is already empty')
+        else:
+            if actual_manager is not self:
+                raise StaleFileStore(
+                    f'{self.directory} is currently managed by {actual_manager}')
+
+        self.flush()
+        current_instance = getattr(self, 'instance', None)
+        self._data.instance = None
 
         try:
             with _scoped_directory_lock(self.directory):
+                if FileStore._instances.get(self._directory, None) is self:
+                    del FileStore._instances[self._directory]
+                if current_instance is None:
+                    raise StaleFileStore(f'{self} is already closed.')
+                elif current_instance != os.getpid():
+                    raise scalems.exceptions.ScopeError(
+                        'Calling close() on a FileStore from another process is not '
+                        'allowed.')
                 with open(self.filepath, 'r') as fp:
                     context = json.load(fp)
-                    stored_instance = context.get('instance', None)
-                    if stored_instance != current_instance:
-                        # Note that the StaleFileStore check will be more intricate as
-                        # metadata becomes more sophisticated.
-                        raise StaleFileStore(
-                            'Expected ownership by {}, but found {}'.format(
-                                current_instance,
-                                stored_instance))
-            # del self._data.instance
-            self._data.instance = None
-            self._dirty.set()
-            self.flush()
-            del FileStore._instances[self.directory]
+                stored_instance = context.get('instance', None)
+                if stored_instance != current_instance:
+                    # Note that the StaleFileStore check will be more intricate as
+                    # metadata becomes more sophisticated.
+                    raise StaleFileStore(
+                        'Expected ownership by {}, but found {}'.format(
+                            current_instance,
+                            stored_instance))
+                else:
+                    context['instance'] = None
+                    with open(self.filepath, 'w') as fp:
+                        json.dump(context, fp)
         except OSError as e:
             raise ContextError(
                 'Trouble with workflow directory access during shutdown.') from e
@@ -510,7 +516,10 @@ class FileStore:
     @property
     def closed(self) -> bool:
         if self._data.instance is None:
-            if FileStore._instances.get(self.directory, None) is not self:
+            actual_manager = FileStore._instances.get(self.directory, None)
+            if actual_manager is self:
+                raise ContextError(f'{self} is in an invalid state.')
+            else:
                 return True
         return False
 
@@ -698,6 +707,7 @@ def filestore_generator(directory=None):
         directory = os.getcwd()
     path = pathlib.Path(directory)
     filestore = FileStore(directory=path)
+    _closed = filestore.closed
     try:
         while not filestore.closed:
             message = (yield weakref.ref(filestore))
@@ -707,15 +717,17 @@ def filestore_generator(directory=None):
             # Note that we could also do interesting things with nested generators/coroutines
             # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
             #                to be raised upon exit from the generator."
+        _closed = True
     finally:
         # The expected use case is that the generator will be abandoned when the owner
         # of the FileStoreManager is destroyed, resulting in
         # the Python interpreter calling the `close()` method, raising a GeneratorExit
         # exception at the above `yield`. We don't need to catch that explicitly. We
         # just need to clean up when the filestore is no longer in use.
-        logger.debug(f'filestore_generator is closing {filestore}.')
         try:
-            filestore.close()
+            if not _closed:
+                logger.debug(f'filestore_generator is closing {filestore}.')
+                filestore.close()
         except Exception as e:
             logger.exception(f'Exception while trying to close {filestore}.',
                              exc_info=e)

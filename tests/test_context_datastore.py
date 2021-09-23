@@ -7,18 +7,19 @@ import tempfile
 
 import pytest
 import scalems.context as _context
-import scalems.context._datastore
 import scalems.context._lock
 import scalems.exceptions
+from scalems.context._datastore import filestore_generator
+from scalems.context import FileStore, FileStoreManager
 
 
-def test_normal_lifecycle(tmp_path):
+def test_normal_lifecycle(tmp_path, caplog):
     """Test normal Context data store life cycle / state machine.
 
     initialize_datastore() should succeed when called in a clean directory or when
     the current process already owns the data store.
     """
-    datastore = scalems.context._datastore.FileStore(directory=tmp_path)
+    datastore = FileStore(directory=tmp_path)
     assert not datastore.closed
     assert datastore.instance == os.getpid()
     with open(datastore.filepath, 'r') as fh:
@@ -30,10 +31,10 @@ def test_normal_lifecycle(tmp_path):
     assert 'instance' in data
     assert data['instance'] is None
 
-    generator = scalems.context._datastore.filestore_generator(directory=tmp_path)
+    generator = filestore_generator(directory=tmp_path)
     datastore = next(generator)()
     with pytest.raises(scalems.context.ContextError):
-        scalems.context._datastore.FileStore(directory=tmp_path)
+        FileStore(directory=tmp_path)
     datastore.close()
     # finalize_datastore() must be called exactly once for a data store that has been
     # opened.
@@ -48,18 +49,18 @@ def test_normal_lifecycle(tmp_path):
     filepath = tmp_path.joinpath(scalems.context._datastore._data_subdirectory,
                                  scalems.context._datastore._metadata_filename)
 
-    with _context.scoped_chdir(tmp_path):
-        manager = scalems.context._datastore.FileStoreManager()
-        datastore = manager.filestore()
-        assert datastore.instance == os.getpid()
-        assert datastore.filepath == filepath
-        with pytest.raises(AttributeError):
-            datastore.log = list()
-        # TODO: log interface.
-        # datastore.log.append('Testing')
-        datastore.close()
-        with pytest.warns(scalems.exceptions.ScaleMSWarning):
-            del manager
+    manager = FileStoreManager(tmp_path)
+    datastore: scalems.context.FileStore = manager.filestore()
+    assert datastore.instance == os.getpid()
+    assert datastore.filepath == filepath
+    with pytest.raises(AttributeError):
+        datastore.log = list()
+    # TODO: log interface.
+    # datastore.log.append('Testing')
+    with caplog.at_level(logging.CRITICAL, logger='scalems.context._datastore'):
+        assert not datastore.closed
+        del manager
+        assert datastore.closed
     with open(filepath, 'r') as fh:
         metadata: dict = json.load(fh)
         # A finalized record should not have an owning *instance*.
@@ -69,7 +70,7 @@ def test_normal_lifecycle(tmp_path):
 def test_nonfinalized(tmp_path, caplog):
     """Failure to call finalize_datastore() should have well-defined behavior."""
     with _context.scoped_chdir(tmp_path):
-        manager = scalems.context._datastore.FileStoreManager()
+        manager = FileStoreManager()
         datastore = manager.filestore()
         metadata_path = datastore.filepath
 
@@ -81,13 +82,13 @@ def test_nonfinalized(tmp_path, caplog):
         # Right now, we have to manipulate the filesystem with knowledge of the implementation
         # details in order to effectively test.
         with pytest.raises(scalems.context.ContextError):
-            scalems.context._datastore.FileStoreManager().filestore()
+            FileStoreManager().filestore()
         # We may want to assert constraints on the filesystem state we expect to encounter
         # even when a lock is left unexpectedly, but initially all we know is that a
         # dangling lock may result from an unclean process termination.
         scalems.context._lock._lock_directory()
         with pytest.raises(scalems.context.ContextError):
-            scalems.context._datastore.FileStoreManager()
+            FileStoreManager()
         scalems.context._lock._unlock_directory()
 
         logger = logging.getLogger('scalems.context._datastore')
@@ -97,20 +98,26 @@ def test_nonfinalized(tmp_path, caplog):
             del manager
 
 
-def test_contention(tmp_path):
+def test_contention(tmp_path, caplog):
     """Test various ways data stores could collide.
 
     If two processes try to use the same data store, we should be able to
     detect and prevent it.
     """
     with _context.scoped_chdir(tmp_path):
-        manager = scalems.context._datastore.FileStoreManager()
+        manager = FileStoreManager()
         datastore = manager.filestore()
         scalems.context._lock._lock_directory()
         with pytest.raises(scalems.context._lock.LockException):
             datastore.close()
+        # This failed call to `close` leaves the datastore in an invalid state.
+        with pytest.raises(scalems.context._datastore.ContextError):
+            assert not datastore.closed
+
         scalems.context._lock._unlock_directory()
-        del manager
+        with caplog.at_level(logging.CRITICAL, logger='scalems.context._datastore'):
+            # The above failed `close` left the manager in an invalid state.
+            del manager
 
         metadata_path = datastore.filepath
         expected_instance = os.getpid()
@@ -118,11 +125,11 @@ def test_contention(tmp_path):
         with open(metadata_path, 'w') as fp:
             json.dump({'instance': unexpected_instance}, fp)
         with pytest.raises(scalems.context.ContextError):
-            scalems.context._datastore.FileStoreManager()
+            FileStoreManager()
 
         scalems.context._lock._lock_directory()
         with pytest.raises(scalems.context._datastore.ContextError):
-            scalems.context._datastore.FileStoreManager()
+            FileStoreManager()
         scalems.context._lock._unlock_directory()
 
 
@@ -137,10 +144,10 @@ def test_nesting(tmp_path):
         with tempfile.TemporaryDirectory(dir=tmp_path) as path:
             with _context.scoped_chdir(path):
                 with pytest.raises(scalems.context._datastore.ContextError):
-                    scalems.context._datastore.FileStoreManager(directory=path)
+                    FileStoreManager(directory=path)
 
     # initialization should check for unexpected nesting in the work dir.
-    manager = scalems.context._datastore.FileStoreManager(directory=tmp_path)
+    manager = FileStoreManager(directory=tmp_path)
     datastore = manager.filestore()
     root_path = datastore.directory
     assert root_path == tmp_path
@@ -148,19 +155,19 @@ def test_nesting(tmp_path):
     with tempfile.TemporaryDirectory(dir=root_path) as path:
         with _context.scoped_chdir(path):
             with pytest.raises(scalems.context._datastore.ContextError):
-                scalems.context._datastore.FileStoreManager()
+                FileStoreManager()
 
     # initialization should check for unexpected nesting in the datastore itself.
     with _context.scoped_chdir(datastore_path):
         with pytest.raises(scalems.context._datastore.ContextError):
-            scalems.context._datastore.FileStoreManager()
+            FileStoreManager()
 
 
 def test_recovery(tmp_path):
     """A workflow directory should be re-usable if it was shut down cleanly."""
 
     # Follow the lifecycle of a workflow session.
-    manager = scalems.context._datastore.FileStoreManager(directory=tmp_path)
+    manager = FileStoreManager(directory=tmp_path)
     datastore = manager.filestore()
     metadata_path = datastore.filepath
     del manager
@@ -170,7 +177,7 @@ def test_recovery(tmp_path):
         metadata: dict = json.load(fh)
         assert metadata['instance'] is None
 
-    manager = scalems.context._datastore.FileStoreManager(directory=tmp_path)
+    manager = FileStoreManager(directory=tmp_path)
     assert datastore is not manager.filestore()
     assert datastore.closed
     assert not manager.filestore().closed

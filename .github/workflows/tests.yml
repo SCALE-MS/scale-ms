@@ -82,9 +82,13 @@ jobs:
     - name: Install scalems and dependencies
       run: |
         . $HOME/testenv/bin/activate
+        echo `which python`
+        python --version
+        python -m pip install --upgrade pip setuptools wheel
+        pip --version
         pip uninstall -y radical.pilot radical.saga radical.utils scalems
-        python -m pip install --upgrade -r requirements-testing.txt
-        python -m pip install .
+        pip install --upgrade -r requirements-testing.txt
+        pip install .
         radical-stack
     - name: Test with pytest
       run: |
@@ -148,11 +152,14 @@ jobs:
         which mpiexec
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
+        echo `which python`
+        python --version
         python -m pip install --upgrade pip setuptools wheel
-        pip uninstall -y radical.pilot radical.saga radical.utils
-        python -m pip install --upgrade -r requirements-testing.txt
-        python -m pip install .
-        python -m pip install coverage pymongo pytest-cov
+        pip --version
+        pip uninstall -y radical.pilot radical.saga radical.utils scalems
+        pip install --upgrade -r requirements-testing.txt
+        pip install .
+        pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         python -m pip freeze
@@ -254,14 +261,16 @@ jobs:
         which mpiexec
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
+        echo `which python`
+        python --version
         python -m pip install --upgrade pip setuptools wheel
         pip uninstall -y radical.pilot radical.saga radical.utils
-        python -m pip install --upgrade -r requirements-testing.txt
-        python -m pip install .
-        python -m pip install coverage pymongo pytest-cov
+        pip install --upgrade -r requirements-testing.txt
+        pip install .
+        pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
-        python -m pip freeze
+        pip freeze
         radical-stack
     - name: Test local.github with pytest
       timeout-minutes: 15
@@ -365,12 +374,12 @@ jobs:
         . $HOME/testenv/bin/activate
         python -m pip install --upgrade pip setuptools wheel
         pip uninstall -y radical.pilot
-        python -m pip install --upgrade --force \
+        pip install --upgrade --force \
           git+https://github.com/radical-cybertools/radical.utils.git@project/scalems#egg=radical.utils \
           git+https://github.com/radical-cybertools/radical.saga.git@project/scalems#egg=radical.saga \
           git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems#egg=radical.pilot
-        python -m pip install .
-        python -m pip install \
+        pip install .
+        pip install \
           build \
           coverage \
           pymongo \
@@ -380,7 +389,7 @@ jobs:
           pytest-env
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
-        python -m pip freeze
+        pip freeze
         radical-stack
     - name: Test local.github with pytest
       timeout-minutes: 15

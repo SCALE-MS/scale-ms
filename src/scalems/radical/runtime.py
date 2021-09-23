@@ -48,12 +48,10 @@ import warnings
 from radical import pilot as rp
 
 import scalems.utility as _utility
-from .. import FileReference
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from .raptor import master_script
-from ..context import describe_file
 from ..context._datastore import FileStore
 
 logger = logging.getLogger(__name__)

@@ -607,6 +607,11 @@ class FileStore:
                         raise StaleFileStore(f'Unexpected file in filestore: {filename}.')
                 os.rename(tmpfile_target, filename)
                 logger.debug(f'Placed {filename}')
+                # TODO: Enforce the setting of the "dirty" flag.
+                # We can create a stronger separation between the metadata manager and
+                # the backing data store and/or restrict assignment to use a general
+                # Data Descriptor that manages our "dirty" flag.
+                self._dirty.set()
                 self._data.files[key] = str(filename)
 
             return _FileReference(filestore=self, key=key)

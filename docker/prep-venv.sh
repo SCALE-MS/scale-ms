@@ -1,5 +1,11 @@
 # Source this scriptlet to set up a fresh 'login' service container.
 #
+# Note that this script assumes you have already copied the repository to
+# /tmp/scalems_dev in the docker container.
+# E.g.
+#     docker compose -f docker/docker-compose.yml cp . login:/tmp/scalems_dev
+#     docker compose -f docker/docker-compose.yml exec -u root login bash -c "chown -R rp:radical /tmp/scalems_dev"
+#
 # Add a local private/public key to container authorized keys
 keyfile=${1:-${HOME}/.ssh/id_rsa}
 pubkeyfile="${keyfile}.pub"

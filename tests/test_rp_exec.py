@@ -12,7 +12,6 @@ Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 import asyncio
 import logging
 import os
-import sys
 import time
 
 import pytest
@@ -125,7 +124,9 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
-        rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}
+        rp_resource_params={
+            'PilotDescription': pilot_description.as_dict()
+        }
     )
 
     # Test RPDispatcher context
@@ -140,7 +141,9 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         cmd1 = scalems.executable(('/bin/echo',))
-        async with manager.dispatch(params=params):
+        async with manager.dispatch(params=params) as dispatcher:
+            assert isinstance(dispatcher, scalems.radical.RPDispatchingExecutor)
+            logger.debug(f'exec_rp Session is {repr(dispatcher.runtime.session)}')
             cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
@@ -167,10 +170,10 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     # `manager = None` Does not finalize the FileStoreManager because there are
     # references to the WorkflowManager or FileStoreManager in several frames still
     # floating around. Consider only passing WorkflowManager by weakref, etc.
-    assert sys.getrefcount(manager) == 4
+    # assert sys.getrefcount(manager) == 4
     # At this point there are 4 references to `manager`, though 1 would be removed
     # through garbage collection.
-    # gc.collect()
+    gc.collect()
     # assert sys.getrefcount(manager) == 3
     # TODO: Get ref count for manager down to 1 without garbage collection and confirm
     #  that the following results in finalization.

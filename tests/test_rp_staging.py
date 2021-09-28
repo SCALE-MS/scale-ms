@@ -75,7 +75,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
         # By default, file is copied to the root of the Pilot sandbox,
         # where it can be referenced as 'pilot:///filename'
         # Alternatively: pilot.stage_in() and pilot.stage_output() (blocking calls)
-        pilot_description.exit_on_error = True
+        pilot_description.exit_on_error = False
         pilot_description.input_staging = [fpath]
         with open(fpath, 'w') as fh:
             fh.writelines([data])

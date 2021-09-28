@@ -436,6 +436,7 @@ jobs:
     - name: Collect artifacts
       if: ${{ always() }}
       run: |
+        tar zcvf ~/client.tgz ./rp.session.*
         cd $HOME
         tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
     - name: "Upload artifacts"

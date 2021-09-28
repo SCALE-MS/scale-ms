@@ -41,7 +41,7 @@ def test_rp_raptor_staging(pilot_description, rp_venv):
     import time
     import radical.pilot as rp
 
-    time.sleep(120)
+    time.sleep(60)
 
     # Note: we need to install the current scalems package to test remotely.
     # If this is problematic, we can add a check like the following.

@@ -53,10 +53,10 @@ def test_prepare_venv(rp_task_manager, sdist):
     # or the prepare_venv part should be moved to a separate function, such as in conftest...
 
     sdist_names = {
-        'scalems': os.path.basename(sdist),
-        'rp': rp.sdist_name,
         'ru': ru.sdist_name,
-        'rs': rs.sdist_name
+        'rs': rs.sdist_name,
+        'rp': rp.sdist_name,
+        'scalems': os.path.basename(sdist),
     }
     sdist_local_paths = {
         'scalems': sdist,

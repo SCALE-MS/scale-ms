@@ -375,8 +375,6 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         pip uninstall -y radical.pilot
         pip install --upgrade --force \
-          git+https://github.com/radical-cybertools/radical.utils.git@project/scalems#egg=radical.utils \
-          git+https://github.com/radical-cybertools/radical.saga.git@project/scalems#egg=radical.saga \
           git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems#egg=radical.pilot
         pip install .
         pip install \

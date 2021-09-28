@@ -568,7 +568,8 @@ def _(namespace: argparse.Namespace) -> Configuration:
     rp_resource_params = {
         'PilotDescription':
             {
-                'access_schema': namespace.access
+                'access_schema': namespace.access,
+                'exit_on_error': False,
             }
     }
     if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:

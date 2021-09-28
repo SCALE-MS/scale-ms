@@ -67,7 +67,7 @@ def main():
     gpus = data['worker']['gpus']
 
     worker_submission = {
-        'descr': rp.TaskDescription(**descr),
+        'descr': rp.TaskDescription(from_dict=descr),
         'count': count,
         'cores': cores,
         'gpus': gpus

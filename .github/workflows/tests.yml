@@ -213,7 +213,9 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: ${{ github.job }}-${{ matrix.python-version }}
-        path: '~/sessions.tgz'
+        path: |
+          '~/sessions.tgz'
+          '~/client.tgz'
 
   rp_ssh:
 
@@ -325,7 +327,9 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: ${{ github.job }}-${{ matrix.python-version }}
-        path: '~/sessions.tgz'
+        path: |
+          '~/sessions.tgz'
+          '~/client.tgz'
 
   rp_ssh_head:
 
@@ -444,7 +448,9 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: ${{ github.job }}-${{ matrix.python-version }}
-        path: '~/sessions.tgz'
+        path: |
+          '~/sessions.tgz'
+          '~/client.tgz'
 
   lint:
     runs-on: ubuntu-latest

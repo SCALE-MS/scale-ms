@@ -66,9 +66,6 @@ def main():
     cores = data['worker']['cores']
     gpus = data['worker']['gpus']
 
-    # We do not yet use the input.
-    assert len(data) == 0
-
     worker_submission = {
         'descr': rp.TaskDescription(**descr),
         'count': count,

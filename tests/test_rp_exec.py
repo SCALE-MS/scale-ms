@@ -122,7 +122,12 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
-        rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}
+        rp_resource_params={
+            'PilotDescription': {
+                'access_schema': pilot_description.access_schema,
+                'exit_on_error': False,
+            }
+        }
     )
 
     # Test RPDispatcher context

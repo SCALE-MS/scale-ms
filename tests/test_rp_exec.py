@@ -167,10 +167,10 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     # `manager = None` Does not finalize the FileStoreManager because there are
     # references to the WorkflowManager or FileStoreManager in several frames still
     # floating around. Consider only passing WorkflowManager by weakref, etc.
-    assert sys.getrefcount(manager) == 4
+    # assert sys.getrefcount(manager) == 4
     # At this point there are 4 references to `manager`, though 1 would be removed
     # through garbage collection.
-    # gc.collect()
+    gc.collect()
     # assert sys.getrefcount(manager) == 3
     # TODO: Get ref count for manager down to 1 without garbage collection and confirm
     #  that the following results in finalization.

@@ -110,6 +110,8 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     """
     import radical.pilot as rp
 
+    time.sleep(120)
+
     # Hopefully, this requirement is temporary.
     if rp_venv is None:
         pytest.skip('This test requires a user-provided static RP venv.')

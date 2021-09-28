@@ -1,6 +1,7 @@
 """Provide the entry point for SCALE-MS execution management under RADICAL Pilot."""
 
 import logging
+import pathlib
 import sys
 import typing
 
@@ -53,6 +54,7 @@ class ScaleMSMaster(rp.raptor.Master):
 def main():
     # TODO: Test both with and without a provided config file.
     kwargs = {}
+    # TODO: Get the worker configuration through the master config file.
     if len(sys.argv) > 1:
         cfg = ru.Config(cfg=ru.read_json(sys.argv[1]))
         kwargs['cfg'] = cfg
@@ -69,7 +71,14 @@ def main():
         count = 1
         cores = 1
         gpus = 0
+
     master = ScaleMSMaster(**kwargs)
+
+    # TODO: Get this from the client.
+    pybase = pathlib.Path(sys.executable).parent.parent
+    activate = pybase.joinpath('bin', 'activate').resolve()
+    preexec = [f'. {activate}']
+    descr.pre_exec = preexec
 
     master.submit(
         descr=descr,

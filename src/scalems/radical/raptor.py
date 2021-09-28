@@ -1,5 +1,15 @@
-"""
-Define the connective tissue for SCALE-MS tasks embedded in rp.Task arguments.
+"""Define the connective tissue for SCALE-MS tasks embedded in rp.Task arguments.
+
+This module should not depend on any scalems modules.
+
+Client:
+    The client should be reasonably certain that the target environment has a
+    compatible installation of RP and scalems. A rp.raptor.Master task script and a
+    rp.raptor.Worker task script are installed with the scalems package. Their names
+    are returned by the module functions ``master_script()`` and ``worker_script()``,
+    and they should be resolvable on the PATH for a Python interpreter process in an
+    environment that has the scalems package installed.
+
 """
 
 import functools

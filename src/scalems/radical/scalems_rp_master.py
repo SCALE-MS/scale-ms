@@ -1,11 +1,12 @@
 """Provide the entry point for SCALE-MS execution management under RADICAL Pilot."""
-
+import argparse
+import json
 import logging
+import os
 import sys
 import typing
 
 import radical.pilot as rp
-import radical.utils as ru
 from radical.pilot.raptor.request import Request
 
 from scalems.radical.raptor import RequestInputList
@@ -14,11 +15,6 @@ logger = logging.getLogger('scalems_rp_master')
 
 
 class ScaleMSMaster(rp.raptor.Master):
-
-    def __init__(self, *args, **kwargs):
-        rp.raptor.Master.__init__(self, *args, **kwargs)
-
-        self._log = ru.Logger(self.uid, ns='radical.pilot')
 
     def result_cb(self, requests: typing.Sequence[Request]):
         for r in requests:
@@ -50,32 +46,39 @@ class ScaleMSMaster(rp.raptor.Master):
         return requests
 
 
-def main():
-    # TODO: Test both with and without a provided config file.
-    kwargs = {}
-    if len(sys.argv) > 1:
-        cfg = ru.Config(cfg=ru.read_json(sys.argv[1]))
-        kwargs['cfg'] = cfg
-        descr = cfg.worker_descr,
-        count = cfg.n_workers,
-        cores = cfg.cpn,
-        gpus = cfg.gpn
-    else:
-        descr = rp.TaskDescription({
-            'uid': 'raptor.worker',
-            'executable': 'scalems_rp_worker',
-            'arguments': []
-        })
-        count = 1
-        cores = 1
-        gpus = 0
-    master = ScaleMSMaster(**kwargs)
+parser = argparse.ArgumentParser()
+parser.add_argument(
+    'file',
+    type=str,
+    help='Input file (JSON) for configuring ScaleMSMaster instance.'
+)
 
-    master.submit(
-        descr=descr,
-        count=count,
-        cores=cores,
-        gpus=gpus)
+
+def main():
+    args = parser.parse_args()
+    if not os.path.exists(args.file):
+        raise RuntimeError(f'File not found: {args.file}')
+    with open(args.file, 'r') as fh:
+        data = json.load(fh)
+
+    descr = data['worker']['task_description']
+    count = data['worker']['count']
+    cores = data['worker']['cores']
+    gpus = data['worker']['gpus']
+
+    # We do not yet use the input.
+    assert len(data) == 0
+
+    worker_submission = {
+        'descr': rp.TaskDescription(**descr),
+        'count': count,
+        'cores': cores,
+        'gpus': gpus
+    }
+
+    master = ScaleMSMaster()
+
+    master.submit(**worker_submission)
 
     master.start()
     master.join()

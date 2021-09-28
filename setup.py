@@ -3,6 +3,17 @@ import sys
 
 from setuptools import setup
 
+# If the Python version is too low, developers will get a strange error when versioneer
+# tries to import scalems._version since scalems/__init__.py imports some submodules
+# with dependencies on recently-introduced standard library modules.
+_supported = True
+if sys.version_info.major < 3:
+    _supported = False
+if sys.version_info.major == 3 and sys.version_info.minor < 8:
+    _supported = False
+if not _supported:
+    raise RuntimeError('scalems requires Python 3.8 or higher.')
+
 # The versioneer.py is in the same directory as the setup.py
 sys.path.append(os.path.dirname(__file__))
 import versioneer

@@ -123,10 +123,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={
-            'PilotDescription': {
-                'access_schema': pilot_description.access_schema,
-                'exit_on_error': False,
-            }
+            'PilotDescription': pilot_description.as_dict()
         }
     )
 

@@ -21,11 +21,7 @@ from typing import Protocol
 
 from scalems import exceptions as _exceptions
 from . import get_scope
-from ._version import get_versions
 from .workflow import WorkflowManager
-
-_scalems_version = get_versions()['version']
-del get_versions
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -48,6 +44,8 @@ def parser(add_help=False):
     See Also:
          https://docs.python.org/3/library/argparse.html#parents
     """
+    from . import __version__ as _scalems_version
+
     _parser = argparse.ArgumentParser(add_help=add_help)
 
     _parser.add_argument(

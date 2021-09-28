@@ -85,10 +85,16 @@ def test_prepare_venv(rp_task_manager, sdist):
 
     tmgr = rp_task_manager
 
+    packages = [
+        'pip',
+        'setuptools',
+        'wheel']
+    packages.extend(sdist_session_paths.values())
+
     pilot.prepare_env(env_name='scalems_env',
                       env_spec={'type': 'virtualenv',
                                 'version': '3.8',
-                                'setup': list(sdist_session_paths.values())})
+                                'setup': packages})
 
     td = rp.TaskDescription({'executable': 'python3',
                              'arguments': ['-c',

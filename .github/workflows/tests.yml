@@ -204,6 +204,7 @@ jobs:
         fail_ci_if_error: true
         name: codecov-rp-local-${{ matrix.python-version }}
     - name: Collect artifacts
+      if: ${{ always() }}
       run: |
         cd $HOME
         tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
@@ -315,6 +316,7 @@ jobs:
         fail_ci_if_error: true
         name: codecov-rp-ssh-${{ matrix.python-version }}
     - name: Collect artifacts
+      if: ${{ always() }}
       run: |
         cd $HOME
         tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
@@ -432,6 +434,7 @@ jobs:
         fail_ci_if_error: true
         name: codecov-rp-ssh-${{ matrix.python-version }}
     - name: Collect artifacts
+      if: ${{ always() }}
       run: |
         cd $HOME
         tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*

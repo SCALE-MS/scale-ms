@@ -204,9 +204,9 @@ jobs:
         fail_ci_if_error: true
         name: codecov-rp-local-${{ matrix.python-version }}
     - name: Collect artifacts
+      if: ${{ always() }}
       run: |
-        cd $HOME
-        tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
+        tar zcvf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
     - name: "Upload artifacts"
       if: ${{ always() }}
       uses: actions/upload-artifact@v2
@@ -315,9 +315,9 @@ jobs:
         fail_ci_if_error: true
         name: codecov-rp-ssh-${{ matrix.python-version }}
     - name: Collect artifacts
+      if: ${{ always() }}
       run: |
-        cd $HOME
-        tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
+        tar zcvf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
     - name: "Upload artifacts"
       if: ${{ always() }}
       uses: actions/upload-artifact@v2
@@ -434,9 +434,9 @@ jobs:
         fail_ci_if_error: true
         name: codecov-rp-ssh-${{ matrix.python-version }}
     - name: Collect artifacts
+      if: ${{ always() }}
       run: |
-        cd $HOME
-        tar zcvf sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' radical.pilot.sandbox/rp.session.*
+        tar zcvf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
     - name: "Upload artifacts"
       if: ${{ always() }}
       uses: actions/upload-artifact@v2

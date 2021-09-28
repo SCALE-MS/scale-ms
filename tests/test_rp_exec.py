@@ -12,7 +12,6 @@ Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 import asyncio
 import logging
 import os
-import sys
 import time
 
 import pytest
@@ -123,7 +122,9 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
-        rp_resource_params={'PilotDescription': {'access_schema': pilot_description.access_schema}}
+        rp_resource_params={
+            'PilotDescription': pilot_description.as_dict()
+        }
     )
 
     # Test RPDispatcher context
@@ -165,10 +166,10 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     # `manager = None` Does not finalize the FileStoreManager because there are
     # references to the WorkflowManager or FileStoreManager in several frames still
     # floating around. Consider only passing WorkflowManager by weakref, etc.
-    assert sys.getrefcount(manager) == 4
+    # assert sys.getrefcount(manager) == 4
     # At this point there are 4 references to `manager`, though 1 would be removed
     # through garbage collection.
-    # gc.collect()
+    gc.collect()
     # assert sys.getrefcount(manager) == 3
     # TODO: Get ref count for manager down to 1 without garbage collection and confirm
     #  that the following results in finalization.

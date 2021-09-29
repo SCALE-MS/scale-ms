@@ -741,6 +741,9 @@ class RPDispatchingExecutor(RuntimeManager):
 
     async def runtime_startup(self) -> asyncio.Task:
         config: Configuration = configuration()
+
+        # TODO: Check that we have a FileStore.
+
         self.runtime = await _connect_rp(config)
 
         if self.runtime is None or self.runtime.session.closed:

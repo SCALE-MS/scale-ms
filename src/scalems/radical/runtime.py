@@ -40,8 +40,10 @@ import asyncio
 import contextvars
 import dataclasses
 import functools
+import json
 import logging
 import os
+import tempfile
 import typing
 import warnings
 
@@ -52,7 +54,10 @@ from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from .raptor import master_script
-from ..context._datastore import FileStore
+from .raptor import worker_script
+from .. import FileReference
+from ..context import describe_file
+from ..context import FileStore
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -321,9 +326,48 @@ class Runtime:
                 return self.pilot(pilot)
 
 
-def _get_scheduler(name: str,
-                   pre_exec: typing.Iterable[str],
-                   task_manager: rp.TaskManager):
+async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
+    """Provide the input file for a SCALE-MS Raptor Master script.
+
+    Args:
+        filestore: (local) FileStore that will manage the generated FileReference.
+
+    """
+    # TODO: Generate a JSON file to provide to the Master.
+
+    if not isinstance(filestore, FileStore) or filestore.closed or not \
+            filestore.directory.exists():
+        raise ValueError(f'{filestore} is not a usable FileStore.')
+    # Make sure the temporary directory is on the same filesystem as the local workflow.
+    tmp_base = filestore.directory
+    with tempfile.TemporaryDirectory(dir=tmp_base) as dir:
+        config_file_name = 'raptor_scheduler_config.json'
+        config_file_path = os.path.join(dir, config_file_name)
+        with open(config_file_path, 'w') as fh:
+            # TODO: Enforce schema for here and Master script via scalems.radical.raptor
+            encoded = {
+                'worker': {
+                    'task_description': {
+                        'uid': 'raptor.worker',
+                        'executable': worker_script(),
+                        'arguments': [],
+                        'pre_exec': pre_exec
+                    },
+                    'count': 1,
+                    'cores': 1,
+                    'gpus': 0
+                }
+            }
+            json.dump(encoded, fh, indent=2)
+        file_description = describe_file(config_file_path, mode='r')
+        handle: FileReference = await filestore.add_file(file_description)
+    return handle
+
+
+async def _get_scheduler(name: str,
+                         pre_exec: typing.Iterable[str],
+                         task_manager: rp.TaskManager,
+                         filestore=None):
     """Establish the radical.pilot.raptor.Master task.
 
     Create a master rp.Task (running the scalems_rp_master script) with the
@@ -342,7 +386,6 @@ def _get_scheduler(name: str,
     # define a raptor.scalems master and launch it within the pilot
     td = rp.TaskDescription()
     td.uid = name
-    td.arguments = []
     td.pre_exec = pre_exec
     # We are not using prepare_env at this point. We use the `venv` configured by the
     # caller.
@@ -352,6 +395,20 @@ def _get_scheduler(name: str,
     # install as
     # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
     td.executable = master_script()
+
+    logger.debug(f'Using {filestore}.')
+    config_file = await _master_input(filestore, pre_exec=list(pre_exec))
+
+    # TODO(#75): Automate handling of file staging directives for scalems.FileReference
+    config_file_name = config_file.path().name
+    td.input_staging = [
+        {
+            'source': config_file.as_uri(),
+            'target': f'task://{config_file_name}',
+            'action': rp.TRANSFER
+        }
+    ]
+    td.arguments = [config_file_name]
 
     logger.debug('Launching RP scheduler.')
     # WARNING: The following line may block for several seconds. Consider using a
@@ -494,10 +551,11 @@ async def _connect_rp(config: Configuration) -> Runtime:
         #
 
         assert runtime.scheduler is None
-        runtime.scheduler = _get_scheduler(
+        runtime.scheduler = await _get_scheduler(
             'raptor.scalems',
             pre_exec=list(get_pre_exec(config)),
-            task_manager=task_manager)
+            task_manager=task_manager,
+            filestore=config.datastore)
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
 
         return runtime

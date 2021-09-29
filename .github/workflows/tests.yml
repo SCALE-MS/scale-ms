@@ -195,7 +195,8 @@ jobs:
         coverage run --append -m scalems.radical --help
         coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
-        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
+        stdout=$(echo 0*/stdout)
+        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v2
@@ -306,7 +307,8 @@ jobs:
         coverage run --append -m scalems.radical --help
         coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
-        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
+        stdout=$(echo 0*/stdout)
+        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v2
@@ -375,8 +377,6 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         pip uninstall -y radical.pilot
         pip install --upgrade --force \
-          git+https://github.com/radical-cybertools/radical.utils.git@project/scalems#egg=radical.utils \
-          git+https://github.com/radical-cybertools/radical.saga.git@project/scalems#egg=radical.saga \
           git+https://github.com/radical-cybertools/radical.pilot.git@project/scalems#egg=radical.pilot
         pip install .
         pip install \
@@ -425,7 +425,8 @@ jobs:
         coverage run --append -m scalems.radical --help
         coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
-        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hello world": assert False'
+        stdout=$(echo 0*/stdout)
+        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v2

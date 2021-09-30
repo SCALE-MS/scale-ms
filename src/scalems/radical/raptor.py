@@ -35,12 +35,19 @@ except AttributeError:
     # Note: functools.cache does not appear until Python 3.9
     cache = functools.lru_cache(maxsize=None)
 
-_RaptorReturnType = typing.Tuple[typing.Text, typing.Text, typing.SupportsInt]
+_RaptorReturnType = typing.Tuple[
+    typing.Union[None, typing.Text],
+    typing.Union[None, typing.Text],
+    typing.Union[None, typing.SupportsInt],
+    typing.Any
+]
 """Raptor worker task return values are interpreted as a tuple (out, err, ret).
 
 The first two elements are cast to output and error strings, respectively.
 
 The third is cast to an integer return code.
+
+The fourth is a return value of arbitrary type.
 """
 
 _RaptorWorkData = typing.TypeVar('_RaptorWorkData')
@@ -92,9 +99,7 @@ class _RequestInput(typing.TypedDict):
     data member) after Master.request_cb(). Optionally, it may contain
     *cores* and *gpus*.
     """
-    is_task: bool
     uid: str
-    task: rp.Task
     mode: str
     data: typing.Any
     timeout: typing.SupportsFloat
@@ -117,21 +122,25 @@ class RaptorWorkDescription(typing.Protocol[_RaptorWorkData]):
     A dictionary resembling this structure is converted to radical.pilot.raptor.Request
     by the Master in radical.pilot.raptor.Master.request().
 
-    Attributes:
-        mode (str): Dispatching key for raptor.Worker._dispatch()
-
     Note that some keys may be added or overwritten during Master._receive_tasks
     (e.g. *is_task*, *uid*, *task*).
     """
     cores: int
+
     timeout: typing.SupportsFloat
-    mode: str  # Must map to a mode (RaptorWorkCallable) in the receiving Worker._modes
-    data: _RaptorWorkData  # Munch-able object to be passed to Worker._modes[*mode*](*data*)
+
+    mode: str
+    """Dispatching key for raptor.Worker._dispatch()
+
+    Must map to a mode (RaptorWorkCallable) in the receiving Worker._modes
+    """
+
+    data: _RaptorWorkData
+    """Munch-able object to be passed to Worker._modes[*mode*](*data*)."""
 
 
 class _RaptorTaskDescription(typing.Protocol):
     """Note the distinctions of a TaskDescription to processed by a raptor.Master.
-
 
     The single element of *arguments* is a JSON-encoded object that will be
     deserialized (RaptorWorkDescription) as the prototype for the dictionary used to instantiate the Request.

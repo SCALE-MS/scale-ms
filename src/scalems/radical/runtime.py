@@ -49,12 +49,16 @@ import warnings
 
 from radical import pilot as rp
 
+import scalems.radical.raptor
 import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from .raptor import master_script
 from .raptor import worker_script
+from .raptor import RaptorWorkerConfig
+from .raptor import RaptorWorkerTaskDescription
+from .raptor import object_encoder
 from .. import FileReference
 from ..context import describe_file
 from ..context import FileStore
@@ -344,21 +348,22 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
         config_file_name = 'raptor_scheduler_config.json'
         config_file_path = os.path.join(dir, config_file_name)
         with open(config_file_path, 'w') as fh:
-            # TODO: Enforce schema for here and Master script via scalems.radical.raptor
-            encoded = {
-                'worker': {
-                    'task_description': {
+            configuration = scalems.radical.raptor.Configuration(
+                worker=RaptorWorkerConfig(
+                    descr=RaptorWorkerTaskDescription(from_dict={
+                        # TODO: Don't hard-code this!
                         'uid': 'raptor.worker',
                         'executable': worker_script(),
                         'arguments': [],
                         'pre_exec': pre_exec
-                    },
-                    'count': 1,
-                    'cores': 1,
-                    'gpus': 0
-                }
-            }
-            json.dump(encoded, fh, indent=2)
+                    }),
+                    count=1,
+                    cores=1,
+                    gpus=0
+                ),
+                versioned_modules=[]
+            )
+            json.dump(configuration, fh, default=object_encoder, indent=2)
         file_description = describe_file(config_file_path, mode='r')
         handle: FileReference = await filestore.add_file(file_description)
     return handle

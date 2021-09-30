@@ -342,27 +342,43 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
     if not isinstance(filestore, FileStore) or filestore.closed or not \
             filestore.directory.exists():
         raise ValueError(f'{filestore} is not a usable FileStore.')
+
+    # This is the initial Worker submission. The Master may submit other workers later,
+    # but we should try to make this one as usable as possible.
+    # TODO: Inspect workflow to optimize reusability of the initial Worker submission.
+    worker_description = RaptorWorkerTaskDescription(from_dict={
+                # TODO: Don't hard-code this!
+                'uid': 'raptor.worker',
+                'executable': worker_script(),
+                'arguments': [],
+                'pre_exec': pre_exec
+            })
+    num_workers = 1
+    cores_per_worker = 1
+    gpus_per_worker = 0
+
+    # TODO: Add additional dependencies that we can infer from the workflow.
+    versioned_modules = (
+        ('scalems', scalems.__version__),
+        ('radical.pilot', rp.version)
+    )
+
+    configuration = scalems.radical.raptor.Configuration(
+        worker=RaptorWorkerConfig(
+            descr=worker_description,
+            count=num_workers,
+            cores=cores_per_worker,
+            gpus=gpus_per_worker
+        ),
+        versioned_modules=list(versioned_modules)
+    )
+
     # Make sure the temporary directory is on the same filesystem as the local workflow.
     tmp_base = filestore.directory
     with tempfile.TemporaryDirectory(dir=tmp_base) as dir:
         config_file_name = 'raptor_scheduler_config.json'
         config_file_path = os.path.join(dir, config_file_name)
         with open(config_file_path, 'w') as fh:
-            configuration = scalems.radical.raptor.Configuration(
-                worker=RaptorWorkerConfig(
-                    descr=RaptorWorkerTaskDescription(from_dict={
-                        # TODO: Don't hard-code this!
-                        'uid': 'raptor.worker',
-                        'executable': worker_script(),
-                        'arguments': [],
-                        'pre_exec': pre_exec
-                    }),
-                    count=1,
-                    cores=1,
-                    gpus=0
-                ),
-                versioned_modules=[]
-            )
             json.dump(configuration, fh, default=object_encoder, indent=2)
         file_description = describe_file(config_file_path, mode='r')
         handle: FileReference = await filestore.add_file(file_description)

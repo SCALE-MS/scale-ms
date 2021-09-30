@@ -174,7 +174,7 @@ class RaptorWorkerTaskDescription(_RaptorWorkerTaskDescription, rp.TaskDescripti
         if from_dict is None:
             from_dict = dict(*args, **kwargs)
         else:
-            if len(args) != 0 or len(kwargs) != 0:
+            if len(args) or len(kwargs):
                 raise TypeError('Use only one of the dict signature or the '
                                 'TaskDescription signature.')
         rp.TaskDescription.__init__(self, from_dict=from_dict)

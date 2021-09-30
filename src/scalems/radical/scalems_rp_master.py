@@ -1,11 +1,16 @@
 """Provide the entry point for SCALE-MS execution management under RADICAL Pilot."""
 import argparse
 import dataclasses
+import importlib
 import json
 import logging
 import os
+import packaging.version
 import sys
 import typing
+from importlib.metadata import version as _package_version
+from importlib.machinery import ModuleSpec
+from importlib.util import find_spec
 
 import radical.pilot as rp
 from radical.pilot.raptor.request import Request
@@ -17,12 +22,36 @@ from scalems.radical.raptor import Configuration as _RPMasterConfiguration
 logger = logging.getLogger('scalems_rp_master')
 
 
+class SoftwareCompatibilityError(scalems.exceptions.ScaleMSError):
+    """Incompatible package versions or software interfaces."""
+
+
+def check_module_version(module: str, minimum_version: str):
+    """Get version metadata for importable module an check that it is at least version."""
+    try:
+        found_version = _package_version(module)
+    except importlib.metadata.PackageNotFoundError:
+        spec: ModuleSpec = find_spec(module)
+        found_version = _package_version(spec.parent)
+    found_version = packaging.version.Version(found_version)
+    minimum_version = packaging.version.Version(minimum_version)
+    if found_version < minimum_version:
+        return False
+    return found_version
+
+
 class ScaleMSMaster(rp.raptor.Master):
     def __init__(self, configuration: _RPMasterConfiguration):
-        super().__init__()
         for module, version in configuration.versioned_modules:
             logger.debug(f'Looking for {module} version {version}.')
-            raise scalems.exceptions.MissingImplementationError('TODO')
+            found_version = check_module_version(module=module, minimum_version=version)
+            if found_version:
+                logger.debug(f'Found {module} version {found_version}: Okay.')
+            else:
+                raise SoftwareCompatibilityError(
+                    f'{module} version not compatible with {version}.'
+                )
+        super(ScaleMSMaster, self).__init__()
 
     def result_cb(self, requests: typing.Sequence[Request]):
         for r in requests:

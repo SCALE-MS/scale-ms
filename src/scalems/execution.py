@@ -4,8 +4,6 @@ import asyncio
 import contextlib
 import logging
 import typing
-import warnings
-import weakref
 
 from scalems.context import FileStore
 from scalems.dispatching import QueueItem
@@ -15,7 +13,6 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.workflow import Task
-from scalems.workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -131,36 +128,26 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """
 
     def __init__(self,
-                 source: WorkflowManager = None,
                  *,
                  editor_factory: typing.Callable[[], typing.Callable] = None,
                  datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
                  configuration: _BackendT,
-                 dispatcher_lock=None,
-                 ):
+                 dispatcher_lock=None):
         self.submitted_tasks = set()
 
         # TODO: Only hold a queue in an active context manager.
         self._command_queue = asyncio.Queue()
         self._exception = None
         self._loop: asyncio.AbstractEventLoop = loop
-        if source is not None:
-            warnings.warn(DeprecationWarning('Provide *editor_factory* and *datastore* '
-                                             'instead of *source*.'))
-            if editor_factory or datastore:
-                raise TypeError('Cannot specify *source* when providing '
-                                '*editor_factory* and *datastore*.')
-            editor_factory = weakref.WeakMethod(source.edit_item)
-            datastore = source.datastore()
-        else:
-            if editor_factory is None or not callable(editor_factory):
-                raise TypeError('Provide a callable that produces an edit_item '
-                                'interface.')
-            if datastore is None:
-                raise TypeError('Provide a datastore.')
 
+        if editor_factory is None or not callable(editor_factory):
+            raise TypeError('Provide a callable that produces an edit_item '
+                            'interface.')
         self.get_edit_item = editor_factory
+
+        if datastore is None:
+            raise TypeError('Provide a datastore.')
         self.datastore = datastore
 
         # TODO: Consider relying on module ContextVars and contextvars.Context scope.

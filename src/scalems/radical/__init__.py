@@ -145,7 +145,8 @@ def executor_factory(manager: scalems.workflow.WorkflowManager,
         _set_configuration(params)
     params = configuration()
 
-    executor = RPDispatchingExecutor(source=manager,
+    executor = RPDispatchingExecutor(editor_factory=weakref.WeakMethod(manager.edit_item),
+                                     datastore=manager.datastore(),
                                      loop=manager.loop(),
                                      configuration=params,
                                      dispatcher_lock=manager._dispatcher_lock)
@@ -669,14 +670,12 @@ class RPDispatchingExecutor(RuntimeManager):
     """
 
     def __init__(self,
-                 source: scalems.workflow.WorkflowManager = None,
                  *,
                  editor_factory: typing.Callable[[], typing.Callable] = None,
                  datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
                  configuration: Configuration,
-                 dispatcher_lock=None,
-                 ):
+                 dispatcher_lock=None):
         """Create a client side execution manager.
 
         Initialization and de-initialization occurs through
@@ -691,9 +690,6 @@ class RPDispatchingExecutor(RuntimeManager):
                 'Caller must specify a venv to be activated by the execution agent for '
                 'dispatched tasks.')
 
-        if source:
-            editor_factory = weakref.WeakMethod(source.edit_item)
-            datastore = source.datastore()
         super().__init__(editor_factory=editor_factory,
                          datastore=datastore,
                          loop=loop,

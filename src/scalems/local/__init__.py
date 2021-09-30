@@ -14,10 +14,12 @@ import importlib
 import logging
 import os
 import pathlib
+import weakref
 
 from . import operations
 from .. import execution as _execution
 from .. import workflow as _workflow
+from ..context import FileStore
 from ..context import scoped_chdir
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
@@ -224,19 +226,26 @@ class LocalExecutor(_execution.RuntimeManager):
     """
 
     def __init__(self,
-                 source: _workflow.WorkflowManager,
+                 source: _workflow.WorkflowManager = None,
                  *,
+                 editor_factory=None,
+                 datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
+                 configuration=None,
                  dispatcher_lock=None,
-                 _runtime=None):
+                 ):
         """Create a client side execution manager.
 
         Initialization and deinitialization occurs through
         the Python (async) context manager protocol.
         """
-        super().__init__(source,
+        if source:
+            editor_factory = weakref.WeakMethod(source.edit_item)
+            datastore = source.datastore()
+        super().__init__(editor_factory=editor_factory,
+                         datastore=datastore,
                          loop=loop,
-                         configuration=_runtime,
+                         configuration=configuration,
                          dispatcher_lock=dispatcher_lock)
 
     def updater(self) -> WorkflowUpdater:

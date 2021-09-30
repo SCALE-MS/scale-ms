@@ -690,7 +690,12 @@ class RPDispatchingExecutor(RuntimeManager):
             raise ValueError(
                 'Caller must specify a venv to be activated by the execution agent for '
                 'dispatched tasks.')
-        super().__init__(source,
+
+        if source:
+            editor_factory = weakref.WeakMethod(source.edit_item)
+            datastore = source.datastore()
+        super().__init__(editor_factory=editor_factory,
+                         datastore=datastore,
                          loop=loop,
                          configuration=configuration,
                          dispatcher_lock=dispatcher_lock)

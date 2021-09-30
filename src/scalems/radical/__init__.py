@@ -96,6 +96,7 @@ from .runtime import Configuration
 from .runtime import get_pre_exec
 from .runtime import parser as _runtime_parser
 from .runtime import Runtime
+from ..context import FileStore
 from ..identifiers import TypeIdentifier
 from scalems.utility import make_parser as _make_parser
 
@@ -668,11 +669,14 @@ class RPDispatchingExecutor(RuntimeManager):
     """
 
     def __init__(self,
-                 source: scalems.workflow.WorkflowManager,
+                 source: scalems.workflow.WorkflowManager = None,
                  *,
+                 editor_factory: typing.Callable[[], typing.Callable] = None,
+                 datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
                  configuration: Configuration,
-                 dispatcher_lock=None):
+                 dispatcher_lock=None,
+                 ):
         """Create a client side execution manager.
 
         Initialization and de-initialization occurs through
@@ -729,7 +733,7 @@ class RPDispatchingExecutor(RuntimeManager):
                 and len(self._runtime_configuration.execution_target) > 0:
             configuration_dict[
                 'execution_target'] = self._runtime_configuration.execution_target
-        configuration_dict['datastore'] = self.source_context.datastore()
+        configuration_dict['datastore'] = self.datastore
 
         c = Configuration(**configuration_dict)
 

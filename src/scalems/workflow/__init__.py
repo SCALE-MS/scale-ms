@@ -315,14 +315,6 @@ class WorkflowManager:
           instance.
 
     TODO:
-        Check that I'm actually toggling something for the context instance to avoid
-        recursive dispatch loops rather than just multiple recursion of self.
-        Maybe keep a reference to the context hierarchy node to use when entering,
-        and let implementations decide whether to allow multiple entrance,
-        provided there is a reasonable way to clean up
-        the correct number of times.
-
-    TODO:
         In addition to adding callbacks to futures, allow subscriptions to workflow
         updates.
         This allows intermediate updates to be propagated and could be a superset of

@@ -749,7 +749,7 @@ class FileStoreManager:
         # Make sure generator function runs up to the first yield.
         next(self.filestore_generator)
 
-    def filestore(self):
+    def filestore(self) -> typing.Union[None, FileStore]:
         try:
             ref = next(self.filestore_generator)
             return ref()

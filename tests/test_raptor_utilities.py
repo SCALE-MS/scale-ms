@@ -13,7 +13,7 @@ else:
     from scalems.radical.raptor import RaptorWorkerConfig
     from scalems.radical.raptor import RaptorWorkerTaskDescription
     from scalems.radical.raptor import worker_script
-    from scalems.radical.scalems_rp_master import check_module_version
+    from scalems.radical.raptor import check_module_version
 
 pytestmark = pytest.mark.skipif(condition=rp is None,
                                 reason='These tests require RADICAL Pilot.')

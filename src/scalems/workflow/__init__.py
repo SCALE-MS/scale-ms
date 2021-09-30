@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import queue as _queue
+import threading
 import typing
 import weakref
 
@@ -312,14 +313,6 @@ class WorkflowManager:
           participate in a single tree structure.
         * Prevent instantiation of Command references without a reference to a Context
           instance.
-
-    TODO:
-        Check that I'm actually toggling something for the context instance to avoid
-        recursive dispatch loops rather than just multiple recursion of self.
-        Maybe keep a reference to the context hierarchy node to use when entering,
-        and let implementations decide whether to allow multiple entrance,
-        provided there is a reasonable way to clean up
-        the correct number of times.
 
     TODO:
         In addition to adding callbacks to futures, allow subscriptions to workflow
@@ -1160,15 +1153,9 @@ class Queuer:
     #     # # Otherwise, the only allowed value from the iterator is None.
 
 
-class Scope(typing.NamedTuple):
-    """Backward-linked list (potentially branching) to track nested context.
+_shared_scope_lock = threading.RLock()
 
-    There is not much utility to tracking the parent except for introspection
-    during debugging. The previous state is more appropriately held within the
-    closure of the context manager. This structure may be simplified without warning.
-    """
-    parent: typing.Union[None, WorkflowManager]
-    current: WorkflowManager
+_shared_scope_count = contextvars.ContextVar('_shared_scope_count', default=0)
 
 
 _dispatcher: contextvars.ContextVar = contextvars.ContextVar('_dispatcher')
@@ -1183,110 +1170,100 @@ We allow multiple dispatchers to be active, but each dispatcher must
 4. ensure the Context is destroyed (remove circular references)
 """
 
+
 current_scope: contextvars.ContextVar = contextvars.ContextVar('current_scope')
-"""The active workflow manager
+"""The active workflow manager, if any.
 
 This property is global within the interpreter or a `contextvars.Context`.
 
-Note: Scope indicates the hierarchy of "active" WorkflowManager instances
-(related by dispatching).
-This is separate from WorkflowManager lifetime and ownership.
-WorkflowManagers should track their own activation status and provide logic for
-whether to allow reentrant dispatching.
-
-TODO: Shouldn't the previous "current" be notified or negotiated with? Should we be
- locking something?
-
 Note that it makes no sense to start a dispatching session without concurrency,
-so we can think in terms of a parent context doing contextvars.copy_context().run(...)
-I think we have to make sure not to nest scopes without a combination of copy_context
-and context managers, so we don't need to track the parent scope. We should also be
-able to use weakrefs.
+so we can think in terms of a parent context doing contextvars.copy_context().run(...),
+but the parent must set the current_scope correctly in the new Context.
 """
 
 
-def get_scope() -> WorkflowManager:
+def get_scope():
     """Get a reference to the manager of the current workflow scope."""
-    # TODO: Redocument and adjust semantics.
-    # The contextvars and get_scope should only be used in conjunction with
-    # a workflow_scope() context manager that is explicitly not thread-safe, but
-    # which can employ some checks for non-multi-threading access assumptions.
     # get_scope() is used to determine the default workflow manager when *context*
     # is not provided to scalems object factories, scalems.run(), scalems.wait() and
-    # (non-async) `result()` methods. Default *context* values are a user convenience
-    # and so should only occur in the root thread for the UI / high-level scripting
-    # interface.
+    # (non-async) `result()` methods.
     # Async coroutines can safely use get_scope(), but should not use the
-    # non-async workflow_scope() context manager for nested scopes without wrapping
-    # in a contextvars.run().
-    global current_scope
+    # non-async scope() context manager for nested scopes without wrapping
+    # in a contextvars.run() that locally resets the Context current_scope.
     try:
-        _scope: Scope = current_scope.get()
-        manager = _scope.current
-        logger.debug(f'Scope queried with get_scope() {repr(manager)}')
+        _scope: typing.Union[WorkflowManager, weakref.ReferenceType] = current_scope.get()
+        if isinstance(_scope, weakref.ReferenceType):
+            _scope = _scope()
+        manager: WorkflowManager = _scope
         # This check is in case we use weakref.ref:
         if manager is None:
             raise ProtocolError('Context for current scope seems to have disappeared.')
+        logger.debug(f'Scope queried with get_scope() {repr(manager)}')
     except LookupError:
         logger.debug('Scope was queried, but has not yet been set.')
-        manager = None
+        return None
     return manager
 
 
 @contextlib.contextmanager
-def scope(context):
+def scope(manager):
     """Set the current workflow management within a clear scope.
 
-    Restore the previous workflow management scope on exiting the context manager.
+    Restores the previous workflow management scope on exiting the context manager.
+
+    To allow better tracking of dispatching chains, this context manager does not allow
+    the global workflow management scope to be "stolen". If *manager* is already the
+    current scope, a recursion depth is tracked, and the previous scope is restored
+    only when the last "scope" context manager for *manager* exits. Multiple "scope"
+    context managers are not allowed for different *manager* instances in the same
+    :py:class:`context <contextvars.Context>`.
+
+    Note:
+        Scope indicates the "active" WorkflowManager instance.
+        This is separate from WorkflowManager lifetime and ownership.
+        WorkflowManagers should track their own activation status and provide logic for
+        whether to allow reentrant dispatching.
 
     Within the context managed by *scope*, get_scope() will return *context*.
 
-    Not thread-safe. In general, this context manager should only be used in the
-    root thread.
+    While this context manager should be thread-safe, in general, this context manager
+    should only be used in the root thread where the UI and event loop are running to
+    ensure we can clean up properly.
+    Dispatchers may provide environments in which this context manager can be used in
+    non-root threads, but the Dispatcher needs to curate the contextvars.ContextVars
+    and ensure that the Context is properly cleaned up.
     """
-    parent = get_scope()
-    dispatcher = _dispatcher.get(None)
-    if dispatcher is not None and parent is not dispatcher:
-        raise ProtocolError(
-            'It is unsafe to use concurrent scope() context managers in an asynchronous '
-            'context.')
-    logger.debug('Entering scope of {}'.format(str(context)))
-    current = context
-    token = current_scope.set(
-        Scope(
-            parent=parent,
-            current=current)
-    )
-    if token.var.get().parent is current:
-        logger.warning('Unexpected re-entrance. Workflow is already managed by '
-                       f'{repr(current)}')
-    if token.old_value is not token.MISSING and token.old_value.current != \
-            token.var.get().parent:
-        raise ProtocolError(
-            'Unrecoverable race condition: multiple threads are updating global context '
-            'unsafely.')
-    # Try to confirm that current_scope is not already subject to modification by another
-    #  context manager in a shared asynchronous context.
-    # This nesting has to have LIFO semantics both in and out of coroutines,
-    # and cannot block.
-    # One option would be to refuse to nest if the current scope is not the root scope and
-    # the root scope has an active dispatcher. Note that a dispatcher should use
-    # contextvars.copy_context().run() and set a new root context.
-    # Alternatively, we could try to make sure that no asynchronous yields are allowed
-    # when the current context is a nested scope within a dispatcher context,
-    # but technically this is okay as long as a second scope is not nested within the
-    # first from within a coroutine that might not finish until after the first scope
-    # finishes.
-    try:
-        yield current
-    finally:
-        """Exit context manager without processing exceptions."""
-        logger.debug('Leaving scope of {}'.format(str(context)))
-        # Restore context module state since we are not using contextvars.Context.run()
-        # or equivalent.
-        if token.var.get().parent is not parent or token.var.get().current is not current:
-            raise ProtocolError(
-                'Unexpected re-entrance. Workflow scope changed while in context '
-                f'manager {repr(current)}.')
+    logger.debug(f'Request to enter the scope of {manager}.')
+    with _shared_scope_lock:
+        parent = get_scope()
+        dispatcher = _dispatcher.get(None)
+        # A dispatcher can explicitly allow or disallow nested scopes by setting
+        # current_scope to itself or something else.
+        if parent is None or parent is dispatcher or parent is manager:
+            if parent is not manager:
+                logger.debug('Entering scope of {}'.format(str(manager)))
+            token = current_scope.set(weakref.ref(manager))
+            _shared_scope_count.set(_shared_scope_count.get() + 1)
         else:
-            token.var.reset(token)
+            assert dispatcher is not None
+            raise ProtocolError(
+                f'Cannot nest {manager} scope in {parent} scope while dispatching under {dispatcher}.')
+        try:
+            yield manager
+        finally:
+            _shared_scope_count.set(_shared_scope_count.get() - 1)
+            if _shared_scope_count.get() == 0:
+                logger.debug('Leaving scope of {}'.format(str(manager)))
+                token.var.reset(token)
+    # If we need to have multiple nested scopes across different threads, we can
+    # hold the lock only for __enter__ and __exit__, but we will need to get the
+    # lock object from a ContextVar or from the dispatcher. Then the above `try`
+    # block would be moved up a level and would look something like the following.
+    # try:
+    #     yield manager
+    # finally:
+    #     with _shared_scope_lock:
+    #         _shared_scope_count.set(_shared_scope_count.get() - 1)
+    #         if _shared_scope_count.get() == 0:
+    #             logger.debug('Leaving scope of {}'.format(str(manager)))
+    #             token.var.reset(token)

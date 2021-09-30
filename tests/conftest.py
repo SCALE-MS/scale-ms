@@ -201,6 +201,7 @@ def cleandir(rmtmp):
     Ref:
     https://docs.pytest.org/en/latest/fixture.html#using-fixtures-from-classes-modules-or-projects
     """
+    import gc
     with _cleandir(remove_tempdir=rmtmp) as newdir:
         if not cwd_lock.locked():
             raise RuntimeError('Logic error: we released the cwd_lock too early.')
@@ -210,6 +211,14 @@ def cleandir(rmtmp):
         yield newdir
         if not os.path.exists(newdir):
             logger.error("Possible logic error: we may have removed the temp dir too soon.")
+
+        # Try to finalize generators before removing temporary directory.
+        gc.collect()
+        # Note: If there is an exception (or assertion failure), the WorkflowManager and
+        # its FileStoreManager may still not get collected, and we may see additional
+        # exceptions from the temporary directory getting removed before the FileStore is
+        # flushed.
+
         logger.info('cleandir context is ready to finish. Releasing nested _cleandir.')
     logger.info(f'cleandir left {newdir}. Returned to {os.getcwd()}')
 

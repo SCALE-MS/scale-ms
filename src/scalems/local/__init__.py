@@ -14,10 +14,12 @@ import importlib
 import logging
 import os
 import pathlib
+import weakref
 
 from . import operations
 from .. import execution as _execution
 from .. import workflow as _workflow
+from ..context import FileStore
 from ..context import scoped_chdir
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError
@@ -213,7 +215,8 @@ async def _execute_item(task_type: TypeIdentifier,  # noqa: C901
 def executor_factory(manager: _workflow.WorkflowManager, params=None):
     if params is not None:
         raise TypeError('This factory does not accept a Configuration object.')
-    executor = LocalExecutor(source=manager,
+    executor = LocalExecutor(editor_factory=weakref.WeakMethod(manager.edit_item),
+                             datastore=manager.datastore(),
                              loop=manager.loop(),
                              dispatcher_lock=manager._dispatcher_lock)
     return executor
@@ -224,19 +227,21 @@ class LocalExecutor(_execution.RuntimeManager):
     """
 
     def __init__(self,
-                 source: _workflow.WorkflowManager,
                  *,
+                 editor_factory=None,
+                 datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
-                 dispatcher_lock=None,
-                 _runtime=None):
+                 configuration=None,
+                 dispatcher_lock=None):
         """Create a client side execution manager.
 
         Initialization and deinitialization occurs through
         the Python (async) context manager protocol.
         """
-        super().__init__(source,
+        super().__init__(editor_factory=editor_factory,
+                         datastore=datastore,
                          loop=loop,
-                         configuration=_runtime,
+                         configuration=configuration,
                          dispatcher_lock=dispatcher_lock)
 
     def updater(self) -> WorkflowUpdater:

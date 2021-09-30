@@ -5,6 +5,7 @@ import contextlib
 import logging
 import typing
 
+from scalems.context import FileStore
 from scalems.dispatching import QueueItem
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
@@ -12,13 +13,14 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.workflow import Task
-from scalems.workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
 class AbstractWorkflowUpdater(abc.ABC):
+    # TODO: The `item: Task` argument to `AbstractWorkflowUpdater.submit()` should be
+    #    decoupled from the WorkflowManager implementation.
     @abc.abstractmethod
     async def submit(self, *, item: Task) -> asyncio.Task:
         """Submit work to update a workflow item.
@@ -88,15 +90,10 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     A RuntimeManager is instantiated within the scope of the
     `scalems.workflow.WorkflowManager.dispatch` context manager using the
-    `scalems.workflow.WorkflowManager._executor_factory`. Within the
+    `scalems.workflow.WorkflowManager._executor_factory`.
     """
-    # TODO: Address the circular dependency of
-    #  WorkflowManager->ExecutorFactory->RuntimeManager->WorkflowManager
-    #  * source_context should be a WorkflowEditor interface or just a weakref to
-    #    edit_item.
-    #  * the `item: Task` argument to `AbstractWorkflowUpdater.submit()` should be
-    #    decoupled from the WorkflowManager implementation.
-    source_context: WorkflowManager
+    get_edit_item: typing.Callable[[], typing.Callable]
+    datastore: FileStore
     submitted_tasks: typing.MutableSet[asyncio.Task]
 
     _runtime_configuration: _BackendT
@@ -131,8 +128,9 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """
 
     def __init__(self,
-                 source: WorkflowManager,
                  *,
+                 editor_factory: typing.Callable[[], typing.Callable] = None,
+                 datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
                  configuration: _BackendT,
                  dispatcher_lock=None):
@@ -141,8 +139,16 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # TODO: Only hold a queue in an active context manager.
         self._command_queue = asyncio.Queue()
         self._exception = None
-        self.source_context = source
         self._loop: asyncio.AbstractEventLoop = loop
+
+        if editor_factory is None or not callable(editor_factory):
+            raise TypeError('Provide a callable that produces an edit_item '
+                            'interface.')
+        self.get_edit_item = editor_factory
+
+        if datastore is None:
+            raise TypeError('Provide a datastore.')
+        self.datastore = datastore
 
         # TODO: Consider relying on module ContextVars and contextvars.Context scope.
         self._runtime_configuration = configuration
@@ -463,11 +469,11 @@ async def manage_execution(executor: RuntimeManager,
                     f'Executor has no implementation for {str(command)}.')
 
             key = command['add_item']
-            with executor.source_context.edit_item(key) as item:
+            edit_item = executor.get_edit_item()
+            with edit_item(key) as item:
                 if not isinstance(item, Task):
                     raise InternalError(
-                        'Bug: Expected {}.edit_item() to return a _context.Task'.format(
-                            repr(executor.source_context)))
+                        f'Bug: Expected {edit_item} to return a _context.Task')
 
                 # TODO: Check task dependencies.
                 ##

@@ -96,6 +96,7 @@ from .runtime import Configuration
 from .runtime import get_pre_exec
 from .runtime import parser as _runtime_parser
 from .runtime import Runtime
+from ..context import FileStore
 from ..identifiers import TypeIdentifier
 from scalems.utility import make_parser as _make_parser
 
@@ -144,7 +145,8 @@ def executor_factory(manager: scalems.workflow.WorkflowManager,
         _set_configuration(params)
     params = configuration()
 
-    executor = RPDispatchingExecutor(source=manager,
+    executor = RPDispatchingExecutor(editor_factory=weakref.WeakMethod(manager.edit_item),
+                                     datastore=manager.datastore(),
                                      loop=manager.loop(),
                                      configuration=params,
                                      dispatcher_lock=manager._dispatcher_lock)
@@ -668,8 +670,9 @@ class RPDispatchingExecutor(RuntimeManager):
     """
 
     def __init__(self,
-                 source: scalems.workflow.WorkflowManager,
                  *,
+                 editor_factory: typing.Callable[[], typing.Callable] = None,
+                 datastore: FileStore = None,
                  loop: asyncio.AbstractEventLoop,
                  configuration: Configuration,
                  dispatcher_lock=None):
@@ -686,7 +689,9 @@ class RPDispatchingExecutor(RuntimeManager):
             raise ValueError(
                 'Caller must specify a venv to be activated by the execution agent for '
                 'dispatched tasks.')
-        super().__init__(source,
+
+        super().__init__(editor_factory=editor_factory,
+                         datastore=datastore,
                          loop=loop,
                          configuration=configuration,
                          dispatcher_lock=dispatcher_lock)
@@ -729,7 +734,7 @@ class RPDispatchingExecutor(RuntimeManager):
                 and len(self._runtime_configuration.execution_target) > 0:
             configuration_dict[
                 'execution_target'] = self._runtime_configuration.execution_target
-        configuration_dict['datastore'] = self.source_context.datastore()
+        configuration_dict['datastore'] = self.datastore
 
         c = Configuration(**configuration_dict)
 

@@ -10,8 +10,8 @@ try:
 except ImportError:
     rp = None
 else:
-    from scalems.radical.raptor import RaptorWorkerConfig
-    from scalems.radical.raptor import RaptorWorkerTaskDescription
+    from scalems.radical._common import RaptorWorkerConfig
+    from scalems.radical._common import RaptorWorkerTaskDescription
     from scalems.radical.raptor import worker_script
     from scalems.radical.raptor import check_module_version
 

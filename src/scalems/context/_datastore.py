@@ -49,6 +49,7 @@ from ._file import FileReference
 from ._lock import is_locked
 from ._lock import LockException
 from ._lock import scoped_directory_lock as _scoped_directory_lock
+from ..identifiers import Identifier
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -70,9 +71,20 @@ class ContextError(Exception):
 
 @dataclasses.dataclass
 class Metadata:
+    """Simple container for metadata at run time.
+
+    This is intentionally decoupled from the non-volatile backing store or any usage
+    protocols. Instances are managed through the FileStore.
+
+    We will probably prefer to provide distinct interfaces for managing non-volatile
+    assets (files) and for persistent workflow state (metadata), which may ultimately be
+    supported by a single FileStore. That would likely involve replacing rather than
+    extending this class, so let's keep it as a simple container for now:
+    Make sure that this dataclass remains easily serialized and deserialized.
+    """
     instance: int
-    files: typing.MutableMapping[str, str] = dataclasses.field(
-        default_factory=dict)
+    files: typing.MutableMapping[str, str] = dataclasses.field(default_factory=dict)
+    objects: typing.MutableMapping[str, dict] = dataclasses.field(default_factory=dict)
 
 
 class FilesView(typing.Mapping[str, pathlib.Path]):
@@ -639,6 +651,31 @@ class FileStore:
         if self.closed:
             raise StaleFileStore('FileStore is closed.')
         return FilesView(self._data.files)
+
+    def add_task(self, identity: Identifier, **kwargs):
+        """Add a new task entry to the metadata store.
+
+        Not thread-safe. (We may need to manage this in a thread-safe manner, but it is
+        probably preferable to do that by delegating a single-thread or thread-safe manager
+        to serialize metadata edits.)
+        """
+        # Design note: among other interface requirements, the Metadata interface
+        # should adapt between scalems types and serializable forms, so that str
+        # conversions like the following become inappropriate.
+        if str(identity) in self._data.objects:
+            # TODO: It is not an error to add an item with the same key if it
+            #  represents the same workflow object (potentially in a more or less
+            #  advanced state).
+            raise scalems.exceptions.DuplicateKeyError(
+                f'Task {identity} is already in the metadata store.'
+            )
+        else:
+            # Note: we don't attempt to be thread-safe, and this is not (yet) an async
+            # coroutine, so we don't bother with a lock at this point.
+            self._dirty.set()
+            self._data.objects[str(identity)] = dict(**kwargs)
+            # TODO: Take care with the value types that we can serialize and
+            #  deserialize them.
 
 
 class _FileReference(FileReference):

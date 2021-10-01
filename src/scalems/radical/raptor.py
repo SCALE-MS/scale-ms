@@ -1,6 +1,4 @@
-"""Define the connective tissue for SCALE-MS tasks embedded in rp.Task arguments.
-
-This module should not depend on any scalems modules.
+"""Support for scalems on radical.pilot.raptor.
 
 Client:
     The client should be reasonably certain that the target environment has a
@@ -15,15 +13,21 @@ import argparse
 import dataclasses
 import functools
 import importlib
+import importlib.metadata
 import json
 import os
-import packaging.version
 import sys
 import time
 import typing
-from importlib.metadata import version as _package_version
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
+
+import packaging.version
+
+from scalems.radical._common import RequestInput
+from scalems.radical._common import RaptorWorkerConfig
+from scalems.radical._common import RaptorWorkerConfigDict
+from scalems.radical._common import RequestInputList
 
 try:
     import radical.pilot as rp
@@ -46,31 +50,6 @@ except AttributeError:
     # Note: functools.cache does not appear until Python 3.9
     cache = functools.lru_cache(maxsize=None)
 
-_RaptorReturnType = typing.Tuple[
-    typing.Union[None, typing.Text],
-    typing.Union[None, typing.Text],
-    typing.Union[None, typing.SupportsInt],
-    typing.Any
-]
-"""Raptor worker task return values are interpreted as a tuple (out, err, ret).
-
-The first two elements are cast to output and error strings, respectively.
-
-The third is cast to an integer return code.
-
-The fourth is a return value of arbitrary type.
-"""
-
-_RaptorWorkData = typing.TypeVar('_RaptorWorkData')
-"""Argument type for a Raptor task implementation.
-
-Constraints on the data type are not yet well-defined.
-Presumably, the object must be "Munch"-able.
-"""
-
-
-_DataT = typing.TypeVar('_DataT')
-
 
 class ScaleMSTaskDescription(typing.TypedDict):
     """SCALE-MS specialization of extra raptor task info.
@@ -92,130 +71,8 @@ class ScaleMSTaskDescription(typing.TypedDict):
     gpus: typing.Optional[int]
 
 
-class _RequestInput(typing.TypedDict):
-    """Input argument for a raptor.Request instantiation.
-
-    Not yet fully specified, but not to be confused with
-    raptor.Request instances.
-
-    A dict-like object with at least a *uid* key.
-
-    As of RP 1.6.7, the RequestInput is dict-like object deserialized
-    from the wrapper TaskDescription *arguments* member's first element.
-    After deserialization, the dict is assigned values for *is_task*,
-    *uid*, and *task*.
-
-    The mapping is assumed to contain keys *mode*, *data*, and *timeout*
-    when it becomes incorporated into a new Request object (as the core
-    data member) after Master.request_cb(). Optionally, it may contain
-    *cores* and *gpus*.
-    """
-    uid: str
-    mode: str
-    data: typing.Any
-    timeout: typing.SupportsFloat
-    cores: typing.Optional[int]
-    gpus: typing.Optional[int]
-
-
-class ScaleMSRequestInput(_RequestInput, ScaleMSTaskDescription):
+class ScaleMSRequestInput(RequestInput, ScaleMSTaskDescription):
     """"""
-
-
-class RaptorWorkCallable(typing.Protocol[_RaptorWorkData]):
-    def __call__(self, data: _RaptorWorkData) -> _RaptorReturnType:
-        ...
-
-
-class RaptorWorkDescription(typing.Protocol[_RaptorWorkData]):
-    """Represent the content of an *arguments* element in a RaptorTaskDescription.
-
-    A dictionary resembling this structure is converted to radical.pilot.raptor.Request
-    by the Master in radical.pilot.raptor.Master.request().
-
-    Note that some keys may be added or overwritten during Master._receive_tasks
-    (e.g. *is_task*, *uid*, *task*).
-    """
-    cores: int
-
-    timeout: typing.SupportsFloat
-
-    mode: str
-    """Dispatching key for raptor.Worker._dispatch()
-
-    Must map to a mode (RaptorWorkCallable) in the receiving Worker._modes
-    """
-
-    data: _RaptorWorkData
-    """Munch-able object to be passed to Worker._modes[*mode*](*data*)."""
-
-
-class _RaptorTaskDescription(typing.Protocol):
-    """Note the distinctions of a TaskDescription to processed by a raptor.Master.
-
-    The single element of *arguments* is a JSON-encoded object that will be
-    deserialized (RaptorWorkDescription) as the prototype for the dictionary used to instantiate the Request.
-    """
-    uid: str  # Unique identifier for the Task across the Session.
-    executable: typing.ClassVar[str] = 'scalems'  # Unused by Raptor tasks.
-    scheduler: str  # The UID of the raptor.Master scheduler task.
-    arguments: typing.Sequence[str]  # Processed by raptor.Master._receive_tasks
-
-
-class _RaptorWorkerTaskDescription(typing.Protocol):
-    """rp.TaskDescription for Scalems raptor.Worker tasks.
-
-    Note that this is just a rp.TaskDescription.
-    """
-    uid: str  # Unique identifier for the Task across the Session.
-    executable: typing.ClassVar[str]  # scalems_rp_worker script.
-    scheduler: str  # The UID of the raptor.Master scheduler task.
-    arguments: typing.Sequence[str]  # Processed by raptor.Master._receive_tasks
-    pre_exec: typing.List[str]
-    # Other rp.TaskDescription fields are available, but unused.
-    # pre_launch: typing.List[str]
-    # pre_rank: typing.Mapping[int, typing.List[str]]
-    # post_exec: typing.List[str]
-    # post_launch: typing.List[str]
-    # post_rank: typing.Mapping[int, typing.List[str]]
-
-
-class RaptorWorkerTaskDescription(_RaptorWorkerTaskDescription, rp.TaskDescription):
-    def __init__(self, *args, from_dict=None, **kwargs):
-        if from_dict is None:
-            from_dict = dict(*args, **kwargs)
-        else:
-            if len(args) or len(kwargs):
-                raise TypeError('Use only one of the dict signature or the '
-                                'TaskDescription signature.')
-        rp.TaskDescription.__init__(self, from_dict=from_dict)
-
-
-class RaptorWorkerConfigDict(typing.TypedDict):
-    """Signature of the rp.raptor.Master.submit()"""
-    descr: _RaptorWorkerTaskDescription
-    count: typing.Optional[int]
-    cores: typing.Optional[int]
-    gpus: typing.Optional[int]
-
-
-@dataclasses.dataclass
-class RaptorWorkerConfig:
-    """Signature of the rp.raptor.Master.submit()"""
-    count: typing.Optional[int]
-    cores: typing.Optional[int]
-    gpus: typing.Optional[int]
-    descr: RaptorWorkerTaskDescription = dataclasses.field(
-        default_factory=RaptorWorkerTaskDescription)
-
-    @classmethod
-    def from_dict(cls: 'RaptorWorkerConfig', obj: RaptorWorkerConfigDict) -> 'RaptorWorkerConfig':
-        return cls(
-            descr=RaptorWorkerTaskDescription(from_dict=obj['descr']),
-            count=obj['count'],
-            cores=obj['cores'],
-            gpus=obj['gpus'],
-        )
 
 
 EncodableAsDict = typing.Mapping[str, 'Encodable']
@@ -267,7 +124,8 @@ class Configuration:
     versioned_modules: typing.List[typing.Tuple[str, str]]
 
     @classmethod
-    def from_dict(cls: typing.Type['Configuration'], obj: _ConfigurationDict) -> 'Configuration':
+    def from_dict(cls: typing.Type['Configuration'],
+                  obj: _ConfigurationDict) -> 'Configuration':
         return cls(
             worker=RaptorWorkerConfig.from_dict(obj['worker']),
             versioned_modules=list(obj['versioned_modules'])
@@ -277,9 +135,6 @@ class Configuration:
 @object_encoder.register
 def _(obj: Configuration) -> dict:
     return dataclasses.asdict(obj)
-
-
-RequestInputList = typing.List[_RequestInput]
 
 
 @cache
@@ -347,10 +202,10 @@ class SoftwareCompatibilityError(RuntimeError):
 def check_module_version(module: str, minimum_version: str):
     """Get version metadata for importable module an check that it is at least version."""
     try:
-        found_version = _package_version(module)
+        found_version = importlib.metadata.version(module)
     except importlib.metadata.PackageNotFoundError:
         spec: ModuleSpec = find_spec(module)
-        found_version = _package_version(spec.parent)
+        found_version = importlib.metadata.version(spec.parent)
     found_version = packaging.version.Version(found_version)
     minimum_version = packaging.version.Version(minimum_version)
     if found_version < minimum_version:
@@ -415,7 +270,7 @@ def master():
     This function implements the scalems_rp_master entry point script called by the
     RADICAL Pilot executor to provide the raptor master task.
     """
-    if not os.environ['RP_SESSION_ID']:
+    if not os.environ['RP_TASK_ID']:
         raise RuntimeError('Raptor Master must be launched by RP executor.')
 
     args = parser.parse_args()
@@ -457,7 +312,8 @@ class ScaleMSWorker(rp.raptor.Worker):
 def worker():
     """Manage the life of a Worker instance.
 
-    Launched as a task submitted with the worker_descr provided to the corresponding Master script.
+    Launched as a task submitted with the worker_descr provided to the corresponding
+    Master script.
     The framework generates a local file, passed as the first argument to the script,
     which is processed by the raptor.Worker base class for initialization.
 
@@ -470,7 +326,7 @@ def worker():
     the important place for the mode to be registered is at the forked interpreter,
     not the interpreter running this main() function.
     """
-    if not os.environ['RP_SESSION_ID']:
+    if not os.environ['RP_TASK_ID']:
         raise RuntimeError('Raptor Worker must be launched by RP executor.')
 
     # Master generates a file to be appended to the argument list.

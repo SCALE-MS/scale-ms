@@ -56,12 +56,13 @@ from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from .raptor import master_script
 from .raptor import worker_script
-from .raptor import RaptorWorkerConfig
-from .raptor import RaptorWorkerTaskDescription
+from ._common import RaptorWorkerConfig
+from ._common import RaptorWorkerTaskDescription
 from .raptor import object_encoder
 from .. import FileReference
 from ..context import describe_file
 from ..context import FileStore
+from ..identifiers import EphemeralIdentifier
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -343,16 +344,21 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
             filestore.directory.exists():
         raise ValueError(f'{filestore} is not a usable FileStore.')
 
+    # Worker tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    worker_identity = EphemeralIdentifier()
+    task_metadata = {
+        'uid': str(worker_identity),
+        'executable': worker_script(),
+        'arguments': [],
+        'pre_exec': pre_exec
+    }
+    filestore.add_task(worker_identity, **task_metadata)
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
     # TODO: Inspect workflow to optimize reusability of the initial Worker submission.
-    worker_description = RaptorWorkerTaskDescription(from_dict={
-                # TODO: Don't hard-code this!
-                'uid': 'raptor.worker',
-                'executable': worker_script(),
-                'arguments': [],
-                'pre_exec': pre_exec
-            })
+    worker_description = RaptorWorkerTaskDescription(from_dict=task_metadata)
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0
@@ -385,10 +391,9 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
     return handle
 
 
-async def _get_scheduler(name: str,
-                         pre_exec: typing.Iterable[str],
+async def _get_scheduler(pre_exec: typing.Iterable[str],
                          task_manager: rp.TaskManager,
-                         filestore=None):
+                         filestore: FileStore):
     """Establish the radical.pilot.raptor.Master task.
 
     Create a master rp.Task (running the scalems_rp_master script) with the
@@ -406,8 +411,9 @@ async def _get_scheduler(name: str,
     """
     # define a raptor.scalems master and launch it within the pilot
     td = rp.TaskDescription()
-    td.uid = name
+
     td.pre_exec = pre_exec
+    td.stage_on_error = True
     # We are not using prepare_env at this point. We use the `venv` configured by the
     # caller.
     # td.named_env = 'scalems_env'
@@ -418,9 +424,18 @@ async def _get_scheduler(name: str,
     td.executable = master_script()
 
     logger.debug(f'Using {filestore}.')
+
+    # scalems_rp_master will write output before it begins handling requests. The
+    # script may crash even before it can write anything, but if it does write
+    # anything, we _will_ have the output file locally
+    td.output_staging = [
+
+    ]
+
     config_file = await _master_input(filestore, pre_exec=list(pre_exec))
 
     # TODO(#75): Automate handling of file staging directives for scalems.FileReference
+    # e.g. _add_file_dependency(td, config_file)
     config_file_name = config_file.path().name
     td.input_staging = [
         {
@@ -431,7 +446,19 @@ async def _get_scheduler(name: str,
     ]
     td.arguments = [config_file_name]
 
-    logger.debug('Launching RP scheduler.')
+    # Master tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    master_identity = EphemeralIdentifier()
+    td.uid = str(master_identity)
+    task_metadata = {
+        'uid': td.uid,
+        'task_manager': task_manager.uid
+    }
+    filestore.add_task(master_identity, **task_metadata)
+
+    logger.debug(f'Launching RP raptor scheduling. Submitting {td}.')
+
     # WARNING: The following line may block for several seconds. Consider using a
     # separate thread (if RP supports it).
     scheduler = task_manager.submit_tasks(td)
@@ -572,11 +599,9 @@ async def _connect_rp(config: Configuration) -> Runtime:
         #
 
         assert runtime.scheduler is None
-        runtime.scheduler = await _get_scheduler(
-            'raptor.scalems',
-            pre_exec=list(get_pre_exec(config)),
-            task_manager=task_manager,
-            filestore=config.datastore)
+        runtime.scheduler = await _get_scheduler(pre_exec=list(get_pre_exec(config)),
+                                                 task_manager=task_manager,
+                                                 filestore=config.datastore)
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
 
         return runtime

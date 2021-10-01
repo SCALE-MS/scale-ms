@@ -344,16 +344,21 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
             filestore.directory.exists():
         raise ValueError(f'{filestore} is not a usable FileStore.')
 
+    # Worker tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    worker_identity = EphemeralIdentifier()
+    task_metadata = {
+        'uid': str(worker_identity),
+        'executable': worker_script(),
+        'arguments': [],
+        'pre_exec': pre_exec
+    }
+    filestore.add_task(worker_identity, **task_metadata)
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
     # TODO: Inspect workflow to optimize reusability of the initial Worker submission.
-    worker_description = RaptorWorkerTaskDescription(from_dict={
-                # TODO: Don't hard-code this!
-                'uid': 'raptor.worker',
-                'executable': worker_script(),
-                'arguments': [],
-                'pre_exec': pre_exec
-            })
+    worker_description = RaptorWorkerTaskDescription(from_dict=task_metadata)
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0

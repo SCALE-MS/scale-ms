@@ -15,13 +15,13 @@ import argparse
 import dataclasses
 import functools
 import importlib
+import importlib.metadata
 import json
 import os
 import packaging.version
 import sys
 import time
 import typing
-from importlib.metadata import version as _package_version
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
@@ -347,10 +347,10 @@ class SoftwareCompatibilityError(RuntimeError):
 def check_module_version(module: str, minimum_version: str):
     """Get version metadata for importable module an check that it is at least version."""
     try:
-        found_version = _package_version(module)
+        found_version = importlib.metadata.version(module)
     except importlib.metadata.PackageNotFoundError:
         spec: ModuleSpec = find_spec(module)
-        found_version = _package_version(spec.parent)
+        found_version = importlib.metadata.version(spec.parent)
     found_version = packaging.version.Version(found_version)
     minimum_version = packaging.version.Version(minimum_version)
     if found_version < minimum_version:

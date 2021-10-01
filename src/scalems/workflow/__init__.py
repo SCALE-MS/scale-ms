@@ -33,6 +33,8 @@ import threading
 import typing
 import weakref
 
+from scalems import exceptions as _exceptions
+
 from scalems.context import FileStoreManager
 from scalems.dispatching import _CommandQueueAddItem
 from scalems.dispatching import _CommandQueueControlItem
@@ -47,6 +49,7 @@ from scalems.exceptions import ScaleMSError
 from scalems.exceptions import ScopeError
 from scalems.identifiers import TypeIdentifier
 from scalems.serialization import encode
+from scalems.utility import next_monotonic_integer
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -1267,3 +1270,125 @@ def scope(manager):
     #         if _shared_scope_count.get() == 0:
     #             logger.debug('Leaving scope of {}'.format(str(manager)))
     #             token.var.reset(token)
+
+
+def _unpack_work(ref: dict):
+    """Temporary handler for ad hoc dict-based input.
+
+    Unpack and serialize the nested task descriptions.
+
+    Note: this assumes work is nested, with only one item per "layer".
+    """
+    assert isinstance(ref, dict)
+    implementation_identifier = ref.get('implementation', None)
+    message: dict = ref.get('message', None)
+    if not isinstance(implementation_identifier, list) or not isinstance(message, dict):
+        raise _exceptions.DispatchError('Bug: bad schema checking?')
+
+    command = implementation_identifier[-1]
+    logger.debug(f'Unpacking a {command}')
+    # Temporary hack for ad hoc schema.
+    if command == 'Executable':
+        # generate Subprocess
+        from scalems.subprocess import SubprocessInput, Subprocess
+        input_node, task_node, output_node = message['Executable']
+        kwargs = {
+            'argv': input_node['data']['argv'],
+            'stdin': input_node['data']['stdin'],
+            'stdout': task_node['data']['stdout'],
+            'stderr': task_node['data']['stderr'],
+            'environment': input_node['data']['environment'],
+            'resources': task_node['input']['resources']
+        }
+        bound_input = SubprocessInput(**kwargs)
+        item = Subprocess(input=bound_input)
+        yield item
+        return item.uid()
+    else:
+        # If record bundles dependencies, identify them and yield them first.
+        try:
+            depends = ref['message'][command]['input']
+        except AttributeError:
+            depends = None
+        if depends is not None:
+            logger.debug(f'Recursively unpacking {depends}')
+            dependency: typing.Optional[bytes] = yield from _unpack_work(depends)
+        else:
+            dependency = None
+        if 'uid' not in ref:
+            ref['uid'] = next_monotonic_integer().to_bytes(32, 'big')
+        uid: bytes = ref['uid']
+        if dependency is not None:
+            logger.debug('Replacing explicit input in {} with reference: {}'.format(
+                uid.hex(),
+                dependency.hex()
+            ))
+            ref['message'][command]['input'] = dependency
+        # Then yield the dependent item.
+        yield ref
+        return uid
+
+
+@functools.singledispatch
+def _wait(ref, *, manager):
+    """Use the indicated workflow manager to resolve a reference to a workflow item."""
+    raise _exceptions.DispatchError('No dispatcher for this type of reference.')
+    # TODO: Return an object supporting the result type interface.
+
+
+
+@_wait.register
+def _(ref: dict, *, manager):
+    # First draft: monolithic implementation directs the workflow manager to add tasks and execute them.
+    # TODO: Use a WorkflowManager interface from the core data model.
+    if not isinstance(manager, WorkflowManager):
+        raise _exceptions.ProtocolError('Provided manager does not implement the required interface.')
+    for item in _unpack_work(ref):
+        view = manager.add_item(item)
+        logger.debug('Added {}: {}'.format(
+            view.uid().hex(),
+            str(item)))
+    # TODO: If dispatcher is running, wait for the results.
+    # TODO: If dispatcher is not running, can we trigger it?
+
+
+def wait(ref):
+    """Resolve a workflow reference to a local object.
+
+    *wait* signals to the SCALE-MS framework that it is time to intervene and
+    do some workflow execution management.
+
+    ScaleMS commands return abstract references to work without waiting for the
+    work to execute. Other ScaleMS commands can operate on these references,
+    relying on the framework to manage data flow.
+
+    If you need to extract a concrete result, or otherwise force data flow resolution
+    (blocking the current code until execution and data transfer are complete),
+    you may use scalems.wait(ref) to convert a workflow reference to a concrete
+    local result.
+
+    Note that scalems.wait() can allow the current scope to yield to other tasks.
+    Developers should use scalems.wait() instead of native concurrency primitives
+    when coding for dynamic data flow.
+    However, the initial implementation does not inspect the context to allow
+    such context-sensitive behavior.
+
+    .. todo:: Establish stable API/CPI for tasks that create other tasks or modify the data flow graph during execution.
+
+    scalems.wait() will produce an error if you have not configured and launched
+    an execution manager in the current scope.
+
+    .. todo:: Acquire asyncio event loop from WorkflowManager.
+        scalems.wait is primarily intended as an abstraction from
+        https://docs.python.org/3.8/library/asyncio-eventloop.html#asyncio.loop.run_until_complete
+        and an alternative to `await`.
+    """
+    context = get_scope()
+    if context is None:
+        # Bail out.
+        raise _exceptions.DispatchError(str(ref))
+    if not isinstance(context, WorkflowManager):
+        raise _exceptions.ProtocolError('Expected WorkflowManager. Got {}'.format(repr(context)))
+
+    # Dispatch on reference type.
+    return _wait(ref, manager=context)

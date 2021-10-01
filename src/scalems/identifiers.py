@@ -227,8 +227,6 @@ class TypeDataDescriptor:
     Attributes:
         name: Name of the attribute provided by the data descriptor.
         base: TypeIdentifier associated with the Python class.
-        attr_name: the name of the instance data member used by this descriptor
-                   for storage.
 
     *name* can be provided at initialization, but is overridden during class
     definition when TypeDataDescriptor is used in the usual way (as a data descriptor
@@ -262,6 +260,7 @@ class TypeDataDescriptor:
 
     @property
     def attr_name(self):
+        """Name of the instance data member used by this descriptor for storage."""
         return '_owner' + self.name
 
     def __init__(self, name: str = None, base_type: TypeIdentifier = None):

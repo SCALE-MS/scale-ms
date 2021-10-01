@@ -56,8 +56,8 @@ from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from .raptor import master_script
 from .raptor import worker_script
-from .raptor import RaptorWorkerConfig
-from .raptor import RaptorWorkerTaskDescription
+from ._common import RaptorWorkerConfig
+from ._common import RaptorWorkerTaskDescription
 from .raptor import object_encoder
 from .. import FileReference
 from ..context import describe_file
@@ -408,6 +408,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     td = rp.TaskDescription()
 
     td.pre_exec = pre_exec
+    td.stage_on_error = True
     # We are not using prepare_env at this point. We use the `venv` configured by the
     # caller.
     # td.named_env = 'scalems_env'
@@ -418,6 +419,14 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     td.executable = master_script()
 
     logger.debug(f'Using {filestore}.')
+
+    # scalems_rp_master will write output before it begins handling requests. The
+    # script may crash even before it can write anything, but if it does write
+    # anything, we _will_ have the output file locally
+    td.output_staging = [
+
+    ]
+
     config_file = await _master_input(filestore, pre_exec=list(pre_exec))
 
     # TODO(#75): Automate handling of file staging directives for scalems.FileReference

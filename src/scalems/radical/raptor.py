@@ -270,7 +270,7 @@ def master():
     This function implements the scalems_rp_master entry point script called by the
     RADICAL Pilot executor to provide the raptor master task.
     """
-    if not os.environ['RP_SESSION_ID']:
+    if not os.environ['RP_TASK_ID']:
         raise RuntimeError('Raptor Master must be launched by RP executor.')
 
     args = parser.parse_args()
@@ -326,7 +326,7 @@ def worker():
     the important place for the mode to be registered is at the forked interpreter,
     not the interpreter running this main() function.
     """
-    if not os.environ['RP_SESSION_ID']:
+    if not os.environ['RP_TASK_ID']:
         raise RuntimeError('Raptor Worker must be launched by RP executor.')
 
     # Master generates a file to be appended to the argument list.

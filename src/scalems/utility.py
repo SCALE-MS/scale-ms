@@ -283,7 +283,7 @@ class _Func_to_thread(typing.Protocol[_T]):
     especially with respect to ``*args`` and ``**kwargs``.
     """
 
-    def __call__(self, __func: typing.Callable[[...], _T],
+    def __call__(self, __func: typing.Callable[..., _T],
                  *args: typing.Any,
                  **kwargs: typing.Any) \
             -> typing.Coroutine[typing.Any, typing.Any, _T]:

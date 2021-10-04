@@ -407,7 +407,6 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
         logger.warning(f'RP Task {repr(rptask)} finished suspiciously fast.')
         callback(rptask, rptask.state, cb_data)
 
-    asyncio.get_running_loop().slow_callback_duration = 0.2
     watcher_started = asyncio.Event()
     waiter = asyncio.create_task(watcher_started.wait())
     wrapped_task = asyncio.create_task(_rp_task_watcher(task=rptask,

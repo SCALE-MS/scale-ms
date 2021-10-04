@@ -12,7 +12,6 @@ Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
 import asyncio
 import logging
 import os
-import time
 
 import pytest
 

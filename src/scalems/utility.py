@@ -183,7 +183,8 @@ def function_wrapper(output: dict = None):
     New function accepts the same arguments, with additional arguments required by
     the API.
 
-    The new function returns an object with an ``output`` attribute containing the named outputs.
+    The new function returns an object with an ``output`` attribute containing the
+    named outputs.
 
     Example:
 
@@ -255,11 +256,10 @@ def deprecated(explanation: str):
 
 
 def next_monotonic_integer() -> int:
-    """Utility for generating a monotonic sequence of integers across an interpreter process.
+    """Utility for generating a monotonic sequence of integers throughout the interpreter.
 
     Not thread-safe. However, threads may
-
-    * avoid race conditions by copying the contextvars context for non-root threads
+    * avoid race conditions by copying the contextvars context for non-root threads, or
     * reproduce the sequence of the main thread by calling this function an equal
       number of times.
 
@@ -276,15 +276,22 @@ _monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)
 _T = typing.TypeVar('_T')
 
 
+class _Func_to_thread(typing.Protocol[_T]):
+    """Function object type of the asyncio.to_thread callable.
+
+    typing.Protocol supports better checking of function signatures than Callable,
+    especially with respect to ``*args`` and ``**kwargs``.
+    """
+
+    def __call__(self, __func: typing.Callable[[...], _T],
+                 *args: typing.Any,
+                 **kwargs: typing.Any) \
+            -> typing.Coroutine[typing.Any, typing.Any, _T]:
+        ...
+
+
 @cache
-def get_to_thread() \
-        -> typing.Callable[
-            [
-                typing.Callable[..., _T],
-                typing.Tuple[typing.Any, ...],
-                typing.Dict[str, typing.Any]
-            ],
-            typing.Coroutine[typing.Any, typing.Any, _T]]:
+def get_to_thread() -> _Func_to_thread:
     """Provide a to_thread function.
 
     asyncio.to_thread() appears in Python 3.9, but we only require 3.8 as of this writing.
@@ -296,12 +303,12 @@ def get_to_thread() \
                              *args: typing.Any,
                              **kwargs: typing.Any) -> _T:
             """Mock Python to_thread for Py 3.8."""
-            wrapped_function: typing.Callable[[], _T] = functools.partial(__func, *args,
+            wrapped_function: typing.Callable[[], _T] = functools.partial(__func,
+                                                                          *args,
                                                                           **kwargs)
             assert callable(wrapped_function)
             loop = asyncio.get_event_loop()
-            coro: typing.Awaitable[_T] = loop.run_in_executor(
-                None, wrapped_function)
+            coro: typing.Awaitable[_T] = loop.run_in_executor(None, wrapped_function)
             result = await coro
             return result
     return _to_thread

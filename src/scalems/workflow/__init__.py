@@ -1336,7 +1336,6 @@ def _wait(ref, *, manager):
     # TODO: Return an object supporting the result type interface.
 
 
-
 @_wait.register
 def _(ref: dict, *, manager):
     # First draft: monolithic implementation directs the workflow manager to add tasks and execute them.

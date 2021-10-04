@@ -475,14 +475,14 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
 
     logger.debug(f'Launching RP raptor scheduling. Submitting {td}.')
 
-    _task = asyncio.create_task(to_thread(task_manager.submit_tasks, *(td,)),
+    _task = asyncio.create_task(to_thread(task_manager.submit_tasks, td),
                                 name='submit-Master')
     scheduler: rp.Task = await _task
 
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
     # check type.
     _task = asyncio.create_task(
-        to_thread(scheduler.wait, **dict(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)),
+        to_thread(scheduler.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
         name='check-Master-started'
     )
     await _task
@@ -584,7 +584,7 @@ async def _connect_rp(config: Configuration) -> Runtime:
         # but it seems like a good chance to start bootstrapping the agent environment.
         logger.debug('Launching PilotManager.')
         pilot_manager = await asyncio.create_task(
-            to_thread(rp.PilotManager, **dict(session=runtime.session)),
+            to_thread(rp.PilotManager, session=runtime.session),
             name='get-PilotManager'
         )
         logger.debug('Got PilotManager {}.'.format(pilot_manager.uid))
@@ -592,7 +592,7 @@ async def _connect_rp(config: Configuration) -> Runtime:
 
         logger.debug('Launching TaskManager.')
         task_manager = await asyncio.create_task(
-            to_thread(rp.TaskManager, **dict(session=runtime.session)),
+            to_thread(rp.TaskManager, session=runtime.session),
             name='get-TaskManager'
         )
         logger.debug(('Got TaskManager {}'.format(task_manager.uid)))
@@ -622,7 +622,7 @@ async def _connect_rp(config: Configuration) -> Runtime:
         runtime.pilot(pilot)
 
         await asyncio.create_task(
-            to_thread(task_manager.add_pilots, *(pilot,)),
+            to_thread(task_manager.add_pilots, pilot),
             name='add_pilots'
         )
         logger.debug('Added Pilot {} to task manager {}.'.format(

@@ -50,6 +50,7 @@ from ._lock import is_locked
 from ._lock import LockException
 from ._lock import scoped_directory_lock as _scoped_directory_lock
 from ..identifiers import Identifier
+from ..utility import get_to_thread
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -228,39 +229,6 @@ def describe_file(obj: typing.Union[str, pathlib.Path, os.PathLike],
         raise ValueError('Not an existing file.')
 
     return file
-
-
-_T = typing.TypeVar('_T')
-
-
-def get_to_thread() \
-        -> typing.Callable[
-            [
-                typing.Callable[..., _T],
-                typing.Tuple[typing.Any, ...],
-                typing.Dict[str, typing.Any]
-            ],
-            typing.Coroutine[typing.Any, typing.Any, _T]]:
-    """Provide a to_thread function.
-
-    asyncio.to_thread() appears in Python 3.9, but we only require 3.8 as of this writing.
-    """
-    try:
-        from asyncio import to_thread as _to_thread
-    except ImportError:
-        async def _to_thread(__func: typing.Callable[..., _T],
-                             *args: typing.Any,
-                             **kwargs: typing.Any) -> _T:
-            """Mock Python to_thread for Py 3.8."""
-            wrapped_function: typing.Callable[[], _T] = functools.partial(__func, *args,
-                                                                          **kwargs)
-            assert callable(wrapped_function)
-            loop = asyncio.get_event_loop()
-            coro: typing.Awaitable[_T] = loop.run_in_executor(
-                None, wrapped_function)
-            result = await coro
-            return result
-    return _to_thread
 
 
 class FileStore:
@@ -810,7 +778,7 @@ class FileStoreManager:
 
 
 @functools.singledispatch
-def get_file_reference(obj, filestore=None, mode='rb')\
+def get_file_reference(obj, filestore=None, mode='rb') \
         -> typing.Awaitable[FileReference]:
     """Get a FileReference for the provided object.
 

@@ -54,11 +54,11 @@ import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
-from .raptor import master_script
-from .raptor import worker_script
 from ._common import RaptorWorkerConfig
 from ._common import RaptorWorkerTaskDescription
+from .raptor import master_script
 from .raptor import object_encoder
+from .raptor import worker_script
 from .. import FileReference
 from ..context import describe_file
 from ..context import FileStore
@@ -387,7 +387,9 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
         with open(config_file_path, 'w') as fh:
             json.dump(configuration, fh, default=object_encoder, indent=2)
         file_description = describe_file(config_file_path, mode='r')
-        handle: FileReference = await filestore.add_file(file_description)
+        handle: FileReference = await asyncio.create_task(
+            filestore.add_file(file_description),
+            name='add-file')
     return handle
 
 
@@ -432,7 +434,14 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
 
     ]
 
-    config_file = await _master_input(filestore, pre_exec=list(pre_exec))
+    # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
+    # asyncio.get_running_loop().slow_callback_duration = 0.5
+    config_file = await asyncio.create_task(
+        _master_input(filestore,
+                      pre_exec=list(pre_exec)),
+        name='get-master-input'
+    )
+    # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
 
     # TODO(#75): Automate handling of file staging directives for scalems.FileReference
     # e.g. _add_file_dependency(td, config_file)
@@ -455,17 +464,28 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
         'uid': td.uid,
         'task_manager': task_manager.uid
     }
-    filestore.add_task(master_identity, **task_metadata)
+
+    to_thread = _utility.get_to_thread()
+
+    await asyncio.create_task(
+        to_thread(filestore.add_task, master_identity, **task_metadata),
+        name='add-task'
+    )
+    # filestore.add_task(master_identity, **task_metadata)
 
     logger.debug(f'Launching RP raptor scheduling. Submitting {td}.')
 
-    # WARNING: The following line may block for several seconds. Consider using a
-    # separate thread (if RP supports it).
-    scheduler = task_manager.submit_tasks(td)
+    _task = asyncio.create_task(to_thread(task_manager.submit_tasks, td),
+                                name='submit-Master')
+    scheduler: rp.Task = await _task
 
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
     # check type.
-    scheduler.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL)
+    _task = asyncio.create_task(
+        to_thread(scheduler.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
+        name='check-Master-started'
+    )
+    await _task
     logger.debug(f'Scheduler in state {scheduler.state}. Proceeding.')
     # TODO: Generalize the exit status checker for the Master task and perform this
     #  this check at the call site.
@@ -498,12 +518,9 @@ async def _connect_rp(config: Configuration) -> Runtime:
         CanceledError if parent asyncio.Task is cancelled while executing.
 
     """
-    # TODO: Consider inlining this into __aenter__().
-    # A non-async method is potentially useful for debugging, but causes the event loop
-    # to block while waiting for the RP tasks included here. If this continues to be a
-    # slow function, we can wrap the remaining RP calls and let this function be
-    # inlined, or move parts to a separate thread or process with
-    # loop.run_in_executor(). Note, though, that
+    # TODO: Consider inlining this function into its caller.
+
+    # We try to wrap rp UI calls in separate threads. Note, though, that
     #   * The rp.Session needs to be created in the root thread to be able to correctly
     #     manage signal handlers and subprocesses, and
     #   * We need to be able to schedule RP Task callbacks in the same process as the
@@ -518,6 +535,7 @@ async def _connect_rp(config: Configuration) -> Runtime:
     # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
     # but we have not fully explored the consequences of doing so.
 
+    to_thread = _utility.get_to_thread()
     try:
         #
         # Start the Session.
@@ -548,7 +566,12 @@ async def _connect_rp(config: Configuration) -> Runtime:
             warnings.simplefilter('ignore', category=DeprecationWarning)
             # This would be a good time to `await`, if an event-loop friendly
             # Session creation function becomes available.
-            runtime = Runtime(session=rp.Session(uid=session_id, cfg=session_config))
+            session_args = dict(uid=session_id, cfg=session_config)
+            _task = asyncio.create_task(to_thread(rp.Session, (), **session_args),
+                                        name='create-Session')
+            session = await _task
+            runtime = Runtime(session=session)
+            # runtime = Runtime(session=rp.Session(uid=session_id, cfg=session_config))
         session_id = runtime.session.uid
         # Do we want to log this somewhere?
         # session_config = copy.deepcopy(self.session.cfg.as_dict())
@@ -560,12 +583,18 @@ async def _connect_rp(config: Configuration) -> Runtime:
         # Optionally, we could refrain from launching the pilot here, at all,
         # but it seems like a good chance to start bootstrapping the agent environment.
         logger.debug('Launching PilotManager.')
-        pilot_manager = rp.PilotManager(session=runtime.session)
+        pilot_manager = await asyncio.create_task(
+            to_thread(rp.PilotManager, session=runtime.session),
+            name='get-PilotManager'
+        )
         logger.debug('Got PilotManager {}.'.format(pilot_manager.uid))
         runtime.pilot_manager(pilot_manager)
 
         logger.debug('Launching TaskManager.')
-        task_manager = rp.TaskManager(session=runtime.session)
+        task_manager = await asyncio.create_task(
+            to_thread(rp.TaskManager, session=runtime.session),
+            name='get-TaskManager'
+        )
         logger.debug(('Got TaskManager {}'.format(task_manager.uid)))
         runtime.task_manager(task_manager)
 
@@ -585,11 +614,17 @@ async def _connect_rp(config: Configuration) -> Runtime:
         # How and when should we update pilot description?
         logger.debug('Submitting PilotDescription {}'.format(repr(
             pilot_description)))
-        pilot = pilot_manager.submit_pilots(pilot_description)
+        pilot = await asyncio.create_task(
+            to_thread(pilot_manager.submit_pilots, pilot_description),
+            name='submit_pilots'
+        )
         logger.debug('Got Pilot {}'.format(pilot.uid))
         runtime.pilot(pilot)
 
-        task_manager.add_pilots(pilot)
+        await asyncio.create_task(
+            to_thread(task_manager.add_pilots, pilot),
+            name='add_pilots'
+        )
         logger.debug('Added Pilot {} to task manager {}.'.format(
             pilot.uid,
             task_manager.uid))
@@ -599,9 +634,14 @@ async def _connect_rp(config: Configuration) -> Runtime:
         #
 
         assert runtime.scheduler is None
-        runtime.scheduler = await _get_scheduler(pre_exec=list(get_pre_exec(config)),
-                                                 task_manager=task_manager,
-                                                 filestore=config.datastore)
+        runtime.scheduler = await asyncio.create_task(
+            _get_scheduler(
+                pre_exec=list(get_pre_exec(config)),
+                task_manager=task_manager,
+                filestore=config.datastore),
+            name='get-scheduler'
+        )
+
         # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
 
         return runtime

@@ -11,7 +11,7 @@ mock
 netifaces
 ntplib
 pylint
-pymongo
+pymongo<4
 python-hostlist
 setproctitle
 tox>=2.0

@@ -3,17 +3,16 @@ import json
 import packaging.version
 import pytest
 import scalems
-from scalems.radical.raptor import object_encoder
 
 try:
     import radical.pilot as rp
 except ImportError:
     rp = None
 else:
-    from scalems.radical._common import RaptorWorkerConfig
-    from scalems.radical._common import RaptorWorkerTaskDescription
-    from scalems.radical.raptor import worker_script
+    from scalems.radical.common import RaptorWorkerConfig
     from scalems.radical.raptor import check_module_version
+    from scalems.radical.common import worker_description
+    from scalems.radical.raptor import object_encoder
 
 pytestmark = pytest.mark.skipif(condition=rp is None,
                                 reason='These tests require RADICAL Pilot.')
@@ -29,16 +28,18 @@ def test_master():
 
     We can't actually create a raptor.Master easily, but we can check its bits and pieces.
     """
-    worker_description = RaptorWorkerTaskDescription(from_dict={
-                # TODO: Don't hard-code this!
-                'uid': 'raptor.worker',
-                'executable': worker_script(),
-                'arguments': [],
-                'pre_exec': []
-            })
+
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0
+    _worker_description = worker_description(
+        named_env='scalems_test_ve',
+        cpu_processes=cores_per_worker,
+        gpu_processes=gpus_per_worker,
+        worker_class=None,
+        worker_file=None,
+    )
+    _worker_description['uid'] = 'raptor-worker-test'
 
     client_scalems_version = packaging.version.Version(scalems.__version__)
     if client_scalems_version.is_prerelease:
@@ -54,10 +55,8 @@ def test_master():
 
     configuration = scalems.radical.raptor.Configuration(
         worker=RaptorWorkerConfig(
-            descr=worker_description,
-            count=num_workers,
-            cores=cores_per_worker,
-            gpus=gpus_per_worker
+            descr=_worker_description,
+            count=num_workers
         ),
         versioned_modules=list(versioned_modules)
     )

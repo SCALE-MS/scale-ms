@@ -54,11 +54,10 @@ import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
-from ._common import RaptorWorkerConfig
-from ._common import RaptorWorkerTaskDescription
+from .common import RaptorWorkerConfig
+from .common import worker_description
 from .raptor import master_script
 from .raptor import object_encoder
-from .raptor import worker_script
 from .. import FileReference
 from ..context import describe_file
 from ..context import FileStore
@@ -331,15 +330,13 @@ class Runtime:
                 return self.pilot(pilot)
 
 
-async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
+async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) -> FileReference:
     """Provide the input file for a SCALE-MS Raptor Master script.
 
     Args:
         filestore: (local) FileStore that will manage the generated FileReference.
 
     """
-    # TODO: Generate a JSON file to provide to the Master.
-
     if not isinstance(filestore, FileStore) or filestore.closed or not \
             filestore.directory.exists():
         raise ValueError(f'{filestore} is not a usable FileStore.')
@@ -350,18 +347,18 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
     worker_identity = EphemeralIdentifier()
     task_metadata = {
         'uid': str(worker_identity),
-        'executable': worker_script(),
-        'arguments': [],
         'pre_exec': pre_exec
     }
     filestore.add_task(worker_identity, **task_metadata)
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
     # TODO: Inspect workflow to optimize reusability of the initial Worker submission.
-    worker_description = RaptorWorkerTaskDescription(from_dict=task_metadata)
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0
+    task_metadata.update(worker_description(worker_file=None, worker_class=None,
+                                            cpu_processes=cores_per_worker, gpu_processes=gpus_per_worker,
+                                            named_env=named_env))
 
     # TODO: Add additional dependencies that we can infer from the workflow.
     versioned_modules = (
@@ -371,10 +368,8 @@ async def _master_input(filestore: FileStore, pre_exec: list) -> FileReference:
 
     configuration = scalems.radical.raptor.Configuration(
         worker=RaptorWorkerConfig(
-            descr=worker_description,
-            count=num_workers,
-            cores=cores_per_worker,
-            gpus=gpus_per_worker
+            descr=task_metadata,
+            count=num_workers
         ),
         versioned_modules=list(versioned_modules)
     )

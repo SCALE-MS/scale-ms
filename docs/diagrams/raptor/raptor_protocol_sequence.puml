@@ -1,0 +1,145 @@
+@startuml
+title scalems to raptor interface
+
+box "client"
+participant "workflow script" as script
+participant "SCALE-MS framework" as scalems.Runtime
+end box
+
+box "RP client"
+participant TaskManager
+end box
+
+queue "Taskmanager Scheduler and Input Queue" as Queue
+
+box "RP Agent"
+participant Scheduler
+end box
+
+queue "Master input queue" as master_queue
+
+box "scalems.radical.raptor.Master"
+participant ScalemsMaster
+participant rpt.Master
+'participant Master._request_cb
+'participant Master._request_cb
+'participant Master._result_cb
+'participant Master.result_cb
+end box
+
+queue "ZMQ Raptor work channel" as channel
+
+box "scalems.radical.raptor.Worker"
+participant ScalemsWorker
+participant rpt.Worker
+end box
+
+box "usermodule"
+participant usermodule
+end box
+
+box "target venv"
+end box
+
+autoactivate on
+
+== Launch runtime ==
+
+== Raptor workload handling ==
+
+scalems.Runtime -> TaskManager: submit(task_description)
+
+note left
+ TaskDescription names a Master uid in *scheduler* field.
+ TaskDescription 1.11 serializes the RequestInput into TaskDescription.arguments[0].
+ TaskDescription 1.12 directly supports *mode* field and mode-dependent supporting fields.
+end note
+
+TaskManager -> Queue: task_description
+return
+return
+
+Scheduler -> Queue: accepts work
+return task dictionary
+
+note over Scheduler
+Scheduler gets task from queue,
+observes `scheduler` field and routes to Master.
+end note
+
+rpt.Master -> master_queue: accept Task
+return task_description
+
+rpt.Master -> rpt.Master: _request_cb(List[TaskDescription]))
+rpt.Master -> ScalemsMaster: request_cb(List[TaskDescription])
+
+alt optionally process or update requests
+ScalemsMaster -> ScalemsMaster: self.request(TaskDescription)
+return
+end
+
+return optional[updated list]
+
+rpt.Master -> rpt.Master: self.request(TaskDescription))
+rpt.Master -> channel: send message
+deactivate rpt.Master
+deactivate rpt.Master
+
+
+
+'--> framework: static data resources available
+'   note over framework #FFFFFF
+'   my_array =
+'   69e69fedbdbab6dcda556db6d5835375cefb4e801fb8279d0d7ef3995154bc15: scalems.Integer64
+'   endnote
+'
+'   framework --> context **: provision worker
+'
+'   rnote over framework #FFFFFF
+'   69e69fedbdbab6dcda556db6d5835375cefb4e801fb8279d0d7ef3995154bc15: scalems.Integer64
+'   endrnote
+'
+'   framework -> context: place data
+
+'--> framework: work package
+'
+'
+'   framework -> context ++: deserialize node
+'
+'
+'    context -> node_builder **: get_node_builder(uid, inputs)
+'    activate node_builder
+'    context -> node_director ++
+'
+'    node_director -> node_builder: apply node input
+'    activate node_builder
+'
+'    alt incomplete && has_dependencies
+'        node_builder -> context: register subscriptions
+'    end
+'    deactivate node_builder
+'
+'    node_director -> node_builder ++: set up output
+'    node_builder -> publisher **
+'    deactivate node_builder
+'
+'    node_director -> node_builder ++: build()
+'
+'    publisher -> context: publish
+'    activate context
+'    context -> context: subscriptions
+'    framework <-- context: stage output data
+'    deactivate context
+'    deactivate publisher
+'
+'    node_director <-- node_builder --: node
+'    context <-- node_director --
+'    destroy node_builder
+'    framework <-- context: node
+'    deactivate context
+'
+'    [<-- framework: results
+'
+'
+
+@enduml

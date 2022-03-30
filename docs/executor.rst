@@ -167,6 +167,11 @@ Extra scalems.radical details
 
 .. autofunction:: scalems.radical.configuration
 
+scalems.radical.common
+~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: scalems.radical.common
+    :members:
+
 scalems.radical.runtime support module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 

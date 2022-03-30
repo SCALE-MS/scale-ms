@@ -1,10 +1,11 @@
 build
 coverage
 flake8
+packaging
 pytest>=6.1.2
 pytest-asyncio>=0.14
 pytest-env
-setuptools
+setuptools~=58.0.4
 wheel
 # RADICAL requirements
 mock
@@ -13,7 +14,7 @@ ntplib
 pylint
 pymongo
 python-hostlist
-radical.pilot>=1.11.0
+radical.pilot>=1.14.0
 setproctitle
 tox>=2.0
 

@@ -59,7 +59,8 @@ master_doc = 'index'
 intersphinx_mapping = {
     'https://docs.python.org/3/': None,
     'https://radicalpilot.readthedocs.io/en/stable/': None,
-    'https://radicalsaga.readthedocs.io/en/stable/': None
+    'https://radicalsaga.readthedocs.io/en/stable/': None,
+    'https://msgpack-python.readthedocs.io/en/latest/': None,
 }
 
 # -- Options for HTML output -------------------------------------------------
@@ -73,6 +74,9 @@ html_theme = 'sphinx_rtd_theme'
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 # html_static_path = ['_static']
+
+# -- Options for autodoc -----------------------------------------------------
+# autodoc_mock_imports = ['radical']
 
 # -- Options for Napoleon ----------------------------------------------------
 napoleon_google_docstring = True

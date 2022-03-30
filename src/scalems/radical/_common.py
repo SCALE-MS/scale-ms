@@ -142,7 +142,7 @@ class _RaptorWorkerTaskDescription(typing.Protocol):
     # post_rank: typing.Mapping[int, typing.List[str]]
 
 
-class RaptorWorkerTaskDescription(_RaptorWorkerTaskDescription, rp.TaskDescription):
+class RaptorWorkerTaskDescription(rp.TaskDescription):
     def __init__(self, *args, from_dict=None, **kwargs):
         if from_dict is None:
             from_dict = dict(*args, **kwargs)

@@ -1,0 +1,113 @@
+@startuml
+title scalems on radical.pilot
+
+participant "workflow script" as script
+box "SCALE-MS framework"
+participant "SCALE-MS API" as scalems.Runtime
+participant WorkflowManager as client_workflowmanager
+participant Queuer
+participant RuntimeManager
+participant "runner task" as scalems.execution
+end box
+box "SCALE-MS RP adapter"
+participant scalems.radical
+participant Runtime as client_runtime
+participant Executor as client_executor
+end box
+
+autoactivate on
+
+-> scalems.radical: python -m scalems.radical ...
+
+scalems.radical -> scalems.Runtime: scalems.invocation.run(workflow_manager)
+scalems.Runtime -> scalems.radical: configuration()
+return
+scalems.Runtime -> scalems.radical: workflow_manager()
+scalems.radical -> client_workflowmanager **: <<create>>
+scalems.Runtime <-- scalems.radical:
+
+scalems.Runtime -> script: <<runpy>>
+return @scalems.app
+
+scalems.Runtime -> scalems.Runtime: run_dispatch(work, context)
+scalems.Runtime -> client_workflowmanager: async with dispatch()
+
+client_workflowmanager -> client_workflowmanager: executor_factory()
+
+client_workflowmanager -> client_executor **: <<create>>
+client_workflowmanager --> client_workflowmanager: executor
+client_workflowmanager -> Queuer **: <<create>>
+
+== Launch runtime ==
+
+client_workflowmanager -> client_executor: async with executor
+client_executor -> RuntimeManager: ~__aenter__()
+RuntimeManager -> client_executor: runtime_configuration()
+RuntimeManager -> client_executor: runtime_startup()
+
+client_executor -> scalems.radical: connect_rp()
+note left
+We currently require a pre-existing Pilot venv.
+TODO: Should we prepare_env it instead?
+Should Master task use the same named env?
+end note
+scalems.radical -> client_runtime **
+scalems.radical -> client_runtime: pilot_manager()
+return
+scalems.radical -> client_runtime: task_manager()
+return
+scalems.radical -> client_runtime: pilot()
+return
+
+scalems.radical -> scalems.radical: get_scheduler()
+scalems.radical -> scalems.radical: master_input()
+scalems.radical -> scalems.radical: worker_description()
+note left
+TODO: Make sure the Worker's env gets created!!!
+end note
+return
+return Master input
+scalems.radical -> scalems.radical: launch Master Task
+note left
+Master cfg is staged with TaskDescription.
+end note
+return Master Task
+return
+
+scalems.radical -> client_runtime: set scheduler
+return
+return runtime
+client_executor -> scalems.execution **: create_task(manage_execution)
+client_executor -> scalems.execution: await runner_started
+RuntimeManager <-- client_executor: set runner_task
+deactivate client_executor
+deactivate RuntimeManager
+
+client_workflowmanager -> Queuer: async with dispatcher
+
+== Raptor workload handling ==
+
+== Shut down runtime ==
+
+client_workflowmanager <-- Queuer: leave dispatcher context
+
+client_executor -> RuntimeManager: ~__aexit__()
+RuntimeManager -> RuntimeManager: await runner_task
+RuntimeManager <-- scalems.execution
+deactivate RuntimeManager
+RuntimeManager -> client_executor: runtime_shutdown()
+
+'TODO: Describe the RP runtime shutdown.
+
+client_executor -> client_runtime !!
+deactivate client_executor
+deactivate RuntimeManager
+
+client_workflowmanager <-- client_executor: leave executor context
+scalems.Runtime <-- client_workflowmanager: end dispatching context
+scalems.Runtime --> scalems.Runtime: asyncio.Loop.run_until_complete()
+deactivate client_workflowmanager
+scalems.Runtime --> scalems.radical: 0 or SystemExit.code
+deactivate scalems.Runtime
+<-- scalems.radical: sys.exit
+@enduml

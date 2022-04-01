@@ -5,6 +5,14 @@ Execution middleware
 Executable graphs or graph segments produced by client software are dispatched
 and translated for execution on managed computing resources.
 
+Client context
+==============
+
+The following diagram illustrates the :py:mod:`scalems.radical`
+SCALE-MS connector for execution on :py:mod:`radical.pilot`.
+
+.. uml:: diagrams/radical/rp_launch_sequence.puml
+
 WorkflowContext
 ===============
 
@@ -177,3 +185,5 @@ scalems.radical.runtime support module
 
 .. automodule:: scalems.radical.runtime
     :members:
+
+.. uml:: diagrams/radical/raptor_protocol_sequence.puml

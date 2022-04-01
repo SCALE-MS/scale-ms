@@ -363,6 +363,11 @@ class WorkflowManager:
 
     """
     tasks: TaskMap
+    _executor_factory: typing.Callable
+    """Factory for a RuntimeManager or subclass.
+    
+    TODO: Resolve circular reference between `execution` and `workflow` modules.
+    """
 
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during

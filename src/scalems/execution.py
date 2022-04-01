@@ -90,7 +90,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     A RuntimeManager is instantiated within the scope of the
     `scalems.workflow.WorkflowManager.dispatch` context manager using the
-    `scalems.workflow.WorkflowManager._executor_factory`.
+    :py:meth:`scalems.workflow.WorkflowManager._executor_factory`.
     """
     get_edit_item: typing.Callable[[], typing.Callable]
     datastore: FileStore

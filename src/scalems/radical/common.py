@@ -82,7 +82,7 @@ RaptorReturnType = typing.Tuple[
     typing.Union[None, typing.SupportsInt],
     typing.Any
 ]
-"""Raptor worker task return values are interpreted as a tuple (out, err, ret).
+"""Raptor worker task return values are interpreted as a tuple (out, err, ret, value).
 
 The first two elements are cast to output and error strings, respectively.
 

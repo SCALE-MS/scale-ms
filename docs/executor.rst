@@ -173,7 +173,16 @@ Extra scalems.radical details
 
 .. autoclass:: scalems.radical.Configuration
 
+.. autoclass:: scalems.radical.RPDispatchingExecutor
+    :members: __init__, runtime, runtime_configuration, runtime_startup, runtime_shutdown, updater
+
 .. autofunction:: scalems.radical.configuration
+
+.. autofunction:: scalems.radical.rp_task
+
+.. autofunction:: scalems.radical.submit
+
+.. autofunction:: scalems.radical.scalems_callback
 
 scalems.radical.common
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -187,3 +196,5 @@ scalems.radical.runtime support module
     :members:
 
 .. uml:: diagrams/radical/raptor_protocol_sequence.puml
+
+.. autofunction:: scalems.radical.runtime._connect_rp

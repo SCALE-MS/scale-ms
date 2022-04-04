@@ -29,6 +29,8 @@ See Also:
 
 """
 
+from __future__ import annotations
+
 __all__ = (
     'parser',
     'Configuration',
@@ -166,8 +168,8 @@ class Runtime:
     TODO: Consider merging with `scalems.radical.Configuration`
 
     See Also:
-        scalems.radical.RPDispatchingExecutor.runtime()
-        scalems.radical._connect_rp()
+        * :py:attr:`scalems.radical.RPDispatchingExecutor.runtime`
+        * :py:func:`scalems.radical.runtime._connect_rp()`
 
     """
     _session: rp.Session
@@ -296,7 +298,18 @@ class Runtime:
         ...
 
     def pilot(self, pilot=None) -> typing.Union[rp.Pilot, None]:
-        """Get (optionally set) the current Pilot."""
+        """Get (optionally set) the current Pilot.
+
+        Args
+        ----
+        pilot : radical.pilot.Pilot, str, None
+            Set to RP Pilot instance or identifier, if provided.
+
+        Returns
+        -------
+        radical.pilot.Pilot
+            instance
+        """
         if pilot is None:
             return self._pilot
 
@@ -499,18 +512,21 @@ async def _connect_rp(config: Configuration) -> Runtime:
     Acquire a maximally re-usable set of RP resources. The scope established by
     this function is as broad as it can be within the life of the workflow manager.
 
-    Once instance._connect_rp() succeeds, instance._disconnect_rp() must be called to
+    Once *instance._connect_rp()* succeeds, *instance._disconnect_rp()* must be called to
     clean up resources. Use the async context manager behavior of the instance to
     automatically follow this protocol. I.e. instead of calling
     ``instance._connect_rp(); ...; instance._disconnect_rp()``,
     use::
+
         async with instance:
             ...
 
-    Raises:
-        DispatchError if task dispatching could not be set up.
-
-        CanceledError if parent asyncio.Task is cancelled while executing.
+    Raises
+    ------
+    DispatchError
+        if task dispatching could not be set up.
+    asyncio.CancelledError
+        if parent `asyncio.Task` is cancelled while executing.
 
     """
     # TODO: Consider inlining this function into its caller.

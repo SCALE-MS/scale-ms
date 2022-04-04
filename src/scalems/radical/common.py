@@ -198,7 +198,7 @@ def worker_description(*, named_env: str, worker_class: str, worker_file: str, c
     ------------
     named_env : str
         Python virtual environment known to the Pilot agent.
-        Example: the *env_name* argument to :py:func:`radical.pilot.Pilot.prepare_env()`
+        Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`
     worker_class : str
         The string name of a :py:class:`radical.pilot.raptor.Worker` subclass
         to be imported from *worker_file*.

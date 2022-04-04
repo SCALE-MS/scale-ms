@@ -77,6 +77,14 @@ html_theme = 'sphinx_rtd_theme'
 
 # -- Options for autodoc -----------------------------------------------------
 # autodoc_mock_imports = ['radical']
+autodoc_type_aliases = {
+    'rp.Pilot': 'radical.pilot.Pilot',
+    'rp.Session': 'radical.pilot.Session',
+    'rp.PilotManager': 'radical.pilot.PilotManager',
+    'rp.TaskManager': 'radical.pilot.TaskManager',
+    'rp.Task': 'radical.pilot.Task',
+    'radical.pilot.pilot.Pilot': 'radical.pilot.Pilot',
+}
 
 # -- Options for Napoleon ----------------------------------------------------
 napoleon_google_docstring = True

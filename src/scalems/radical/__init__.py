@@ -22,7 +22,7 @@ already exists) and the RCT stack is updated within the Pilot sandbox for each s
 
 In the case of non-RCT Python dependencies,
 :py:class:`~radical.pilot.Pilot` has an (evolving)
-:py:attr:`~radical.pilot.Pilot.prepare_env`
+:py:func:`~radical.pilot.Pilot.prepare_env`
 feature that can be used for a Task dependency
 (:py:data:`~radical.pilot.TaskDescription.named_env`) to provide a dynamically
 created venv with a list of requested packages.
@@ -375,7 +375,7 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
 
     As such, we provide a thread-safe event handler to propagate the
     RP Task call-back to to this asyncio.Task result.
-    (See `_rp_callback()` and `RPFinalTaskState`)
+    (See :py:func:`_rp_callback()` and :py:class:`RPFinalTaskState`)
 
     Canceling the returned task will cause *rptask* to be canceled.
     Canceling *rptask* will cause this task to be canceled.
@@ -560,7 +560,7 @@ async def submit(*,
         less than a second. We can allow the watcher to wake up occasionally (on the
         order of minutes), so we can assume that it will never take more than a full
         iteration of the waiting loop for the callback to propagate, unless there is a
-        bug in RP. For simplicity, we can just note whether `rptask.state in rp.FINAL`
+        bug in RP. For simplicity, we can just note whether ``rptask.state in rp.FINAL``
         before the watcher goes to sleep and raise an error if the callback is not
         triggered in an iteration where we have set such a flag.
 
@@ -569,9 +569,9 @@ async def submit(*,
 
     Args:
         item: The workflow item to be submitted
-        task_manager: A radical.pilot.TaskManager instance
+        task_manager: A `radical.pilot.TaskManager` instance
                       through which the task should be submitted.
-        pre_exec: `radical.pilot.Task.pre_exec` prototype.
+        pre_exec: :py:data:`radical.pilot.Task.pre_exec` prototype.
         scheduler (str): The string name of the "scheduler," corresponding to
                          the UID of a Task running a rp.raptor.Master.
 
@@ -662,11 +662,16 @@ def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
 class RPDispatchingExecutor(RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 
-    Configuration points::
+    Configuration points:
+
     * resource config
     * pilot config
     * session config?
+
+    Extends :py:class:`scalems.execution.RuntimeManager`
     """
+    runtime: 'scalems.radical.runtime.Runtime'
+    """See `scalems.execution.RuntimeManager.runtime`"""
 
     def __init__(self,
                  *,

@@ -1,4 +1,7 @@
 """Runtime management."""
+
+from __future__ import annotations
+
 import abc
 import asyncio
 import contextlib
@@ -200,7 +203,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
         If the runtime manager uses a Session, this is the place to acquire it.
 
-        This coroutine itself returns a Task. This allows the caller to yield until
+        This coroutine itself returns a `asyncio.Task`. This allows the caller to yield until
         until the runtime manager is actually ready.
 
         Implementations may perform additional checks before returning to ensure that

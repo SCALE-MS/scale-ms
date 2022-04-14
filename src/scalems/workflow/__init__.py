@@ -365,7 +365,7 @@ class WorkflowManager:
     tasks: TaskMap
     _executor_factory: typing.Callable
     """Factory for a RuntimeManager or subclass.
-    
+
     TODO: Resolve circular reference between `execution` and `workflow` modules.
     """
 
@@ -1165,7 +1165,6 @@ _shared_scope_lock = threading.RLock()
 
 _shared_scope_count = contextvars.ContextVar('_shared_scope_count', default=0)
 
-
 _dispatcher: contextvars.ContextVar = contextvars.ContextVar('_dispatcher')
 """Identify an asynchronous Context.
 
@@ -1177,7 +1176,6 @@ We allow multiple dispatchers to be active, but each dispatcher must
 3. run within the new Context.
 4. ensure the Context is destroyed (remove circular references)
 """
-
 
 current_scope: contextvars.ContextVar = contextvars.ContextVar('current_scope')
 """The active workflow manager, if any.
@@ -1377,7 +1375,8 @@ def wait(ref):
     However, the initial implementation does not inspect the context to allow
     such context-sensitive behavior.
 
-    .. todo:: Establish stable API/CPI for tasks that create other tasks or modify the data flow graph during execution.
+    .. todo:: Establish stable API/CPI for tasks that create other tasks or modify the data flow graph
+        during execution.
 
     scalems.wait() will produce an error if you have not configured and launched
     an execution manager in the current scope.

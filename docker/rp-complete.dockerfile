@@ -34,6 +34,7 @@ RUN apt-get update && \
         git \
         iputils-ping \
         language-pack-en \
+        libopenmpi-dev \
         locales \
         openmpi-bin \
         openssh-server \
@@ -77,7 +78,7 @@ RUN rp-venv/bin/pip install --upgrade \
         netifaces \
         ntplib \
         pylint \
-        pymongo \
+        'pymongo<4' \
         pytest \
         pytest-asyncio \
         python-hostlist \
@@ -86,7 +87,7 @@ RUN rp-venv/bin/pip install --upgrade \
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-ARG RPREF="v1.6.6"
+ARG RPREF="v1.14.0"
 #ARG RPREF="project/scalems"
 # Note: radical.pilot does not work properly with an "editable install"
 RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \

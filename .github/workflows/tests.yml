@@ -379,12 +379,12 @@ jobs:
         pip install --upgrade --force \
           git+https://github.com/radical-cybertools/radical.pilot.git@devel#egg=radical.pilot
         pip install .
-        pip install \
+        pip install --upgrade \
           build \
           coverage \
-          pymongo<4 \
-          pytest>=6.1.2 \
-          pytest-asyncio>=0.14 \
+          'pymongo<4' \
+          'pytest>=6.1.2' \
+          'pytest-asyncio>=0.14' \
           pytest-cov \
           pytest-env
         mkdir -p $HOME/.radical/pilot/configs/

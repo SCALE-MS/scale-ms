@@ -163,13 +163,20 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     def configuration(self) -> _BackendT:
         return self._runtime_configuration
 
-    def runtime_shutdown(self, runtime):
+    @staticmethod
+    def runtime_shutdown(runtime):
         """Shutdown hook for runtime facilities.
 
         Called while exiting the context manager. Allows specialized handling of
         runtime backends in terms of the RuntimeManager instance and an abstract
         *Runtime* object, presumably acquired while entering the context manager
         through the *runtime_startup* hook.
+
+        The method is static as a reminder that all state should come through
+        the *runtime* argument. The hook is used in the context manager
+        implemented by the base class, which manages the removal of state
+        information regardless of the actions (or errors) of subclasses using
+        this hook.
         """
         pass
 

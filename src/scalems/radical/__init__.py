@@ -75,6 +75,7 @@ import os
 import pathlib
 import threading
 import typing
+import warnings
 import weakref
 
 from radical import pilot as rp
@@ -82,6 +83,7 @@ from radical import pilot as rp
 import scalems.execution
 import scalems.subprocess
 import scalems.workflow
+import scalems.utility as _utility
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import MissingImplementationError
@@ -90,7 +92,7 @@ from scalems.exceptions import ScaleMSError
 from scalems.execution import AbstractWorkflowUpdater
 from scalems.execution import RuntimeManager
 from .runtime import _configuration
-from .runtime import _connect_rp
+from .runtime import _get_scheduler
 from .runtime import _set_configuration
 from .runtime import Configuration
 from .runtime import get_pre_exec
@@ -659,6 +661,7 @@ def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
             item.set_result(fut.result())
 
 
+# TODO: Move to `runtime` submodule.
 class RPDispatchingExecutor(RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 
@@ -749,11 +752,164 @@ class RPDispatchingExecutor(RuntimeManager):
             _configuration.reset(token)
 
     async def runtime_startup(self) -> asyncio.Task:
+        """Establish the RP Session.
+
+        Acquire a maximally re-usable set of RP resources. The scope established by
+        this function is as broad as it can be within the life of the workflow manager.
+
+        Once *instance.runtime_startup()* succeeds, *instance.runtime_shutdown()*
+        must be called to clean up resources.
+        Use the async context manager behavior of the instance to
+        automatically follow this protocol. I.e. instead of calling
+        ``instance._connect_rp(); ...; instance._disconnect_rp()``,
+        use::
+
+            async with instance:
+                ...
+
+        Raises
+        ------
+        DispatchError
+            if task dispatching could not be set up.
+        asyncio.CancelledError
+            if parent `asyncio.Task` is cancelled while executing.
+
+        """
         config: Configuration = configuration()
 
         # TODO: Check that we have a FileStore.
 
-        self.runtime = await _connect_rp(config)
+        # We try to wrap rp UI calls in separate threads. Note, though, that
+        #   * The rp.Session needs to be created in the root thread to be able to correctly
+        #     manage signal handlers and subprocesses, and
+        #   * We need to be able to schedule RP Task callbacks in the same process as the
+        #     asyncio event loop in order to handle Futures for RP tasks.
+        # See https://github.com/SCALE-MS/randowtal/issues/2
+
+        # TODO: RP triggers SIGINT in various failure modes.
+        #  We should use loop.add_signal_handler() to convert to an exception
+        #  that we can raise in an appropriate task. However, we should make sure that we
+        #  account for the signal handling that RP expects to be able to do.
+        #  See https://github.com/SCALE-MS/randowtal/issues/1
+        # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
+        # but we have not fully explored the consequences of doing so.
+
+        to_thread = _utility.get_to_thread()
+        try:
+            #
+            # Start the Session.
+            #
+
+            # Note that we cannot resolve the full _resource config until we have a Session
+            # object.
+            # We cannot get the default session config until after creating the Session,
+            # so we don't have a template for allowed, required, or default values.
+            # Question: does the provided *cfg* need to be complete? Or will it be merged
+            # with default values from some internal definition, such as by dict.update()?
+            # I don't remember what the use cases are for overriding the default session
+            # config.
+            session_config = None
+            # At some point soon, we need to track Session ID for the workflow metadata.
+            # We may also want Session ID to be deterministic (or to be re-used?).
+            session_id = None
+
+            # Note: the current implementation implies that only one Task for the dispatcher
+            # will exist at a time. We are further assuming that there will probably only
+            # be one Task per the lifetime of the dispatcher object.
+            # We could choose another approach and change our assumptions, if appropriate.
+            logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
+
+            # Note: radical.pilot.Session creation causes several deprecation warnings.
+            # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+            with warnings.catch_warnings():
+                warnings.simplefilter('ignore', category=DeprecationWarning)
+                # This would be a good time to `await`, if an event-loop friendly
+                # Session creation function becomes available.
+                session_args = dict(uid=session_id, cfg=session_config)
+                _task = asyncio.create_task(to_thread(rp.Session, (), **session_args),
+                                            name='create-Session')
+                session = await _task
+                _runtime = Runtime(session=session)
+                # runtime = Runtime(session=rp.Session(uid=session_id, cfg=session_config))
+            session_id = _runtime.session.uid
+            # Do we want to log this somewhere?
+            # session_config = copy.deepcopy(self.session.cfg.as_dict())
+            logger.debug('RP dispatcher acquired session {}'.format(session_id))
+
+            # We can launch an initial Pilot, but we may have to run further Pilots
+            # during self._queue_runner_task (or while servicing scalems.wait() within the
+            # with block) to handle dynamic work load requirements.
+            # Optionally, we could refrain from launching the pilot here, at all,
+            # but it seems like a good chance to start bootstrapping the agent environment.
+            logger.debug('Launching PilotManager.')
+            pilot_manager = await asyncio.create_task(
+                to_thread(rp.PilotManager, session=_runtime.session),
+                name='get-PilotManager'
+            )
+            logger.debug('Got PilotManager {}.'.format(pilot_manager.uid))
+            _runtime.pilot_manager(pilot_manager)
+
+            logger.debug('Launching TaskManager.')
+            task_manager = await asyncio.create_task(
+                to_thread(rp.TaskManager, session=_runtime.session),
+                name='get-TaskManager'
+            )
+            logger.debug(('Got TaskManager {}'.format(task_manager.uid)))
+            _runtime.task_manager(task_manager)
+
+            #
+            # Get a Pilot
+            #
+
+            pilot_description = {}
+            pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
+            pilot_description.update({'resource': config.execution_target})
+
+            # TODO: Pilot venv (#90, #94).
+            # Currently, Pilot venv must be specified in the JSON file for resource
+            # definitions.
+            pilot_description = rp.PilotDescription(pilot_description)
+
+            # How and when should we update pilot description?
+            logger.debug('Submitting PilotDescription {}'.format(repr(
+                pilot_description)))
+            pilot = await asyncio.create_task(
+                to_thread(pilot_manager.submit_pilots, pilot_description),
+                name='submit_pilots'
+            )
+            logger.debug('Got Pilot {}'.format(pilot.uid))
+            _runtime.pilot(pilot)
+
+            await asyncio.create_task(
+                to_thread(task_manager.add_pilots, pilot),
+                name='add_pilots'
+            )
+            logger.debug('Added Pilot {} to task manager {}.'.format(
+                pilot.uid,
+                task_manager.uid))
+
+            #
+            # Get a scheduler task.
+            #
+
+            assert _runtime.scheduler is None
+            _runtime.scheduler = await asyncio.create_task(
+                _get_scheduler(
+                    pre_exec=list(get_pre_exec(config)),
+                    task_manager=task_manager,
+                    filestore=config.datastore,
+                    scalems_env=config.target_venv,
+                ),
+                name='get-scheduler'
+            )
+            # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
+        except asyncio.CancelledError as e:
+            raise e
+        except Exception as e:
+            logger.exception('Exception while connecting RADICAL Pilot.', exc_info=e)
+            raise DispatchError('Failed to launch SCALE-MS master task.') from e
+
+        self.runtime = _runtime
 
         if self.runtime is None or self.runtime.session.closed:
             raise ProtocolError('Cannot process queue without a RP Session.')
@@ -772,15 +928,24 @@ class RPDispatchingExecutor(RuntimeManager):
         #  the global state changes (i.e. ContextVars and locks).
         return runner_task
 
-    def runtime_shutdown(self, runtime: Runtime):
-        session = getattr(runtime, 'session', None)
+    @staticmethod
+    def runtime_shutdown(runtime: Runtime):
+        """Manage tear down of the RADICAL Pilot Session and resources.
+
+        Several aspects of the RP runtime interface use blocking calls.
+        This method should be run in a non-root thread (concurrent.futures.Future)
+        that the event loop can manage as an asyncio-wrapped task.
+
+        Overrides :py:class:`scalems.execution.RuntimeManager`
+        """
+        session: rp.Session = getattr(runtime, 'session', None)
         if session is None or session.closed:
             logger.error('Runtime Session is already closed?!')
         else:
-            # Cancel the master.
-            logger.debug('Canceling the master scheduling task.')
-            task_manager = runtime.task_manager()
             if runtime.scheduler is not None:
+                # Cancel the master.
+                logger.debug('Canceling the master scheduling task.')
+                task_manager = runtime.task_manager()
                 task_manager.cancel_tasks(uids=runtime.scheduler.uid)
                 # Cancel blocks until the task is done so the following wait is
                 # (currently) redundant, but there is a ticket open to change this
@@ -789,20 +954,35 @@ class RPDispatchingExecutor(RuntimeManager):
                 runtime.scheduler.wait(state=rp.FINAL)
                 logger.debug('Master scheduling task complete.')
 
-            # TODO: We may have multiple pilots.
-            # TODO: Check for errors?
-            logger.debug('Canceling Pilot.')
-            runtime.pilot().cancel()
-            logger.debug('Pilot canceled.')
-            runtime.task_manager().close()
-            logger.debug('TaskManager closed.')
-            runtime.pilot_manager().close()
-            logger.debug('PilotManager closed.')
+            # Note: there are no documented exceptions or errors to check for,
+            # programmatically. Some issues encountered during shutdown will be
+            # reported through the reporter or logger of the
+            # radical.pilot.utils.component.Component base.
+            # The RP convention seems to be to use the component uid as the name
+            # of the underlying logging.Logger node, so we could presumably attach
+            # a log handler to the logger for a component of interest.
+
+            # BUG: Pilot.cancel() is not guaranteed to complete.
+            # logger.debug('Canceling Pilot.')
+            # runtime.pilot().cancel()
+            # PilotManager.cancel_pilots() supports a *_timeout* argument.
+            # I'm not sure what a reasonable amount of time to wait would be,
+            # how to detect that the timeout was reached, or what to do
+            # differently if the timeout is reached.
+            # Also, it appears sufficient to pass *terminate=True* to PilotManager.close().
+            # runtime.pilot_manager().cancel_pilots(_timeout=5.0)
+            # logger.debug('Pilot(s) canceled.')
+            _task_manager = runtime.task_manager()
+            _task_manager.close()
+            logger.debug(f'TaskManager {_task_manager.uid} closed.')
+            _pilot_manager = runtime.pilot_manager()
+            _pilot_manager.close(terminate=True)
+            logger.debug(f'PilotManager {_pilot_manager.uid} closed.')
             session.close()
             if session.closed:
-                logger.debug('Session closed.')
+                logger.debug(f'Session {session.uid} closed.')
             else:
-                logger.error('Session not closed!')
+                logger.error(f'Session {session.uid} not closed!')
         logger.debug('Runtime shut down.')
 
     def updater(self) -> 'WorkflowUpdater':

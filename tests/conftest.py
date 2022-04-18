@@ -377,24 +377,7 @@ def rp_runtime(pilot_description) -> Runtime:
     try:
         yield runtime
     finally:
-        scheduler: rp.Task = runtime.scheduler
-        if scheduler is not None:
-            if isinstance(scheduler, rp.Task):
-                if scheduler.state not in rp.FINAL:
-                    scheduler.cancel()
-            else:
-                logger.error('Expect runtime.schedule to be a Task or None. '
-                             f'Found {repr(scheduler)}')
-        pilot = runtime.pilot()
-        if pilot is not None:
-            pilot.cancel()
-        task_manager = runtime.task_manager()
-        if task_manager is not None:
-            task_manager.close()
-        pilot_manager = runtime.pilot_manager()
-        if pilot_manager is not None:
-            pilot_manager.close()
-        runtime.session.close()
+        scalems.radical.RPDispatchingExecutor.runtime_shutdown(runtime)
     assert runtime.session.closed
 
 

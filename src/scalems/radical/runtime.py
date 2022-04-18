@@ -47,7 +47,6 @@ import logging
 import os
 import tempfile
 import typing
-import warnings
 
 from radical import pilot as rp
 
@@ -369,9 +368,11 @@ async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) ->
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0
-    task_metadata.update(worker_description(worker_file=None, worker_class=None,
-                                            cpu_processes=cores_per_worker, gpu_processes=gpus_per_worker,
-                                            named_env=named_env))
+    task_metadata.update(
+        worker_description(
+            cpu_processes=cores_per_worker,
+            gpu_processes=gpus_per_worker,
+            named_env=named_env))
 
     # TODO: Add additional dependencies that we can infer from the workflow.
     versioned_modules = (
@@ -403,7 +404,8 @@ async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) ->
 
 async def _get_scheduler(pre_exec: typing.Iterable[str],
                          task_manager: rp.TaskManager,
-                         filestore: FileStore):
+                         filestore: FileStore,
+                         scalems_env: str):
     """Establish the radical.pilot.raptor.Master task.
 
     Create a master rp.Task (running the scalems_rp_master script) with the
@@ -446,7 +448,8 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     # asyncio.get_running_loop().slow_callback_duration = 0.5
     config_file = await asyncio.create_task(
         _master_input(filestore,
-                      pre_exec=list(pre_exec)),
+                      pre_exec=list(pre_exec),
+                      named_env=scalems_env),
         name='get-master-input'
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
@@ -504,164 +507,6 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
         raise DispatchError(
             f'Master Task unexpectedly reached {scheduler.state} during launch.')
     return scheduler
-
-
-async def _connect_rp(config: Configuration) -> Runtime:
-    """Establish the RP Session.
-
-    Acquire a maximally re-usable set of RP resources. The scope established by
-    this function is as broad as it can be within the life of the workflow manager.
-
-    Once *instance._connect_rp()* succeeds, *instance._disconnect_rp()* must be called to
-    clean up resources. Use the async context manager behavior of the instance to
-    automatically follow this protocol. I.e. instead of calling
-    ``instance._connect_rp(); ...; instance._disconnect_rp()``,
-    use::
-
-        async with instance:
-            ...
-
-    Raises
-    ------
-    DispatchError
-        if task dispatching could not be set up.
-    asyncio.CancelledError
-        if parent `asyncio.Task` is cancelled while executing.
-
-    """
-    # TODO: Consider inlining this function into its caller.
-
-    # We try to wrap rp UI calls in separate threads. Note, though, that
-    #   * The rp.Session needs to be created in the root thread to be able to correctly
-    #     manage signal handlers and subprocesses, and
-    #   * We need to be able to schedule RP Task callbacks in the same process as the
-    #     asyncio event loop in order to handle Futures for RP tasks.
-    # See https://github.com/SCALE-MS/randowtal/issues/2
-
-    # TODO: RP triggers SIGINT in various failure modes.
-    #  We should use loop.add_signal_handler() to convert to an exception
-    #  that we can raise in an appropriate task. However, we should make sure that we
-    #  account for the signal handling that RP expects to be able to do.
-    #  See https://github.com/SCALE-MS/randowtal/issues/1
-    # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
-    # but we have not fully explored the consequences of doing so.
-
-    to_thread = _utility.get_to_thread()
-    try:
-        #
-        # Start the Session.
-        #
-
-        # Note that we cannot resolve the full _resource config until we have a Session
-        # object.
-        # We cannot get the default session config until after creating the Session,
-        # so we don't have a template for allowed, required, or default values.
-        # Question: does the provided *cfg* need to be complete? Or will it be merged
-        # with default values from some internal definition, such as by dict.update()?
-        # I don't remember what the use cases are for overriding the default session
-        # config.
-        session_config = None
-        # At some point soon, we need to track Session ID for the workflow metadata.
-        # We may also want Session ID to be deterministic (or to be re-used?).
-        session_id = None
-
-        # Note: the current implementation implies that only one Task for the dispatcher
-        # will exist at a time. We are further assuming that there will probably only
-        # be one Task per the lifetime of the dispatcher object.
-        # We could choose another approach and change our assumptions, if appropriate.
-        logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
-
-        # Note: radical.pilot.Session creation causes several deprecation warnings.
-        # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-        with warnings.catch_warnings():
-            warnings.simplefilter('ignore', category=DeprecationWarning)
-            # This would be a good time to `await`, if an event-loop friendly
-            # Session creation function becomes available.
-            session_args = dict(uid=session_id, cfg=session_config)
-            _task = asyncio.create_task(to_thread(rp.Session, (), **session_args),
-                                        name='create-Session')
-            session = await _task
-            runtime = Runtime(session=session)
-            # runtime = Runtime(session=rp.Session(uid=session_id, cfg=session_config))
-        session_id = runtime.session.uid
-        # Do we want to log this somewhere?
-        # session_config = copy.deepcopy(self.session.cfg.as_dict())
-        logger.debug('RP dispatcher acquired session {}'.format(session_id))
-
-        # We can launch an initial Pilot, but we may have to run further Pilots
-        # during self._queue_runner_task (or while servicing scalems.wait() within the
-        # with block) to handle dynamic work load requirements.
-        # Optionally, we could refrain from launching the pilot here, at all,
-        # but it seems like a good chance to start bootstrapping the agent environment.
-        logger.debug('Launching PilotManager.')
-        pilot_manager = await asyncio.create_task(
-            to_thread(rp.PilotManager, session=runtime.session),
-            name='get-PilotManager'
-        )
-        logger.debug('Got PilotManager {}.'.format(pilot_manager.uid))
-        runtime.pilot_manager(pilot_manager)
-
-        logger.debug('Launching TaskManager.')
-        task_manager = await asyncio.create_task(
-            to_thread(rp.TaskManager, session=runtime.session),
-            name='get-TaskManager'
-        )
-        logger.debug(('Got TaskManager {}'.format(task_manager.uid)))
-        runtime.task_manager(task_manager)
-
-        #
-        # Get a Pilot
-        #
-
-        pilot_description = {}
-        pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
-        pilot_description.update({'resource': config.execution_target})
-
-        # TODO: Pilot venv (#90, #94).
-        # Currently, Pilot venv must be specified in the JSON file for resource
-        # definitions.
-        pilot_description = rp.PilotDescription(pilot_description)
-
-        # How and when should we update pilot description?
-        logger.debug('Submitting PilotDescription {}'.format(repr(
-            pilot_description)))
-        pilot = await asyncio.create_task(
-            to_thread(pilot_manager.submit_pilots, pilot_description),
-            name='submit_pilots'
-        )
-        logger.debug('Got Pilot {}'.format(pilot.uid))
-        runtime.pilot(pilot)
-
-        await asyncio.create_task(
-            to_thread(task_manager.add_pilots, pilot),
-            name='add_pilots'
-        )
-        logger.debug('Added Pilot {} to task manager {}.'.format(
-            pilot.uid,
-            task_manager.uid))
-
-        #
-        # Get a scheduler task.
-        #
-
-        assert runtime.scheduler is None
-        runtime.scheduler = await asyncio.create_task(
-            _get_scheduler(
-                pre_exec=list(get_pre_exec(config)),
-                task_manager=task_manager,
-                filestore=config.datastore),
-            name='get-scheduler'
-        )
-
-        # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
-
-        return runtime
-
-    except asyncio.CancelledError as e:
-        raise e
-    except Exception as e:
-        logger.exception('Exception while connecting RADICAL Pilot.', exc_info=e)
-        raise DispatchError('Failed to launch SCALE-MS master task.') from e
 
 
 # functools can't cache this function while Configuration is unhashable (due to

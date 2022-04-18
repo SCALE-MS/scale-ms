@@ -190,34 +190,32 @@ class RaptorWorkerConfig(typing.TypedDict):
     count: typing.Optional[int]
 
 
-def worker_description(*, named_env: str, worker_class: str, worker_file: str, cpu_processes: int,
-                       gpu_processes: int):
+def worker_description(*,
+                       named_env: str,
+                       cpu_processes: int,
+                       gpu_processes: int,
+                       ):
     """Get a worker description for Master.submit_workers().
+
+    scalems does not use a custom Worker class for
+    :py:meth:`~radical.pilot.raptor.Master.submit_workers()`.
+    Instead, a custom dispatching function is injected into the
+    Worker environment for dispatching scalems tasks.
 
     Keyword Args
     ------------
-    named_env : str
+    named_env : str, optional
         Python virtual environment known to the Pilot agent.
         Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`
-    worker_class : str
-        The string name of a :py:class:`radical.pilot.raptor.Worker` subclass
-        to be imported from *worker_file*.
-    worker_file : str
-        The path (str) to Python module (importable in the target environment) from which
-        *worker_class* may be imported to launch a Worker task.
-    cpu_processes : int
+    cpu_processes : int, optional
         See `radical.pilot.TaskDescription.cpu_processes`
-    gpu_processes : int
+    gpu_processes : int, optional
         See `radical.pilot.TaskDescription.gpu_processes`
-
-    TODO
-    ----
-    Can we skip the *worker_file* and *worker_class* and just inject a dispatching hook?
     """
     descr = {
         'named_env': named_env,
-        'worker_class': worker_class,
-        'worker_file': worker_file,
+        'worker_class': None,
+        'worker_file': None,
         'cpu_processes': cpu_processes,
         'gpu_processes': gpu_processes
     }

@@ -186,7 +186,11 @@ class ScaleMSMaster(rp.raptor.Master):
                 raise SoftwareCompatibilityError(
                     f'{module} version not compatible with {version}.'
                 )
-        super(ScaleMSMaster, self).__init__()
+        kwargs = {}
+        rp_version = packaging.version.parse(rp.version_short)
+        if rp_version < packaging.version.Version('1.15'):
+            kwargs['cfg'] = {}
+        super(ScaleMSMaster, self).__init__(**kwargs)
 
     def result_cb(self, requests: typing.Sequence[rp.TaskDescription]):
         """SCALE-MS specific handling of tasks completed by the collaborating Worker(s).

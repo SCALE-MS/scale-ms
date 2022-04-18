@@ -181,7 +181,9 @@ class Configuration:
 class Runtime:
     """Container for scalems.radical runtime state data.
 
-    TODO: Consider merging with `scalems.radical.runtime.Configuration`
+    TODO: Consider either merging with `scalems.radical.runtime.Configuration` or
+        explicitly encapsulating the responsibilities of `RPDispatchingExecutor.runtime_startup()`
+        and `RPDispatchingExecutor.runtime_shutdown()`.
 
     See Also:
         :py:attr:`scalems.radical.runtime.RPDispatchingExecutor.runtime`

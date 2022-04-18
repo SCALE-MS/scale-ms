@@ -171,19 +171,6 @@ Support for module authors
 Extra scalems.radical details
 -----------------------------
 
-.. autoclass:: scalems.radical.Configuration
-
-.. autoclass:: scalems.radical.RPDispatchingExecutor
-    :members: __init__, runtime, runtime_configuration, runtime_startup, runtime_shutdown, updater
-
-.. autofunction:: scalems.radical.configuration
-
-.. autofunction:: scalems.radical.rp_task
-
-.. autofunction:: scalems.radical.submit
-
-.. autofunction:: scalems.radical.scalems_callback
-
 scalems.radical.common
 ~~~~~~~~~~~~~~~~~~~~~~
 .. automodule:: scalems.radical.common
@@ -192,9 +179,27 @@ scalems.radical.common
 scalems.radical.runtime support module
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
+.. autofunction:: scalems.radical.configuration
+
 .. automodule:: scalems.radical.runtime
+
+.. autofunction:: scalems.radical.runtime.configuration
+
+.. autofunction:: scalems.radical.runtime.executor_factory
+
+.. autoclass:: scalems.radical.runtime.RPDispatchingExecutor
+    :members: __init__, runtime, runtime_configuration, runtime_startup, runtime_shutdown, updater
+
+.. autoclass:: scalems.radical.runtime.Configuration
     :members:
 
-.. uml:: diagrams/radical/raptor_protocol_sequence.puml
+.. autoclass:: scalems.radical.runtime.Runtime
+    :members:
 
-.. autofunction:: scalems.radical.runtime._connect_rp
+.. autofunction:: scalems.radical.runtime.rp_task
+
+.. autofunction:: scalems.radical.runtime.scalems_callback
+
+.. autofunction:: scalems.radical.runtime.submit
+
+.. uml:: diagrams/radical/raptor_protocol_sequence.puml

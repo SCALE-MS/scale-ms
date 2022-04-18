@@ -10,6 +10,7 @@ variable to 1."
 Note: Enable more radical.pilot debugging information by exporting
 RADICAL_LOG_LVL=DEBUG before invocation.
 """
+import scalems.radical.runtime
 
 try:
     # Import radical.pilot early because of interaction with the built-in logging module.
@@ -35,7 +36,7 @@ import pytest
 import scalems.radical
 from scalems.context import cwd_lock
 from scalems.context import scoped_chdir
-from scalems.radical import Runtime
+from scalems.radical.runtime import Runtime
 
 logger = logging.getLogger('pytest_config')
 logger.setLevel(logging.DEBUG)
@@ -280,7 +281,7 @@ def _new_session():
 
 def _new_runtime():
     session = _new_session()
-    runtime = scalems.radical.Runtime(session)
+    runtime = Runtime(session)
     return runtime
 
 
@@ -377,7 +378,7 @@ def rp_runtime(pilot_description) -> Runtime:
     try:
         yield runtime
     finally:
-        scalems.radical.RPDispatchingExecutor.runtime_shutdown(runtime)
+        scalems.radical.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
     assert runtime.session.closed
 
 

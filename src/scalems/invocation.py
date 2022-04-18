@@ -7,6 +7,31 @@ The base command line parser is provided by :py:func:`scalems.utility.parser`,
 extended (optionally) by the :ref:`backend`, and further extended by
 :py:func:`scalems.invocation.run`. Get usage for a particular backend with
 reference to the particular module.
+
+Workflow Manager
+----------------
+
+Managed workflows are dispatched to custom execution back-ends through
+:py:func:`run`, which accepts a WorkflowManager creation function (or class
+definition object) as its argument. Most of the customization hooks are
+provided through the implementing module. I.e. the *manager_type* argument
+has its ``__module__`` attribute queried to get the implementing *module*.
+
+Required Attributes
+~~~~~~~~~~~~~~~~~~~
+parser:
+    `argparse.ArgumentParser` for the execution module. For correct composition,
+    see `scalems.utility.make_parser()`.
+
+Optional Attributes
+~~~~~~~~~~~~~~~~~~~
+logger:
+    `logging.Logger` instance to use for the invocation.
+configuration:
+    A callable to initialize and retrieve the current module configuration.
+    If present in *module*, ``module.configuration`` is called with the
+    known args from the module's *parser*.
+
 """
 
 import asyncio
@@ -74,6 +99,9 @@ def run(manager_type: _ManagerT,  # noqa: C901
 
         python -m scalems.radical --venv=/path/to/venv --resource=local.localhost myscript.py arg1 --foo bar
 
+    See `scalems.invocation` module documentation for details about the expected *manage_type* module
+    interface.
+
     Unrecognized command line arguments will be passed along to the called script.
     """
     safe = _reentrance_guard.acquire(blocking=False)
@@ -93,6 +121,7 @@ def run(manager_type: _ManagerT,  # noqa: C901
 
         if args.pycharm:
             try:
+                # noinspection PyUnresolvedReferences
                 import pydevd_pycharm
                 pydevd_pycharm.settrace('host.docker.internal', port=12345, stdoutToServer=True, stderrToServer=True)
             except ImportError:
@@ -116,11 +145,9 @@ def run(manager_type: _ManagerT,  # noqa: C901
             logging.getLogger('scalems').addHandler(character_stream)
         logger = getattr(module, 'logger')
 
-        configure_module = getattr(module, '_set_configuration', None)
+        configure_module = getattr(module, 'configuration', None)
         if configure_module is not None:
-            configure_module(args)
-        if hasattr(module, 'configuration'):
-            config = module.configuration()
+            config = configure_module(args)
             logger.debug(f'Configuration: {config}')
 
         sys.argv = [args.script] + script_args

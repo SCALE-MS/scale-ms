@@ -26,12 +26,17 @@ def test_check_module_version():
 def test_master():
     """Test the details needed to launch the master script.
 
-    We can't actually create a raptor.Master easily, but we can check its bits and pieces.
+    WARNING: This test is incomplete. We can't actually create a raptor.Master easily,
+    but we can check its bits and pieces. This test mostly checks function signatures
+    and data structures. It does not produce a functioning Raptor configuration, or
+    even an actual RP Session!
     """
 
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0
+    # Note that the Worker launch has unspecified results if the `named_env`
+    # does not exist and is not scheduled to be created with `prepare_env`.
     _worker_description = worker_description(
         named_env='scalems_test_ve',
         cpu_processes=cores_per_worker,

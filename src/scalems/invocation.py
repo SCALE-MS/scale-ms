@@ -12,22 +12,37 @@ Workflow Manager
 ----------------
 
 Managed workflows are dispatched to custom execution back-ends through
-:py:func:`run`, which accepts a WorkflowManager creation function (or class
-definition object) as its argument. Most of the customization hooks are
-provided through the implementing module. I.e. the *manager_type* argument
-has its ``__module__`` attribute queried to get the implementing *module*.
+:py:func:`run`, which accepts a WorkflowManager creation function as its argument.
+Most of the customization hooks are provided through the implementing module.
+I.e. the *manager_factory* argument has its ``__module__`` attribute queried
+to get the implementing *module*.
+
+.. py:currentmodule:: <module>
 
 Required Attributes
 ~~~~~~~~~~~~~~~~~~~
-parser:
+Execution back-end modules (modules providing a *manager_factory*) *MUST* provide
+the following module attribute(s).
+
+.. py:attribute:: parser
+    :noindex:
+
     `argparse.ArgumentParser` for the execution module. For correct composition,
     see `scalems.utility.make_parser()`.
 
 Optional Attributes
 ~~~~~~~~~~~~~~~~~~~
-logger:
+Execution back-end modules (modules providing a *manager_factory*) *MAY* provide
+the following module attribute(s) for hooks in `run()`
+
+.. py:attribute:: logger
+    :noindex:
+
     `logging.Logger` instance to use for the invocation.
-configuration:
+
+.. py:attribute:: configuration
+    :noindex:
+
     A callable to initialize and retrieve the current module configuration.
     If present in *module*, ``module.configuration`` is called with the
     known args from the module's *parser*.
@@ -89,7 +104,7 @@ class _ManagerT(typing.Protocol):
         ...
 
 
-def run(manager_type: _ManagerT,  # noqa: C901
+def run(manager_factory: _ManagerT,  # noqa: C901
         _loop: asyncio.AbstractEventLoop = None):
     """Execute boiler plate for scalems entry point scripts.
 
@@ -99,7 +114,7 @@ def run(manager_type: _ManagerT,  # noqa: C901
 
         python -m scalems.radical --venv=/path/to/venv --resource=local.localhost myscript.py arg1 --foo bar
 
-    See `scalems.invocation` module documentation for details about the expected *manage_type* module
+    See `scalems.invocation` module documentation for details about the expected *manager_factory* module
     interface.
 
     Unrecognized command line arguments will be passed along to the called script.
@@ -108,7 +123,7 @@ def run(manager_type: _ManagerT,  # noqa: C901
     if not safe:
         raise RuntimeError('scalems launcher is not reentrant.')
     try:
-        module = sys.modules[manager_type.__module__]
+        module = sys.modules[manager_factory.__module__]
 
         parser = getattr(module, 'parser', None)
         if parser is None:
@@ -173,7 +188,7 @@ def run(manager_type: _ManagerT,  # noqa: C901
         exitcode = 0
 
         try:
-            with scalems.workflow.scope(manager_type(loop)) as manager:
+            with scalems.workflow.scope(manager_factory(loop)) as manager:
                 try:
                     globals_namespace = runpy.run_path(args.script)
 

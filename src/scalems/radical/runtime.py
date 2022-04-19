@@ -167,7 +167,8 @@ class Configuration:
         * :py:data:`scalems.radical.runtime.parser`
         * :py:class:`scalems.radical.runtime.Runtime`
 
-    TODO: Consider merging with module Runtime state container.
+    .. todo:: Consider merging with module Runtime state container.
+
     """
     # Note that the use cases for this dataclass interact with module ContextVars,
     # pending refinement.
@@ -181,7 +182,7 @@ class Configuration:
 class Runtime:
     """Container for scalems.radical runtime state data.
 
-    TODO: Consider either merging with `scalems.radical.runtime.Configuration` or
+    .. todo:: Consider either merging with `scalems.radical.runtime.Configuration` or
         explicitly encapsulating the responsibilities of `RPDispatchingExecutor.runtime_startup()`
         and `RPDispatchingExecutor.runtime_shutdown()`.
 
@@ -317,15 +318,11 @@ class Runtime:
     def pilot(self, pilot=None) -> typing.Union[rp.Pilot, None]:
         """Get (optionally set) the current Pilot.
 
-        Args
-        ----
-        pilot : radical.pilot.Pilot, str, None
-            Set to RP Pilot instance or identifier, if provided.
+        Args:
+            pilot (radical.pilot.Pilot, str, None): Set to RP Pilot instance or identifier, if provided.
 
-        Returns
-        -------
-        radical.pilot.Pilot
-            instance
+        Returns:
+            radical.pilot.Pilot: instance, if set, else ``None``
         """
         if pilot is None:
             return self._pilot
@@ -605,8 +602,7 @@ def _(namespace: argparse.Namespace) -> Configuration:
 class RPDispatchingExecutor(RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 
-    Configuration points:
-
+    Configuration points
     * resource config
     * pilot config
     * session config?
@@ -657,8 +653,7 @@ class RPDispatchingExecutor(RuntimeManager):
             which Context state is restored! Moreover, the Configuration object is not
             currently hashable and does not have an equality test defined.
 
-        TODO:
-            Reconsider this logic.
+        .. todo:: Reconsider this logic.
 
         Design notes:
             Do we want two-way interaction between module
@@ -707,12 +702,9 @@ class RPDispatchingExecutor(RuntimeManager):
             async with instance:
                 ...
 
-        Raises
-        ------
-        DispatchError
-            if task dispatching could not be set up.
-        asyncio.CancelledError
-            if parent `asyncio.Task` is cancelled while executing.
+        Raises:
+            DispatchError: if task dispatching could not be set up.
+            asyncio.CancelledError: if parent `asyncio.Task` is cancelled while executing.
 
         """
         config: Configuration = configuration()
@@ -1025,7 +1017,7 @@ def _rp_callback(obj: rp.Task,
                  final: RPFinalTaskState = None):
     """Prototype for RP.Task callback.
 
-    To use, partially bind the *final* parameter (with functools.partial) to get a
+    To use, partially bind the *final* parameter (with `functools.partial`) to get a
     callable with the RP.Task callback signature.
 
     Register with *task* to be called when the rp.Task state changes.
@@ -1070,7 +1062,7 @@ async def _rp_task_watcher(task: rp.Task,  # noqa: C901
         task: RADICAL Pilot Task, submitted by caller.
         final: thread-safe event handler for the RP task call-back to announce it has run.
         ready: output parameter, set when coroutine has run enough to perform its
-        responsibilities.
+            responsibilities.
 
     Returns:
         *task* in its final state.
@@ -1363,13 +1355,13 @@ async def submit(*,
     Args:
         item: The workflow item to be submitted
         task_manager: A `radical.pilot.TaskManager` instance
-                      through which the task should be submitted.
+            through which the task should be submitted.
         pre_exec: :py:data:`radical.pilot.Task.pre_exec` prototype.
         scheduler (str): The string name of the "scheduler," corresponding to
-                         the UID of a Task running a rp.raptor.Master.
+            the UID of a Task running a rp.raptor.Master.
 
     Returns:
-         asyncio.Task: a "Future[rp.Task]" for a rp.Task in its final state.
+        asyncio.Task: a "Future[rp.Task]" for a rp.Task in its final state.
 
     The caller *must* await the result of the coroutine to obtain an asyncio.Task that
     can be cancelled or awaited as a proxy to direct RP task management. The Task will
@@ -1430,8 +1422,9 @@ def scalems_callback(fut: asyncio.Future, *, item: scalems.workflow.Task):
 
     Partially bind *item* to use this as the argument to *fut.add_done_callback()*.
 
-    Warning: in the long run, we should not extend the life of the reference returned
-    by edit_item, and we need to consider the robust way to publish item results.
+    Warning:
+        In the long run, we should not extend the life of the reference returned
+        by edit_item, and we need to consider the robust way to publish item results.
 
     Note:
         This is not currently RP-specific and we should look at how best to factor

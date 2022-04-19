@@ -127,23 +127,23 @@ The executor may locally manage dependencies to optimize execution and data plac
 
 .. uml:: diagrams/runtime_deferred_sequence.puml
 
-Python package support
+Python package details
 ======================
 
-Dispatching
------------
+scalems.dispatching
+-------------------
 
 .. automodule:: scalems.dispatching
     :members:
 
-Execution
----------
+scalems.execution
+-----------------
 
 .. automodule:: scalems.execution
     :members:
 
-Workflow
---------
+scalems.workflow
+----------------
 
 .. automodule:: scalems.workflow
     :members:
@@ -158,32 +158,49 @@ Built-in Execution Modules include `scalems.radical` and `scalems.local`
 For command line usage, an `backend` should support interaction with the
 `scalems.invocation` module.
 
-Support for module authors
-~~~~~~~~~~~~~~~~~~~~~~~~~~
+Support for execution module authors: :py:mod:`scalems.invocation`
+==================================================================
 
 .. automodule:: scalems.invocation
-    :members:
+
+A module provides an execution backend with an entry point that calls
+`scalems.invocation.run`, providing an appropriate factory function.
+For example, in the `scalems.local` module,
+:file:`scalems/local/__main__.py` contains::
+
+    if __name__ == '__main__':
+        sys.exit(scalems.invocation.run(scalems.local.workflow_manager))
+
+:py:func:`scalems.local.workflow_manager` composes a `scalems.workflow.WorkflowManager`
+with an appropriate *executor_factory* and other details for the `scalems.local`
+execution backend.
+
+.. autofunction:: scalems.invocation.run
+
+utilities
+---------
+
+Execution module authors should also be aware of the following utilities.
 
 .. autofunction:: scalems.utility.parser
 
 .. autofunction:: scalems.utility.make_parser
 
 Extra scalems.radical details
------------------------------
+=============================
+
+.. autofunction:: scalems.radical.configuration
 
 scalems.radical.common
-~~~~~~~~~~~~~~~~~~~~~~
+----------------------
+
 .. automodule:: scalems.radical.common
     :members:
 
 scalems.radical.runtime support module
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-.. autofunction:: scalems.radical.configuration
+--------------------------------------
 
 .. automodule:: scalems.radical.runtime
-
-.. autofunction:: scalems.radical.runtime.configuration
 
 .. autofunction:: scalems.radical.runtime.executor_factory
 

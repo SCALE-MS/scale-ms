@@ -172,15 +172,11 @@ def worker_description(*,
     Instead, a custom dispatching function is injected into the
     Worker environment for dispatching scalems tasks.
 
-    Keyword Args
-    ------------
-    named_env : str, optional
-        Python virtual environment known to the Pilot agent.
-        Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`
-    cpu_processes : int, optional
-        See `radical.pilot.TaskDescription.cpu_processes`
-    gpu_processes : int, optional
-        See `radical.pilot.TaskDescription.gpu_processes`
+    Keyword Args:
+        named_env (str, optional): Python virtual environment known to the Pilot agent.
+            Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`
+        cpu_processes (int, optional): See `radical.pilot.TaskDescription.cpu_processes`
+        gpu_processes (int, optional): See `radical.pilot.TaskDescription.gpu_processes`
     """
     descr = {
         'named_env': named_env,

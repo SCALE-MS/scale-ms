@@ -306,16 +306,17 @@ class WorkflowManager:
     client code should use `with` blocks for scoped initialization and
     *shutdown* of Executor roles.
 
-    TODO: Enforce centralization of Context instantiation for the interpreter process.
+    .. todo:: Enforce centralization of Context instantiation for the interpreter process.
 
-    For instance:
-        * Implement a root context singleton and require acquisition of new Context
-          handles through methods in this module.
-        * Use abstract base class machinery to register Context implementations.
-        * Require Context instances to track their parent Context, or otherwise
-          participate in a single tree structure.
-        * Prevent instantiation of Command references without a reference to a Context
-          instance.
+    For instance,
+
+    * Implement a root context singleton and require acquisition of new Context
+      handles through methods in this module.
+    * Use abstract base class machinery to register Context implementations.
+    * Require Context instances to track their parent Context, or otherwise
+      participate in a single tree structure.
+    * Prevent instantiation of Command references without a reference to a Context
+      instance.
 
     TODO:
         In addition to adding callbacks to futures, allow subscriptions to workflow
@@ -387,7 +388,8 @@ class WorkflowManager:
         Args:
             loop: event loop, such as from asyncio.new_event_loop()
             executor_factory: Implementation-specific callable to get a run time work
-            manager.
+                manager.
+            directory: Filesystem path for the workflow file store.
         """
         # We are moving towards a composed rather than a derived WorkflowManager Context.
         # Note that we can require the super().__init__() to be called in derived classes,

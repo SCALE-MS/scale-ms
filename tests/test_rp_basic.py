@@ -30,7 +30,8 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
     if (pilot_description.access_schema and pilot_description.access_schema == 'local') \
-            or pilot_description.resource.startswith('local'):
+            or 'local' in pilot_description.resource \
+            or pilot_description.resource == 'docker.login':
         pytest.skip('This test is only for remote execution.')
 
     tmgr = rp_task_manager

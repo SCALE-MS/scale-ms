@@ -46,14 +46,10 @@ As of RP 1.14, the protocol is as follows.
 
 .. todo:: Master config input.
     What fields are required in the *cfg* input? What optional fields are allowed?
-
-.. todo:: Worker description input.
-    What fields are required in the *descr* Mapping passed to Master.submit_workers()? What optional fields are there?
 """
 
 __all__ = (
     'RaptorWorkerConfig',
-    'RaptorWorkCallable',
     'worker_description'
 )
 
@@ -95,35 +91,15 @@ Request object that will be made available to :py:func:`~radical.pilot.raptor.Ma
 **TODO: Is this still correct?**
 """
 
-RaptorExecutor = typing.Callable[[typing.Mapping], typing.Any]
-"""Function or method dispatched for raptor worker 'call' mode.
-
-Constraints on the return type are not strongly specified.
-Presumably, they must be :py:mod:`msgpack` serializable.
-"""
-
-RaptorWorkData = typing.TypeVar('RaptorWorkData')
-"""Argument type for a Raptor task dispatching function.
-
-This is the type of the *data* positional argument constructed for
-the callable registered for a raptor task "mode".
-
-Constraints on the data type are not yet well-defined.
-Presumably, the object must be "Munch"-able.
-"""
-
-
-class RaptorWorkCallable(typing.Protocol[RaptorWorkData]):
-    def __call__(self, data: RaptorWorkData) -> RaptorReturnType:
-        ...
-
 
 class _RaptorTaskDescription(typing.Protocol):
-    """Note the distinctions of a TaskDescription to processed by a raptor.Master.
+    """Describe a Task to be executed through a Raptor Worker.
 
-    The single element of *arguments* is a JSON-encoded object that will be
-    deserialized (RaptorWorkDescription) as the prototype for the dictionary used to
-    instantiate the Request.
+    A specialization of `radical.pilot.TaskDescription`.
+
+    Note the distinctions of a TaskDescription to processed by a raptor.Master.
+
+    The meaning or utility of some fields is dependent on the values of other fields.
     """
     uid: str
     """Unique identifier for the Task across the Session."""
@@ -135,10 +111,21 @@ class _RaptorTaskDescription(typing.Protocol):
     """The UID of the raptor.Master scheduler task."""
 
     mode: str
-    """The executor mode for the Worker to use."""
+    """The executor mode for the Worker to use.
+    
+    For ``call`` mode, either *function* or *method* must name a task executor.
+    Depending on the Worker (sub)class, resources such as an `mpi4py.MPI.Comm`
+    will be provided as the first positional argument to the executor.
+    ``*args`` and ``**kwargs`` will be provided to the executor from the corresponding
+    fields.
+    """
 
     function: str
-    """For 'call' mode, a callable (discoverable in the Worker task interpreter namespace) for dispatching."""
+    """For 'call' mode, a callable for dispatching.
+    
+    The callable can either be a function object present in the namespace of the interpreter launched 
+    by the Worker for the task, or a `radical.pilot.pytask` pickled function object.
+    """
 
     method: str
     """For 'call' mode, a member function of the Worker for dispatching."""
@@ -150,42 +137,25 @@ class _RaptorTaskDescription(typing.Protocol):
     """For 'call' mode, a dictionary of key word arguments to provide to the executor method or function."""
 
 
-# TODO: The worker is now submitted via Master.submit_workers(), and the *descr* argument
-#     has an updated schema.
-# class _RaptorWorkerTaskDescription(typing.TypedDict):
-#     """rp.TaskDescription for Scalems raptor.Worker tasks.
-#
-#     Note that this is just a rp.TaskDescription.
-#     """
-#     uid: str  # Unique identifier for the Task across the Session.
-#     executable: str  # scalems_rp_worker script.
-#     scheduler: str  # The UID of the raptor.Master scheduler task.
-#     arguments: typing.Sequence[str]  # Processed by raptor.Master._receive_tasks
-#     pre_exec: typing.List[str]
-#     # Other rp.TaskDescription fields are available, but unused.
-#     # pre_launch: typing.List[str]
-#     # pre_rank: typing.Mapping[int, typing.List[str]]
-#     # post_exec: typing.List[str]
-#     # post_launch: typing.List[str]
-#     # post_rank: typing.Mapping[int, typing.List[str]]
-#
-#
-# class RaptorWorkerTaskDescription(_RaptorWorkerTaskDescription, rp.TaskDescription):
-#     def __init__(self, *args, from_dict=None, **kwargs):
-#         if from_dict is None:
-#             from_dict = dict(*args, **kwargs)
-#         else:
-#             if len(args) or len(kwargs):
-#                 raise TypeError('Use only one of the dict signature or the '
-#                                 'TaskDescription signature.')
-#         rp.TaskDescription.__init__(self, from_dict=from_dict)
-
-
 _RaptorWorkerTaskDescription = typing.NewType('_RaptorWorkerTaskDescription', dict)
+"""Structured data for the raptor worker description.
+
+Represent the *descr* parameter of :py:func:`radical.pilot.raptor.Master.submit_workers`,
+pending further documentation.
+
+.. todo:: Worker description input.
+    What fields are required in the *descr* Mapping passed to Master.submit_workers()?
+    What optional fields are allowed, and what do they mean?
+
+"""
 
 
 class RaptorWorkerConfig(typing.TypedDict):
-    """Signature of the rp.raptor.Master.submit_workers()"""
+    """Container for the raptor worker parameters.
+
+    Expanded with the ``**`` operator, serves as the arguments to
+    :py:func:`radical.pilot.raptor.Master.submit_workers`
+    """
     descr: _RaptorWorkerTaskDescription
     count: typing.Optional[int]
 

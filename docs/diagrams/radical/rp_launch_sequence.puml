@@ -45,38 +45,48 @@ client_executor -> RuntimeManager: ~__aenter__()
 RuntimeManager -> client_executor: runtime_configuration()
 RuntimeManager -> client_executor: runtime_startup()
 
-client_executor -> scalems.radical: connect_rp()
+client_executor -> : rp.Session()
+return
+client_executor -> client_runtime **
+activate client_runtime
+client_executor -> : rp.PilotManager()
+return
+client_executor -> client_runtime: pilot_manager()
+return
+client_executor -> : rp.TaskManager()
+return
+client_executor -> client_runtime: task_manager()
+return
+client_executor -> : pilot_manager.submit_pilots()
+return
+client_executor -> client_runtime: pilot()
 note left
 We currently require a pre-existing Pilot venv.
 TODO: Should we prepare_env it instead?
 Should Master task use the same named env?
 end note
-scalems.radical -> client_runtime **
-scalems.radical -> client_runtime: pilot_manager()
-return
-scalems.radical -> client_runtime: task_manager()
-return
-scalems.radical -> client_runtime: pilot()
 return
 
-scalems.radical -> scalems.radical: get_scheduler()
-scalems.radical -> scalems.radical: master_input()
-scalems.radical -> scalems.radical: worker_description()
+client_executor -> client_executor: get_scheduler()
+client_executor -> client_executor: master_input()
+client_executor -> client_executor: worker_description()
 note left
 TODO: Make sure the Worker's env gets created!!!
 end note
 return
 return Master input
-scalems.radical -> scalems.radical: launch Master Task
+client_executor -> client_executor: launch Master Task
+client_executor -> : task_manager.submit()
+return
 note left
 Master cfg is staged with TaskDescription.
 end note
 return Master Task
 return
 
-scalems.radical -> client_runtime: set scheduler
+client_executor -> client_runtime: set scheduler
 return
-return runtime
+
 client_executor -> scalems.execution **: create_task(manage_execution)
 client_executor -> scalems.execution: await runner_started
 RuntimeManager <-- client_executor: set runner_task
@@ -97,7 +107,30 @@ RuntimeManager <-- scalems.execution
 deactivate RuntimeManager
 RuntimeManager -> client_executor: runtime_shutdown()
 
-'TODO: Describe the RP runtime shutdown.
+client_runtime <- client_executor
+return session
+client_runtime <- client_executor
+return scheduler
+group Cancel Master task [if scheduler is not None]
+client_runtime <- client_executor
+return task_manager
+client_executor -> : task_manager.cancel_tasks()
+return
+client_runtime <- client_executor
+return scheduler
+client_executor -> : runtime.scheduler.wait()
+return
+end
+client_runtime <- client_executor
+return task_manager
+client_executor -> : task_manager.close()
+return
+client_runtime <- client_executor
+return pilot_manager
+client_executor -> : pilot_manager.close(terminate=True)
+return
+client_executor -> : session.close()
+return
 
 client_executor -> client_runtime !!
 deactivate client_executor
@@ -105,9 +138,9 @@ deactivate RuntimeManager
 
 client_workflowmanager <-- client_executor: leave executor context
 scalems.Runtime <-- client_workflowmanager: end dispatching context
-scalems.Runtime --> scalems.Runtime: asyncio.Loop.run_until_complete()
+scalems.Runtime --> scalems.Runtime: loop.run_until_complete()
 deactivate client_workflowmanager
-scalems.Runtime --> scalems.radical: 0 or SystemExit.code
+scalems.Runtime --> scalems.radical: SystemExit.code
 deactivate scalems.Runtime
 <-- scalems.radical: sys.exit
 @enduml

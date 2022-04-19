@@ -2,11 +2,11 @@
 
 Client:
     The client should be reasonably certain that the target environment has a
-    compatible installation of RP and scalems. A rp.raptor.Master task script and a
-    rp.raptor.Worker task script are installed with the scalems package. Their names
-    are returned by the module functions ``master_script()`` and ``worker_script()``,
-    and they should be resolvable on the PATH for a Python interpreter process in an
-    environment that has the scalems package installed.
+    compatible installation of RP and scalems. A rp.raptor.Master task script is
+    installed with the scalems package. The script name is provide by the
+    module function :py:func:`~scalems.radical.raptor.master_script()`, and will
+    be resolvable on the PATH for a Python interpreter process in an
+    environment that has the `scalems` package installed.
 
 """
 import argparse
@@ -162,7 +162,7 @@ class SoftwareCompatibilityError(RuntimeError):
 
 
 def check_module_version(module: str, minimum_version: str):
-    """Get version metadata for importable module an check that it is at least version."""
+    """Get version metadata for importable module and check that it is at least version."""
     try:
         found_version = importlib.metadata.version(module)
     except importlib.metadata.PackageNotFoundError:

@@ -112,7 +112,7 @@ class _RaptorTaskDescription(typing.Protocol):
 
     mode: str
     """The executor mode for the Worker to use.
-    
+
     For ``call`` mode, either *function* or *method* must name a task executor.
     Depending on the Worker (sub)class, resources such as an `mpi4py.MPI.Comm`
     will be provided as the first positional argument to the executor.
@@ -122,8 +122,8 @@ class _RaptorTaskDescription(typing.Protocol):
 
     function: str
     """For 'call' mode, a callable for dispatching.
-    
-    The callable can either be a function object present in the namespace of the interpreter launched 
+
+    The callable can either be a function object present in the namespace of the interpreter launched
     by the Worker for the task, or a `radical.pilot.pytask` pickled function object.
     """
 

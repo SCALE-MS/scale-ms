@@ -95,8 +95,8 @@ def make_parser(module: str, parents: typing.Iterable[argparse.ArgumentParser] =
     :py:class:`argparse.ArgumentParser`.
 
     Notes:
-        :py:data:`__package__` and :py:data:`__module__` are convenient aliases that a
-        client might use to provide the *module* argument.
+        :py:attr:`__package__` module attribute and :py:attr:`__module__` class or
+        function attribute are convenient for programmatically finding the *module* argument.
     """
     if parents is None:
         parents = [parser()]

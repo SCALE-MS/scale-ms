@@ -37,7 +37,7 @@
   },
   "tunnel": {
     "description": "Use a local ssh tunnel for an arbitrary compute host.",
-    "notes": "Assumes a tunnel has already been set up for password-less login to localhost:22222",
+    "notes": "Assumes a tunnel has already been set up for password-less login to rp@localhost:22222",
     "schemas": [
       "ssh"
     ],
@@ -58,7 +58,7 @@
         "MPIEXEC": {}
     },
     "rp_version": "local",
-    "virtenv_mode": "create",
+    "virtenv_mode": "update",
     "python_dist": "default",
     "cores_per_node": 4,
     "gpus_per_node": 0,

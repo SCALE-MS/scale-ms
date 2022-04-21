@@ -35,24 +35,16 @@ Locally prepared package distribution archives can be used, such as by staging w
     Refer to https://github.com/SCALE-MS/scale-ms/issues/141
     for the status of `scalems` support for automatic execution environment bootstrapping.
 
-Use ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP
-resource
-definition, and activate alternative Task venvs using ``pre_exec``. The user (or
-client) is
-then responsible for maintaining venv(s) with the correct RCT stack (matching the API
-used by the client-side RCT stack), the `scalems` package, and any dependencies of the
-workflow.
+Use ``virtenv_mode=update``, ``rp_version=local`` in the RP resource definition,
+and activate alternative Task venvs using ``named_env``.
+Otherwise (e.g. for ``virtenv_mode=use``), the user (or client) is
+responsible for maintaining venv(s) with the correct RCT stack (matching the API
+used by the client-side RCT stack).
 
-Upcoming RP features:
-
-    There is some work underway to place full venvs at run time, specifically to handle
-    use
-    cases in which it is important to run the Python stack from a local filesystem on an
-    HPC compute node. So far, this is limited to use of conda freeze.
-
-    Upcoming RP features will provide a mechanism for environment caching so that module
-    load, source ``$VENV/bin/activate``, etc. do not need to be repeated for every task.
-    However, the current mechanisms for optimal (static) venv usage are
+Tasks use a separately-provisioned virtual environment, if appropriate. For Python-based tasks,
+the `scalems` package takes responsibility for provisioning an appropriate virtual environment
+with itself and any dependencies of the workflow, unless :option:`--venv` is specified on the
+command line.
 
 See Also:
     * `scalems.dispatching`

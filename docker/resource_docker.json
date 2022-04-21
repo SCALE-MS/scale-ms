@@ -58,9 +58,8 @@
         "FORK": {},
         "MPIEXEC": {}
     },
-    "rp_version": "installed",
-    "virtenv_mode": "use",
-    "virtenv": "/home/rp/rp-venv",
+    "rp_version": "local",
+    "virtenv_mode": "update",
     "python_dist": "default",
     "cores_per_node": 4,
     "gpus_per_node": 0,

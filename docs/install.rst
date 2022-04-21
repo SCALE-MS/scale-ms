@@ -92,7 +92,7 @@ in your home directory **before launching** :py:mod:`scalems.radical`.
 Setting resource parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-https://radicalpilot.readthedocs.io/en/stable/machconf.html#writing-a-custom-resource-configuration-file.
+https://radicalpilot.readthedocs.io/en/stable/machconf.html#writing-a-custom-resource-configuration-file
 describes the user files for defining new resources or replacing built-in resource definitions.
 
 To override the default logic for a built-in resource definition,
@@ -108,18 +108,27 @@ To update parameters for ``local.localhost``::
     mkdir $HOME/.radical/pilot/configs/
     cp $VIRTUAL_ENV/lib/python3*/site-packages/radical/pilot/configs/resource_local.json $HOME/.radical/pilot/configs/
 
-Then edit the ``localhost`` JSON object in ``$HOME/.radical/pilot/configs/resource_local.json``.
+Then edit the ``localhost`` JSON object in :file:`$HOME/.radical/pilot/configs/resource_local.json`.
 
 More notes on Python virtual environments
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-RP recommends (but does not require) a completely static set of virtual environments.
-For simplicity and convenience, the built-in resource definitions have automatic
-environment bootstrapping logic.
+Pilot environment
+~~~~~~~~~~~~~~~~~
+
+The RADICAL Pilot remote software components are based in a Python virtual environment
+determined by parameters in the
+`resource <https://radicalpilot.readthedocs.io/en/stable/machconf.html>`__ definition.
+
+By default, RADICAL Pilot resources are configured to bootstrap the target environment
+by creating a fresh virtual environment. (``virtenv_mode=create`` and ``rp_version=local``
+in most `resource <https://radicalpilot.readthedocs.io/en/stable/machconf.html>`__ definitions.)
+``virtenv_mode=update`` is a better choice than ``create``, so that later sessions can re-use a previously bootstrapped pilot venv.
 
 To minimize the amount of bootstrapping RP performs for each :py:class:`~radical.pilot.Session`,
-make sure the `RP resource`_ is configured to *use* an existing *virtenv* and the
-RP installation it contains.
+you can set up a completely static set of virtual environments with customized resource definitions
+in :file:`$HOME/.radical/pilot/configs/`.
+Configure the `RP resource`_ to *use* an existing *virtenv* and the RP installation it contains.
 Set ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
 definition.
 
@@ -130,18 +139,36 @@ then responsible for maintaining venv(s) with the correct RCT stack (matching th
 used by the client-side RCT stack), the `scalems` package, and any dependencies of the
 workflow.
 
-.. note:: Environment management for RP Tasks is under active development.
+Task environment
+~~~~~~~~~~~~~~~~
 
-    As of RP 1.6.7, a traditional :py:class:`~radical.pilot.Task` does not have explicitly Python-aware
-    environment preparation, though users are free to activate Task venvs using
-    :py:data:`~radical.pilot.TaskDescription.pre_exec`.
-    :py:mod:`radical.pilot.raptor`
-    `Workers <https://github.com/radical-cybertools/radical.pilot/blob/devel/src/radical/pilot/raptor/worker.py>`__
-    have some of the RP stack injected into their environment, in addition to allowing *pre_exec*.
+In addition to :py:attr:`~radical.pilot.TaskDescription.pre_exec`, TaskDescriptions have
+:py:attr:`~radical.pilot.TaskDescription.pre_launch`
+and :py:attr:`~radical.pilot.TaskDescription.pre_rank`
+hooks to set up the task environment.
+Note that, in addition to the attribute descriptions,
+there is additional discussion at the bottom of the
+:py:class:`~radical.pilot.TaskDescription` class documentation section.
 
-    These details are subject to rapid evolution for the foreseeable future.
+RADICAL Pilot now allows a :py:class:`~radical.pilot.Task` some explicitly Python-aware
+environment preparation, (though users are still free to activate Task venvs using
+:py:data:`~radical.pilot.TaskDescription.pre_exec`).
+TaskDescription may use :py:attr:`~radical.pilot.TaskDescription.named_env` to identify
+a virtual environment to be activated for the Task.
+The virtual environment may be an existing virtual environment, or a new environment,
+scheduled for creation with :py:func:`~radical.pilot.Pilot.prepare_env`.
 
-    See also https://github.com/radical-cybertools/radical.pilot/pull/2312
+In addition to supporting :py:attr:`~radical.pilot.TaskDescription.named_env` and the
+other task environment hooks,
+:py:class:`~radical.pilot.raptor.Master` and :py:class:`~radical.pilot.raptor.Worker`
+tasks have some of the RP stack injected into their environment.
+Raptor tasks launched through a Worker are executed in new processes
+that are launched by the Worker through various mechanisms, depending
+on the task requirements (various possible launch methods), including
+possibly being forked from the Worker interpreter process.
+:py:mod:`scalems.radical` dispatches (most) tasks through
+raptor "call" mode, so it constructs and uses a venv for the Worker,
+but **must** not specify ``named_env`` for work load tasks.
 
 Additional notes
 ----------------

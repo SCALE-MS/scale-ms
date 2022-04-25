@@ -118,11 +118,12 @@ RUN mkdir /tmp/scalems_dev
 
 #RUN ~rp/rp-venv/bin/python -m pip install \
 #    --no-cache-dir --no-build-isolation --upgrade 'radical.saga==1.6.6' 'radical.utils==1.6.6'
-#ARG RPREF="project/scalems"
+#ARG RPREF="devel"
 #RUN . ~rp/rp-venv/bin/activate && \
 #    pip install --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@${RPREF}#egg=radical.pilot"
-RUN ~rp/rp-venv/bin/python -m pip install \
-    --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@scalems/stable#egg=radical.pilot"
+#RUN ~rp/rp-venv/bin/python -m pip install \
+#    --no-cache-dir --no-build-isolation --upgrade "git+https://github.com/radical-cybertools/radical.pilot.git@scalems/stable#egg=radical.pilot"
+RUN ~rp/rp-venv/bin/python -m pip install 'radical.pilot<1.15'
 
 # WARNING!!! Security risk!
 # Allow rp user to trivially ssh into containers created from this image.

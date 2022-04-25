@@ -69,7 +69,6 @@ try:
 except (ImportError, TypeError):
     warnings.warn('RADICAL Pilot installation not found.')
 
-
     def pytask(func):
         return func
 
@@ -152,7 +151,7 @@ class TaskDictionary(typing.TypedDict):
     """
     uid: str
     """Canonical identifier for the Task.
-    
+
     Note that *uid* may be omitted from the original TaskDescription.
     """
 
@@ -192,7 +191,7 @@ class RaptorWorkerConfig(typing.TypedDict):
     """
     descr: dict
     """Worker description.
-    
+
     Fields:
         named_env (str): venv for the Worker task.
         worker_class (str): raptor concrete Worker class to base the Worker task on, built-in or custom.

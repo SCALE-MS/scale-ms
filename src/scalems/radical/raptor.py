@@ -15,6 +15,10 @@ import functools
 import importlib
 import importlib.metadata
 import json
+# We import rp before `logging` to avoid warnings when rp monkey-patches the
+# logging module. This `try` suite helps prevent auto-code-formatters from
+# rearranging the import order of built-in versus third-party modules.
+import logging
 import os
 import typing
 from importlib.machinery import ModuleSpec
@@ -24,10 +28,7 @@ import packaging.version
 
 from .common import RaptorWorkerConfig
 from .common import rp
-# We import rp before `logging` to avoid warnings when rp monkey-patches the
-# logging module. This `try` suite helps prevent auto-code-formatters from
-# rearranging the import order of built-in versus third-party modules.
-import logging
+from .common import TaskDictionary
 
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
@@ -41,31 +42,9 @@ except AttributeError:
 api_name = 'scalems_v0'
 """Key for dispatching raptor Requests.
 
-Provided to `rp.raptor.Worker.register_mode()`, this module constant can provide some
-compatibility checking when receiving requests.
+We can use this to identify the schema used for SCALE-MS tasks encoded in
+arguments to raptor *call* mode executor functions.
 """
-
-
-# As of RP 1.14, tasks destined for raptor Workers have new schema and requirements.
-# TODO: document/check schema for raptor tasks (mode-dependent required and optional fields)
-# class ScaleMSTaskDescription(typing.TypedDict):
-#     """SCALE-MS specialization of extra raptor task info.
-#
-#     This structure is serialized into the TaskDescription.arguments[0] of a rp.Task
-#     submitted with a *scheduler* set to a ``scalems_rp_master`` Task uid.
-#
-#     When deserialized, the object is treated as the prototype for a _RequestInput.
-#
-#     The mapping is assumed to contain keys *mode*, *data*, and *timeout*
-#     when it becomes incorporated into a new Request object (as the core
-#     data member) after Master.request_cb(). Optionally, it may contain
-#     *cores* and *gpus*.
-#     """
-#     mode: str
-#     data: typing.Any
-#     timeout: typing.SupportsFloat
-#     cores: typing.Optional[int]
-#     gpus: typing.Optional[int]
 
 
 EncodableAsDict = typing.Mapping[str, 'Encodable']
@@ -192,22 +171,21 @@ class ScaleMSMaster(rp.raptor.Master):
             kwargs['cfg'] = {}
         super(ScaleMSMaster, self).__init__(**kwargs)
 
-    def result_cb(self, requests: typing.Sequence[rp.TaskDescription]):
+    def result_cb(self, tasks: typing.Sequence[TaskDictionary]):
         """SCALE-MS specific handling of tasks completed by the collaborating Worker(s).
 
-        .. todo:: Clarify TaskDescription fields that are unique to raptor tasks, and the details of the
-            result tuple.
+        Notes:
+            The RP task dictionary described is for the MPIWorker in RP 1.14. It will be
+            normalized in a future RP release.
         """
-        for r in requests:
-            logger.info('result_cb %s: %s [%s]' % (r.uid, r.state, r.result))
+        for r in tasks:
+            logger.info('result_cb %s: %s [%s]' % (r['uid'], r['state'], str(r['val'])))
 
     def request_cb(
             self,
-            requests: typing.Sequence[rp.TaskDescription]
-    ) -> typing.Sequence[rp.TaskDescription]:
+            tasks: typing.Sequence[TaskDictionary]
+    ) -> typing.Sequence[TaskDictionary]:
         """Allows all incoming requests to be processed by the Master.
-
-        Request is a (dictionary? rp.TaskDescription instance?)... (additional keys?)
 
         Note that Tasks may not be processed in the same order in which they are submitted
         by the client.
@@ -224,11 +202,7 @@ class ScaleMSMaster(rp.raptor.Master):
         It is the developer's responsibility to choose unique task IDs (uid) when crafting
         items for Master.request().
         """
-        # for req_input in requests:
-        #     request = Request(req=req_input)
-        #     # possibly
-        #     self.request(request)
-        return requests
+        return tasks
 
 
 parser = argparse.ArgumentParser()
@@ -264,54 +238,20 @@ def master():
     _master.join()
     _master.stop()
 
-# TODO: Inject just a scalems dispatching function, pickled into a radical.pilot.PythonTask.pythontask
-# class ScaleMSWorker(rp.raptor.DefaultWorker):
-#     try:
-#         from scalems.radical.raptor import api_name as _sms_api_name
-#     except ImportError:
-#         _sms_api_name = None
-#
-#     # TODO: Confirm that signature satisfies the expected signature of *executor* in Worker.register_mode()
-#     def handle_request(self: rp.raptor.Worker, data: dict) -> RaptorReturnType:
-#         # We assume this handler is called by virtue of having been registered for the
-#         # *mode* named from *scalems.radical.raptor.api_name* as a bound method of a
-#         # rp.raptor.Worker subclass.
-#         # We can attempt to deserialize *data* to a registered scalems request type and
-#         # dispatch to the handler for that type.
-#         # Check api version field against self._sms_api_name
-#         ...
-#
-#
-# def worker():
-#     """Manage the life of a Worker instance.
-#
-#     Launched as a task submitted with the worker_descr provided to the corresponding
-#     Master script.
-#     The framework generates a local file, passed as the first argument to the script,
-#     which is processed by the raptor.Worker base class for initialization.
-#
-#     The Worker instance created here will receive Requests as dictionaries
-#     on a queue processed with Worker._request_cb, which then passes requests
-#     to Worker._dispatch functions in forked interpreters.
-#
-#     Worker._dispatch handles requests according to the *mode* field of the request.
-#
-#     RP 1.14+
-#     --------
-#     In RP 1.14+, we will use the rp.TASK_FUNCTION *mode* to direct the launching of
-#     the callable named in the *function* field. The *args* and *kwargs* fields
-#     provide the parameters to the callable.
-#     """
-#     if not os.environ['RP_TASK_ID']:
-#         raise RuntimeError('Raptor Worker must be launched by RP executor.')
-#
-#     # Master generates a file to be appended to the argument list.
-#     #
-#     cfg = None
-#     if len(sys.argv) > 1:
-#         cfg = sys.argv[1]
-#
-#     worker = ScaleMSWorker(cfg=cfg)
-#     worker.start()
-#     time.sleep(5)
-#     worker.join()
+
+def dispatch(*args, comm=None, **kwargs):
+    """Unpack and run a task requested through RP Raptor.
+
+    To be implemented in resolution of #108.
+
+    Args:
+        *args: list of positional arguments from *args* in the TaskDescription.
+
+    Keyword Args:
+        comm (mpi4py.MPI.Comm, optional): MPI communicator to be used for the task.
+        **kwargs: dictionary of keyword arguments from *kwargs* in the TaskDescription.
+
+    See Also:
+        `scalems.radical.common.scalems_dispatch()`
+    """
+    ...

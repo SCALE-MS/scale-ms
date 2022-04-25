@@ -50,6 +50,7 @@ As of RP 1.14, the protocol is as follows.
 
 __all__ = (
     'RaptorWorkerConfig',
+    'TaskDictionary',
     'worker_description'
 )
 
@@ -59,10 +60,18 @@ import warnings
 try:
     import radical.pilot as rp
     from packaging.version import parse as parse_version
+
     if parse_version(rp.version) < parse_version('1.14') or not hasattr(rp, 'TASK_FUNCTION'):
         warnings.warn('RADICAL Pilot version 1.14 or newer is required.')
+    from radical.pilot import PythonTask
+
+    pytask = PythonTask.pythontask
 except (ImportError, TypeError):
     warnings.warn('RADICAL Pilot installation not found.')
+
+
+    def pytask(func):
+        return func
 
 # We import rp before `logging` to avoid warnings when rp monkey-patches the
 # logging module. This `try` suite helps prevent auto-code-formatters from
@@ -72,27 +81,23 @@ import logging
 logger = logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
-RaptorReturnType = typing.Tuple[
-    typing.Union[None, typing.Text],
-    typing.Union[None, typing.Text],
-    typing.Union[None, typing.SupportsInt],
-    typing.Any
-]
-"""Raptor worker task return values are interpreted as a tuple (out, err, ret, value).
 
-The first two elements are cast to output and error strings, respectively.
+@pytask
+def scalems_dispatch(*args, **kwargs):
+    """SCALE-MS executor for Worker *call* mode.
 
-The third is cast to an integer return code.
+    Use this (pickled) function as the *function* value in a
+    `radical.pilot.TaskDescription` for raptor-mediated dispatching
+    with `scalems`.
 
-The fourth is a return value of arbitrary type.
-
-Results of the function call are added as the *val* field of the *result* dictionary member of the
-Request object that will be made available to :py:func:`~radical.pilot.raptor.Master.result_cb()`.
-**TODO: Is this still correct?**
-"""
+    See Also:
+        `scalems.radical.raptor.dispatch()`
+    """
+    from scalems.radical.raptor import dispatch
+    return dispatch(*args, **kwargs)
 
 
-class _RaptorTaskDescription(typing.Protocol):
+class _RaptorTaskDescription(typing.TypedDict):
     """Describe a Task to be executed through a Raptor Worker.
 
     A specialization of `radical.pilot.TaskDescription`.
@@ -104,7 +109,7 @@ class _RaptorTaskDescription(typing.Protocol):
     uid: str
     """Unique identifier for the Task across the Session."""
 
-    executable: typing.ClassVar[str] = 'scalems'
+    executable: str
     """Unused by Raptor tasks."""
 
     scheduler: str
@@ -137,33 +142,75 @@ class _RaptorTaskDescription(typing.Protocol):
     """For 'call' mode, a dictionary of key word arguments to provide to the executor method or function."""
 
 
-_RaptorWorkerTaskDescription = typing.NewType('_RaptorWorkerTaskDescription', dict)
-"""Structured data for the raptor worker description.
+class TaskDictionary(typing.TypedDict):
+    """Task representations seen by *request_cb* and *result_cb*.
 
-Represent the *descr* parameter of :py:func:`radical.pilot.raptor.Master.submit_workers`,
-pending further documentation.
+    Other fields may be present, but the objects in the sequences provided to
+    :py:meth:`scalems.radical.raptor.ScaleMSMaster.request_cb()` and
+    :py:meth:`scalems.radical.raptor.ScaleMSMaster.result_cb()` have the following fields.
+    Result fields will not be populated until the Task runs.
+    """
+    uid: str
+    """Canonical identifier for the Task.
+    
+    Note that *uid* may be omitted from the original TaskDescription.
+    """
 
-.. todo:: Worker description input.
-    What fields are required in the *descr* Mapping passed to Master.submit_workers()?
-    What optional fields are allowed, and what do they mean?
+    description: _RaptorTaskDescription
+    """Encoding of the original task description."""
 
-"""
+    out: str
+    """Task standard output."""
+
+    err: str
+    """Task standard error."""
+
+    ret: int
+    """Function return code."""
+
+    val: typing.Any
+    """Function return value."""
+
+    exc: typing.Tuple[str, str]
+    """Exception type name and message."""
+
+    state: str
+    """RADICAL Pilot Task state."""
 
 
 class RaptorWorkerConfig(typing.TypedDict):
     """Container for the raptor worker parameters.
 
     Expanded with the ``**`` operator, serves as the arguments to
-    :py:func:`radical.pilot.raptor.Master.submit_workers`
+    :py:meth:`radical.pilot.raptor.Master.submit_workers`
+
+    The *descr* member represents the *descr* parameter of
+    :py:meth:`~radical.pilot.raptor.Master.submit_workers()`,
+    pending further documentation.
+
+    Create with `worker_description()`.
     """
-    descr: _RaptorWorkerTaskDescription
+    descr: dict
+    """Worker description.
+    
+    Fields:
+        named_env (str): venv for the Worker task.
+        worker_class (str): raptor concrete Worker class to base the Worker task on, built-in or custom.
+        worker_file (str, optional): module from which to import *worker_class*.
+
+    See Also:
+        :py:meth:`~radical.pilot.raptor.Master.submit_workers()`
+    """
+
     count: typing.Optional[int]
+    """Number of workers to launch."""
 
 
 def worker_description(*,
+                       uid: str,
                        named_env: str,
-                       cpu_processes: int,
-                       gpu_processes: int,
+                       cpu_processes: int = None,
+                       gpu_processes: int = None,
                        ):
     """Get a worker description for Master.submit_workers().
 
@@ -173,14 +220,16 @@ def worker_description(*,
     Worker environment for dispatching scalems tasks.
 
     Keyword Args:
-        named_env (str, optional): Python virtual environment known to the Pilot agent.
-            Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`
         cpu_processes (int, optional): See `radical.pilot.TaskDescription.cpu_processes`
         gpu_processes (int, optional): See `radical.pilot.TaskDescription.gpu_processes`
+        named_env (str): Python virtual environment known to the Pilot agent.
+            Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`.
+        uid (str): Identifier for the worker task.
     """
     descr = {
+        'uid': uid,
         'named_env': named_env,
-        'worker_class': None,
+        'worker_class': 'MPIWorker',
         'worker_file': None,
         'cpu_processes': cpu_processes,
         'gpu_processes': gpu_processes

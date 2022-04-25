@@ -368,26 +368,24 @@ async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) ->
             filestore.directory.exists():
         raise ValueError(f'{filestore} is not a usable FileStore.')
 
-    # Worker tasks may not appear unique, but must be uniquely identified within the
-    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
-    # information at this time, we can generate a random ID and track it in our metadata.
-    worker_identity = EphemeralIdentifier()
-    task_metadata = {
-        'uid': str(worker_identity),
-        'pre_exec': pre_exec
-    }
-    filestore.add_task(worker_identity, **task_metadata)
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
     # TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     num_workers = 1
     cores_per_worker = 1
     gpus_per_worker = 0
-    task_metadata.update(
-        worker_description(
-            cpu_processes=cores_per_worker,
-            gpu_processes=gpus_per_worker,
-            named_env=named_env))
+
+    # Worker tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    worker_identity = EphemeralIdentifier()
+    task_metadata = worker_description(
+        uid=str(worker_identity),
+        named_env=named_env,
+        cpu_processes=cores_per_worker,
+        gpu_processes=gpus_per_worker
+    )
+    filestore.add_task(worker_identity, **task_metadata)
 
     # TODO: Add additional dependencies that we can infer from the workflow.
     versioned_modules = (

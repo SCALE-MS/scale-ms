@@ -891,24 +891,8 @@ class RPDispatchingExecutor(RuntimeManager):
             # The RP convention seems to be to use the component uid as the name
             # of the underlying logging.Logger node, so we could presumably attach
             # a log handler to the logger for a component of interest.
-
-            # BUG: Pilot.cancel() is not guaranteed to complete.
-            # logger.debug('Canceling Pilot.')
-            # runtime.pilot().cancel()
-            # PilotManager.cancel_pilots() supports a *_timeout* argument.
-            # I'm not sure what a reasonable amount of time to wait would be,
-            # how to detect that the timeout was reached, or what to do
-            # differently if the timeout is reached.
-            # Also, it appears sufficient to pass *terminate=True* to PilotManager.close().
-            # runtime.pilot_manager().cancel_pilots(_timeout=5.0)
-            # logger.debug('Pilot(s) canceled.')
-            _task_manager = runtime.task_manager()
-            _task_manager.close()
-            logger.debug(f'TaskManager {_task_manager.uid} closed.')
-            _pilot_manager = runtime.pilot_manager()
-            _pilot_manager.close(terminate=True)
-            logger.debug(f'PilotManager {_pilot_manager.uid} closed.')
             session.close()
+
             if session.closed:
                 logger.debug(f'Session {session.uid} closed.')
             else:

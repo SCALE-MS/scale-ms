@@ -4,8 +4,6 @@ import os
 import typing
 import urllib.parse
 
-import pytest
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 

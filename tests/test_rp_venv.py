@@ -60,9 +60,10 @@ def test_prepare_venv(rp_task_manager, sdist):
     for name in sdist_names.keys():
         input_staging.append({
             'source': sdist_local_paths[name],
-            'target': sdist_session_paths[name],
+            'target': sdist_names[name],
             'action': rp.TRANSFER
         })
+    logger.debug(str(input_staging))
     pilot.stage_in(input_staging)
 
     tmgr = rp_task_manager

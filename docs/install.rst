@@ -123,6 +123,7 @@ determined by parameters in the
 By default, RADICAL Pilot resources are configured to bootstrap the target environment
 by creating a fresh virtual environment. (``virtenv_mode=create`` and ``rp_version=local``
 in most `resource <https://radicalpilot.readthedocs.io/en/stable/machconf.html>`__ definitions.)
+``virtenv_mode=update`` is a better choice than ``create``, so that later sessions can re-use a previously bootstrapped pilot venv.
 
 To minimize the amount of bootstrapping RP performs for each :py:class:`~radical.pilot.Session`,
 you can set up a completely static set of virtual environments with customized resource definitions
@@ -165,6 +166,9 @@ Raptor tasks launched through a Worker are executed in new processes
 that are launched by the Worker through various mechanisms, depending
 on the task requirements (various possible launch methods), including
 possibly being forked from the Worker interpreter process.
+:py:mod:`scalems.radical` dispatches (most) tasks through
+raptor "call" mode, so it constructs and uses a venv for the Worker,
+but **must** not specify ``named_env`` for work load tasks.
 
 Additional notes
 ----------------

@@ -1,4 +1,5 @@
 import json
+import uuid
 
 import packaging.version
 import pytest
@@ -37,7 +38,9 @@ def test_master():
     gpus_per_worker = 0
     # Note that the Worker launch has unspecified results if the `named_env`
     # does not exist and is not scheduled to be created with `prepare_env`.
+    _uid = uuid.uuid4()
     _worker_description = worker_description(
+        uid='scalems_worker.' + str(_uid),
         named_env='scalems_test_ve',
         cpu_processes=cores_per_worker,
         gpu_processes=gpus_per_worker,

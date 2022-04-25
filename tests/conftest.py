@@ -10,6 +10,7 @@ variable to 1."
 Note: Enable more radical.pilot debugging information by exporting
 RADICAL_LOG_LVL=DEBUG before invocation.
 """
+import scalems.radical.runtime
 
 try:
     # Import radical.pilot early because of interaction with the built-in logging module.
@@ -35,7 +36,7 @@ import pytest
 import scalems.radical
 from scalems.context import cwd_lock
 from scalems.context import scoped_chdir
-from scalems.radical import Runtime
+from scalems.radical.runtime import Runtime
 
 logger = logging.getLogger('pytest_config')
 logger.setLevel(logging.DEBUG)
@@ -280,7 +281,7 @@ def _new_session():
 
 def _new_runtime():
     session = _new_session()
-    runtime = scalems.radical.Runtime(session)
+    runtime = Runtime(session)
     return runtime
 
 
@@ -377,24 +378,7 @@ def rp_runtime(pilot_description) -> Runtime:
     try:
         yield runtime
     finally:
-        scheduler: rp.Task = runtime.scheduler
-        if scheduler is not None:
-            if isinstance(scheduler, rp.Task):
-                if scheduler.state not in rp.FINAL:
-                    scheduler.cancel()
-            else:
-                logger.error('Expect runtime.schedule to be a Task or None. '
-                             f'Found {repr(scheduler)}')
-        pilot = runtime.pilot()
-        if pilot is not None:
-            pilot.cancel()
-        task_manager = runtime.task_manager()
-        if task_manager is not None:
-            task_manager.close()
-        pilot_manager = runtime.pilot_manager()
-        if pilot_manager is not None:
-            pilot_manager.close()
-        runtime.session.close()
+        scalems.radical.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
     assert runtime.session.closed
 
 

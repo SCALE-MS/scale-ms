@@ -13,7 +13,7 @@ cat $pubkeyfile | ssh -p 2345 rp@127.0.0.1 bash -c "cat - >> ~/.ssh/authorized_k
 
 # Make sure the container host key is recognized.
 # Note: Periodic cleanup of localhost:2345 becomes necessary.
-# E.g. grep -v '\[localhost\]:2345' ~/.ssh/known_hosts.old > ~/.ssh/known_hosts && chmod 500 ~/.ssh/known_hosts
+# E.g. cp ~/.ssh/known_hosts ~/.ssh/known_hosts.old && grep -v '\[127.0.0.1\]:2345' ~/.ssh/known_hosts.old > ~/.ssh/known_hosts && chmod 700 ~/.ssh/known_hosts
 hostkey=$(ssh-keyscan -p 2345 127.0.0.1)
 grep -q "$hostkey" ~/.ssh/known_hosts || echo $hostkey >> ~/.ssh/known_hosts
 

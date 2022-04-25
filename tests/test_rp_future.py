@@ -39,7 +39,7 @@ async def test_rp_future(rp_task_manager):
     # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(td)
 
-    rp_future: asyncio.Future = await scalems.radical.rp_task(task)
+    rp_future: asyncio.Future = await scalems.radical.runtime.rp_task(task)
 
     task.cancel()
     try:
@@ -57,7 +57,7 @@ async def test_rp_future(rp_task_manager):
     # Test propagation of asyncio watcher task cancellation.
     task: rp.Task = tmgr.submit_tasks(td)
 
-    rp_future: asyncio.Task = await scalems.radical.rp_task(task)
+    rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
 
     assert isinstance(rp_future, asyncio.Task)
     rp_future.cancel()
@@ -80,7 +80,7 @@ async def test_rp_future(rp_task_manager):
     # Test run to completion
     task: rp.Task = tmgr.submit_tasks(td)
 
-    rp_future: asyncio.Task = await scalems.radical.rp_task(task)
+    rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
 
     timeout = 120
     try:

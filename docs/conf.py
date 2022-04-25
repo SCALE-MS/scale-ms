@@ -59,7 +59,8 @@ master_doc = 'index'
 intersphinx_mapping = {
     'https://docs.python.org/3/': None,
     'https://radicalpilot.readthedocs.io/en/stable/': None,
-    'https://radicalsaga.readthedocs.io/en/stable/': None
+    'https://radicalsaga.readthedocs.io/en/stable/': None,
+    'https://msgpack-python.readthedocs.io/en/latest/': None,
 }
 
 # -- Options for HTML output -------------------------------------------------
@@ -74,9 +75,20 @@ html_theme = 'sphinx_rtd_theme'
 # so a file named "default.css" will overwrite the builtin "default.css".
 # html_static_path = ['_static']
 
+# -- Options for autodoc -----------------------------------------------------
+# autodoc_mock_imports = ['radical']
+autodoc_type_aliases = {
+    'rp.Pilot': 'radical.pilot.Pilot',
+    'rp.Session': 'radical.pilot.Session',
+    'rp.PilotManager': 'radical.pilot.PilotManager',
+    'rp.TaskManager': 'radical.pilot.TaskManager',
+    'rp.Task': 'radical.pilot.Task',
+    'radical.pilot.pilot.Pilot': 'radical.pilot.Pilot',
+}
+
 # -- Options for Napoleon ----------------------------------------------------
 napoleon_google_docstring = True
-# napoleon_numpy_docstring = True
+napoleon_numpy_docstring = False
 napoleon_include_init_with_doc = True
 # napoleon_include_private_with_doc = False
 # napoleon_include_special_with_doc = False
@@ -87,7 +99,10 @@ napoleon_include_init_with_doc = True
 # napoleon_use_param = True
 # napoleon_use_rtype = True
 # napoleon_use_keyword = True
-# napoleon_custom_sections = None
+napoleon_custom_sections = [
+    'Design notes',
+    'Caveats'
+]
 
 # -- Options for plantuml extension ------------------------------------------
 

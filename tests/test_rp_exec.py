@@ -139,7 +139,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
         # Enter the async context manager for the default dispatcher
         cmd1 = scalems.executable(('/bin/echo',))
         async with manager.dispatch(params=params) as dispatcher:
-            assert isinstance(dispatcher, scalems.radical.RPDispatchingExecutor)
+            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f'exec_rp Session is {repr(dispatcher.runtime.session)}')
             cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
             # TODO: Clarify whether/how result() method should work in this scope.

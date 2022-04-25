@@ -6,7 +6,7 @@ import pytest
 import radical.pilot as rp
 
 from scalems.exceptions import APIError
-from scalems.radical import Runtime
+from scalems.radical.runtime import Runtime
 
 
 def test_runtime_normal_instance(rp_task_manager, pilot_description):

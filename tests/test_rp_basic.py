@@ -11,8 +11,15 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+def seems_local(pilot_description):
+    if (pilot_description.access_schema and pilot_description.access_schema == 'local') \
+            or 'local' in pilot_description.resource \
+            or pilot_description.resource == 'docker.login':
+        return True
+
+
 def test_rp_basic_task_local(rp_task_manager, pilot_description):
-    if pilot_description.access_schema and pilot_description.access_schema != 'local':
+    if not seems_local(pilot_description):
         pytest.skip('This test is only for local execution.')
 
     from radical.pilot import TaskDescription
@@ -29,8 +36,7 @@ def test_rp_basic_task_local(rp_task_manager, pilot_description):
 def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
-    if (pilot_description.access_schema and pilot_description.access_schema == 'local') \
-            or pilot_description.resource.startswith('local'):
+    if seems_local(pilot_description):
         pytest.skip('This test is only for remote execution.')
 
     tmgr = rp_task_manager

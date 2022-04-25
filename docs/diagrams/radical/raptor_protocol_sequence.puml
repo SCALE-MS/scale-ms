@@ -1,0 +1,160 @@
+@startuml
+title scalems to raptor interface
+
+'participant "workflow script" as script
+'box "SCALE-MS framework"
+'participant "SCALE-MS API" as scalems.Runtime
+'participant WorkflowManager as client_workflowmanager
+'participant Queuer
+'participant RuntimeManager
+'participant runner_task as scalems.execution
+'end box
+box "SCALE-MS RP adapter"
+participant scalems.radical
+participant Runtime as client_runtime
+participant Executor as client_executor
+end box
+
+box "RP client"
+participant TaskManager
+end box
+
+queue "Taskmanager\nScheduler and Input Queue" as Queue
+
+box "RP Agent"
+participant Scheduler
+end box
+
+queue "Master input queue" as master_queue
+
+box "scalems.radical.raptor.Master"
+participant ScalemsMaster
+participant rpt.Master
+'participant Master._request_cb
+'participant Master._request_cb
+'participant Master._result_cb
+'participant Master.result_cb
+end box
+
+queue "ZMQ Raptor work channel" as channel
+
+box "scalems.radical.raptor.Worker"
+participant rpt.Worker
+end box
+
+box "usermodule"
+participant usermodule
+end box
+
+box "target venv"
+end box
+
+-> scalems.radical: python -m scalems.radical ...
+activate scalems.radical
+
+== Launch runtime ==
+
+== Raptor workload handling ==
+
+client_executor -> TaskManager: submit(task_description)
+activate TaskManager
+
+note left
+ TaskDescription names a Master uid in *scheduler* field.
+ TaskDescription 1.11 serializes the RequestInput into TaskDescription.arguments[0].
+ TaskDescription 1.14 directly supports *mode* field and mode-dependent supporting fields.
+end note
+
+TaskManager -> Queue: task_description
+activate Queue
+deactivate TaskManager
+
+Scheduler -> Queue: accepts work
+activate Scheduler
+Scheduler <-- Queue: task dictionary
+deactivate Queue
+
+note over Scheduler
+Scheduler gets task from queue,
+observes `scheduler` field and routes to Master.
+end note
+
+Scheduler -> master_queue: task dictionary
+activate master_queue
+deactivate Scheduler
+
+rpt.Master -> master_queue: accept Task
+activate rpt.Master
+rpt.Master <-- master_queue: task_description
+deactivate master_queue
+
+rpt.Master -> rpt.Master: _request_cb(List[TaskDescription]))
+activate rpt.Master
+rpt.Master -> ScalemsMaster: request_cb(List[TaskDescription])
+activate ScalemsMaster
+
+alt optionally process or update requests
+ScalemsMaster -> ScalemsMaster: self.submit_tasks(TaskDescription)
+activate ScalemsMaster
+deactivate ScalemsMaster
+end
+
+rpt.Master <-- ScalemsMaster: optional[updated list]
+deactivate ScalemsMaster
+
+rpt.Master -> rpt.Master: self.submit_tasks(TaskDescription))
+activate rpt.Master
+deactivate rpt.Master
+rpt.Master -> channel: send message
+activate channel
+deactivate rpt.Master
+deactivate rpt.Master
+
+rpt.Worker -> channel: pop message
+activate rpt.Worker
+rpt.Worker <-- channel: mode, data
+deactivate channel
+
+rpt.Worker -> rpt.Worker: dispatch to unpickled scalems handler
+activate rpt.Worker
+rpt.Worker -> usermodule: ""*args, **kwargs""
+activate usermodule
+rpt.Worker <-- usermodule
+deactivate usermodule
+rpt.Worker --> rpt.Worker: {out, err, ret, value}
+deactivate rpt.Worker
+
+rpt.Worker -> channel: put result
+activate channel
+deactivate rpt.Worker
+
+rpt.Master -> channel: accept result
+activate rpt.Master
+rpt.Master <-- channel: task_description
+deactivate channel
+
+rpt.Master -> rpt.Master: _result_cb(List[TaskDescription]))
+activate rpt.Master
+rpt.Master -> ScalemsMaster: result_cb(List[TaskDescription])
+activate ScalemsMaster
+
+alt optionally process or update requests
+ScalemsMaster -> ScalemsMaster: ?TODO?
+activate ScalemsMaster
+deactivate ScalemsMaster
+end
+
+rpt.Master <-- ScalemsMaster: ?TODO?
+deactivate ScalemsMaster
+
+rpt.Master -> rpt.Master: ?TODO?
+activate rpt.Master
+deactivate rpt.Master
+rpt.Master -> master_queue: send message
+activate master_queue
+deactivate rpt.Master
+deactivate rpt.Master
+
+
+<-- scalems.radical: sys.exit
+@enduml

@@ -4,35 +4,17 @@ import os
 import typing
 import urllib.parse
 
-import pytest
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-
-@pytest.mark.skip(reason='Unimplemented.')
-def test_rp_static_venv(rp_venv, pilot_description):
-    """Confirm that a prepared venv is usable by RP.
-
-    .. todo:: Are we using this for the Pilot? Or just the Tasks?
-    """
-    # If scalems is installed and usable, and the venv is activated,
-    # then the `scalems_rp_master` entry point script should be discoverable with `which`
-    # and executable.
-    ...
 
 
 def test_prepare_venv(rp_task_manager, sdist):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
-    This test function specifically tests the local.localhost resource.
-
     Note that we cannot wait on the environment preparation directly, but we can define
     a task with ``named_env`` matching the *prepare_env* key to implicitly depend on
     successful creation.
     """
-    # TODO: Merge with test_rp_raptor_local but use the installed scalems_rp_master and
-    #  scalems_rp_worker scripts.
 
     import radical.pilot as rp
     import radical.saga as rs

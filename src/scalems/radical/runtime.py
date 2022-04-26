@@ -52,6 +52,7 @@ import pathlib
 import tempfile
 import threading
 import typing
+import uuid
 import warnings
 import weakref
 
@@ -791,7 +792,9 @@ class RPDispatchingExecutor(RuntimeManager):
             # Get a Pilot
             #
 
-            pilot_description = {}
+            pilot_description = {
+                'uid': f'pilot.{str(uuid.uuid4())}'
+            }
             pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
             pilot_description.update({'resource': config.execution_target})
 

@@ -10,6 +10,8 @@ variable to 1."
 Note: Enable more radical.pilot debugging information by exporting
 RADICAL_LOG_LVL=DEBUG before invocation.
 """
+import uuid
+
 import scalems.radical.runtime
 
 try:
@@ -243,6 +245,7 @@ def pilot_description(request) -> rp.PilotDescription:
             "RADICAL_PILOT_DBURL")
 
     pilot_description = {
+        'uid': f'pilot.{str(uuid.uuid4())}',
         'resource': resource,
         'cores': 4,
         'gpus': 0,
@@ -357,9 +360,9 @@ def _new_pilot(session: rp.Session,
             pilot_description.access_schema = 'local'
         assert pilot_description.access_schema == 'local'
 
-    logger.debug('Using resource config: {}'.format(repr(session.get_resource_config(
-        pilot_description.resource))))
-    logger.debug('Using PilotDescription: {}'.format(repr(pilot_description)))
+    logger.debug('Using resource config: {}'.format(str(session.get_resource_config(
+        pilot_description.resource).as_dict())))
+    logger.debug('Using PilotDescription: {}'.format(str(pilot_description.as_dict())))
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', category=DeprecationWarning,
                                 module='radical.pilot.task_manager')
@@ -426,6 +429,8 @@ def _check_pilot(runtime: Runtime,
                            pilot_manager=runtime.pilot_manager(),
                            pilot_description=pilot_description,
                            venv=venv)
+        if pilot is None:
+            raise RuntimeError('Could not get a Pilot.')
         logger.info(f'New Pilot is {pilot.uid}')
         runtime.pilot(pilot)
     else:

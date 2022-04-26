@@ -44,8 +44,9 @@ the following module attribute(s) for hooks in `run()`
     :noindex:
 
     A callable to initialize and retrieve the current module configuration.
-    If present in *module*, ``module.configuration`` is called with the
-    known args from the module's *parser*.
+    If present in *module*, `run()` calls ``module.configuration(args)``,
+    where *args* is a :py:class:`argparse.Namespace` object created by the
+    module's *parser*.
 
 """
 

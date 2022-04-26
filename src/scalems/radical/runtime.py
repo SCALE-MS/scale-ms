@@ -555,6 +555,10 @@ def _set_configuration(*args, **kwargs) -> Configuration:
     Recommended usage is to derive an ArgumentParser from the *parser()* module
     function and use the resulting namespace to initialize the module configuration
     using this function.
+
+    Note this is a dispatch function. "Overloads" are defined in separate decorated
+    functions for calls that provide a `Configuration` or `argparse.Namespace`
+    object as the first (and only) positional argument.
     """
     assert len(args) != 0 or len(kwargs) != 0
     # Caller has provided arguments.
@@ -928,9 +932,8 @@ def configuration(*args, **kwargs) -> Configuration:
         )
     elif _configuration.get(None) is None:
         # No config is set yet. Generate with module parser.
-        c = Configuration()
-        parser.parse_known_args(namespace=typing.cast(argparse.Namespace, c))
-        _configuration.set(c)
+        namespace, _ = parser.parse_known_args()
+        _set_configuration(namespace)
     return _configuration.get()
 
 

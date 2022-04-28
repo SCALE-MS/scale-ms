@@ -42,21 +42,179 @@ Documentation also may be accessed from the command line with
 or from within the interpreter with :py:func:`help`.
 (E.g. ``pydoc scalems.radical``)
 
-.. autoprogram:: scalems.local:parser
+.. _backend:
+
+Execution Modules
+=================
+
+`scalems` provides the following built-in execution modules.
+
+scalems.local Python module
+---------------------------
 
 .. automodule:: scalems.local
 
-.. autoprogram:: scalems.radical:parser
+.. _scalems.local command line:
+
+.. autoprogram:: scalems.local:parser
+
+scalems.radical Python module
+-----------------------------
 
 .. automodule:: scalems.radical
+
+.. _scalems.radical command line:
+
+.. autoprogram:: scalems.radical:parser
+
+.. _venvs:
+
+More notes on Python virtual environments
+-----------------------------------------
+
+Pilot environment
+~~~~~~~~~~~~~~~~~
+
+The RADICAL Pilot remote software components are based in a Python virtual
+environment determined by parameters in the :ref:`RP resource` definition.
+
+By default, RADICAL Pilot resources are configured to bootstrap the target
+environment by creating a fresh virtual environment.
+(``virtenv_mode=create`` and ``rp_version=local`` in most
+`resource <https://radicalpilot.readthedocs.io/en/stable/machconf.html>`__
+definitions.)
+``virtenv_mode=update`` is a better choice than ``create``, so that later
+sessions can re-use a previously bootstrapped pilot venv.
+
+.. _static pilot venv:
+
+Static Pilot venv
+"""""""""""""""""
+
+To minimize the amount of bootstrapping RP performs for each
+:py:class:`~radical.pilot.Session`,
+you can set up a completely static set of virtual environments with customized
+resource definitions in :file:`$HOME/.radical/pilot/configs/`.
+Configure the :ref:`RP resource` to *use* an existing *virtenv* and the RP
+installation it contains.
+Set ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed``
+in the RP resource definition.
+
+.. note::
+    This optimization is relevant even for the ``local.localhost`` resource
+    and ``local`` access scheme!
+
+The user (or client) is then responsible for maintaining venv(s) with the
+correct RCT stack (matching the API used by the client-side RCT stack).
+Optionally, the same static venv *may* be used for task execution (see below),
+in which case the user must also maintain a compatible `scalems` installation,
+and any other dependencies of the workflow.
+
+Task environment
+~~~~~~~~~~~~~~~~
+
+shell command injection
+"""""""""""""""""""""""
+
+RP TaskDescriptions allow environment preparation with lines of shell commands
+using :py:attr:`~radical.pilot.TaskDescription.pre_exec`,
+:py:attr:`~radical.pilot.TaskDescription.pre_launch`,
+and :py:attr:`~radical.pilot.TaskDescription.pre_rank`.
+(Note that, in addition to the attribute descriptions,
+RP docs include further discussion at the bottom of the
+:py:class:`~radical.pilot.TaskDescription` class documentation section.)
+
+.. seealso:: https://github.com/SCALE-MS/scale-ms/issues/203
+    for discussion on whether/how to expose this through `scalems.radical`.
+
+static Task venv
+""""""""""""""""
+
+Use :option:`--venv <scalems.radical --venv>` to specify the virtual environment
+in which tasks should execute at the target `resource`.
+The user is responsible for ensuring a compatible `scalems` installation in the
+target venv, as well as for satisfying any other workflow software dependencies.
+
+The RADICAL stack will be made available to the Task (and Master and Worker)
+Python interpreters from the Pilot sandbox through :envvar:`PYTHONPATH`.
+To reproduce the environment seen by your Tasks when interactively using the
+static venv, be sure to include the RP installation in PYTHONPATH.
+
+.. todo:: Clarify the relevant RP installation path and how to discover it.
+
+You may specify the :ref:`Pilot venv <venvs>` path to
+:option:`--venv <scalems.radical --venv>`
+You still must make sure that the venv provides `scalems` and the other
+workflow software dependencies.
+This use case probably makes more sense for a :ref:`static pilot venv`,
+where you have already specified the venv filesystem path, and
+in which case you would no longer need to extend the PYTHONPATH to reproduce
+the Task environment, interactively.
+
+
+.. note::
+    The :option:`scalems.radical --venv` option is intended to be optional.
+    See https://github.com/SCALE-MS/scale-ms/issues/90 and
+    https://github.com/SCALE-MS/scale-ms/issues/141
+
+named_env
+"""""""""
+
+`scalems.radical` is migrating towards more dynamic and automated Python
+environment preparation for workflow tasks.
+
+RADICAL Pilot now allows a :py:class:`~radical.pilot.Task` some explicitly
+Python-aware environment preparation,
+(though users are still free to activate Task venvs using
+:py:data:`~radical.pilot.TaskDescription.pre_exec`).
+
+TaskDescription may use :py:attr:`~radical.pilot.TaskDescription.named_env`
+to identify a virtual environment to be activated for the Task.
+The virtual environment may be an existing virtual environment,
+or a new environment,
+scheduled for creation with :py:func:`~radical.pilot.Pilot.prepare_env`.
+
+In addition to supporting :py:attr:`~radical.pilot.TaskDescription.named_env`
+and the other task environment hooks,
+:py:class:`~radical.pilot.raptor.Master` and
+:py:class:`~radical.pilot.raptor.Worker`
+tasks have some of the RP stack injected into their environment.
+Raptor tasks are executed in new processes that are launched by the Worker
+interpreter process through various mechanisms, depending on task requirements.
+Various possible launch methods include forking from the
+Worker interpreter process.
+In other words, assumptions about the task Python environment are complicated,
+and it is best if we try to base the task environment on the Worker environment.
+
+.. seealso:: Provisioning Workers for (groups of) Tasks.
+    `Issue #93 <https://github.com/SCALE-MS/scale-ms/issues/93>`__.
+
+:py:mod:`scalems.radical` dispatches (most) tasks through
+raptor "call" mode, so it constructs and uses a venv for the Worker
+(*work in progress:*
+`Issue #90 <https://github.com/SCALE-MS/scale-ms/issues/90>`__),
+and **must not** specify ``named_env`` for work load tasks.
+
+`scalems` will be unable to infer all software dependencies, such as special
+package builds, or software managed outside of a supported Python package
+management system
+(e.g. CMake-driven LAMMPS installation, Plumed-enabled GROMACS).
+It is not yet clear in what way and to what extent `scalems`, `radical.pilot`,
+and users will interact to prepare, verify, and specify such software
+environments before or during run time.
+
+.. seealso:: Provisioning the SCALE-MS task environment.
+    `Issue #141 <https://github.com/SCALE-MS/scale-ms/issues/141>`__.
 
 Pure Python execution
 =====================
 
-For some use cases (such as Jupyter notebooks), it may be preferable to configure the execution target and launch
-a workflow entirely from within Python.
+For some use cases (such as Jupyter notebooks),
+it may be preferable to configure the execution target and launch a workflow
+entirely from within Python.
 
 Such use cases are not yet well-supported in `scalems`.
 
-Refer to the `test suite <https://github.com/SCALE-MS/scale-ms/tree/master/tests>`__ for examples,
-or follow https://github.com/SCALE-MS/scale-ms/issues/82
+Refer to the
+`test suite <https://github.com/SCALE-MS/scale-ms/tree/master/tests>`__
+for examples, or follow https://github.com/SCALE-MS/scale-ms/issues/82.

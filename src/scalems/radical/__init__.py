@@ -2,49 +2,27 @@
 
 Manage workflow context for RADICAL Pilot.
 
-Command Line Invocation Example:
-    ``python -m scalems.radical --resource local.localhost --venv $HOME/myvenv --access
-    local myworkflow.py``
+Command Line Invocation::
 
-For required and optional command line arguments:
-    ``python -m scalems.radical --help``
+    python -m scalems.radical \\
+        --resource local.localhost --venv $HOME/myvenv --access local myworkflow.py
+
+For required and optional command line arguments::
+
+    python -m scalems.radical --help
+
+or refer to the web-based documentation for
+`scalems.radical command line`.
 
 The user is largely responsible for establishing appropriate
 `RADICAL Cybertools <https://radical-cybertools.github.io/>`__
 (RCT) software environment at both the client side
-and the execution side.
+and the execution side. See :ref:`rp setup` in the
+:doc:`install` for complete documentation.
 
-For performance and control, the canonical use case is a fully static `venv`
-configuration for both the Pilot agent (and bootstrapping) interpreter, remote RCT
-stack, and executed Tasks. However, the default behavior should work for most users,
-in which a `venv` is created in the radical sandbox on the first connection (reused if it
-already exists) and the RCT stack is updated within the Pilot sandbox for each session.
-
-In the case of non-RCT Python dependencies,
-:py:class:`~radical.pilot.Pilot` has an (evolving)
-:py:func:`~radical.pilot.Pilot.prepare_env`
-feature that can be used for a Task dependency
-(:py:data:`~radical.pilot.TaskDescription.named_env`) to provide a dynamically
-created venv with a list of requested packages.
-
-Locally prepared package distribution archives can be used, such as by staging with the
-*Pilot.stage_in* before doing *prepare_env*.
-
-.. seealso::
-
+See Also:
     Refer to https://github.com/SCALE-MS/scale-ms/issues/141
     for the status of `scalems` support for automatic execution environment bootstrapping.
-
-Use ``virtenv_mode=update``, ``rp_version=local`` in the RP resource definition,
-and activate alternative Task venvs using ``named_env``.
-Otherwise (e.g. for ``virtenv_mode=use``), the user (or client) is
-responsible for maintaining venv(s) with the correct RCT stack (matching the API
-used by the client-side RCT stack).
-
-Tasks use a separately-provisioned virtual environment, if appropriate. For Python-based tasks,
-the `scalems` package takes responsibility for provisioning an appropriate virtual environment
-with itself and any dependencies of the workflow, unless :option:`--venv` is specified on the
-command line.
 
 See Also:
     * `scalems.dispatching`

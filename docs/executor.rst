@@ -189,6 +189,8 @@ Execution module authors should also be aware of the following utilities.
 Extra scalems.radical details
 =============================
 
+User interface is documented at :py:mod:`scalems.radical`.
+
 .. autofunction:: scalems.radical.configuration
 
 scalems.radical.common

@@ -3,7 +3,7 @@
 This package provides Python driven data flow scripting and graph execution
 for molecular science computational research protocols.
 
-Refer to https://scale-ms.readthedocs.io/ for package documentation.
+Documentation is published online at https://scale-ms.readthedocs.io/.
 
 Refer to https://github.com/SCALE-MS/scale-ms/wiki for development documentation.
 

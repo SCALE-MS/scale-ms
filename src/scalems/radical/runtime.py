@@ -132,7 +132,7 @@ def parser(add_help=False):
                          metavar='PATH',
                          type=str,
                          required=True,
-                         help='tasks.Path to the (pre-configured) Python virtual '
+                         help='Path to the (pre-configured) Python virtual '
                               'environment with which RP tasks should be executed. '
                               '(Required. See also https://github.com/SCALE-MS/scale-ms/issues/90)')
 

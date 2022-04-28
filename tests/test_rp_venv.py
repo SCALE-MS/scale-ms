@@ -63,6 +63,7 @@ def test_prepare_venv(rp_task_manager, sdist):
             'target': sdist_names[name],
             'action': rp.TRANSFER
         })
+    # TODO: Can we use `pilot://` for target file?
     logger.debug(str(input_staging))
     pilot.stage_in(input_staging)
 

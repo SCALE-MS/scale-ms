@@ -642,8 +642,7 @@ class WorkflowManager:
                 # RuntimeManager.__exit__().
 
         except Exception as e:
-            logger.exception(
-                f'Uncaught exception while in dispatching context: {str(e)}')
+            logger.exception('Uncaught exception while in dispatching context.')
             raise e
 
         finally:
@@ -1214,7 +1213,7 @@ def get_scope():
 
 
 @contextlib.contextmanager
-def scope(manager):
+def scope(manager, close_on_exit=False):
     """Set the current workflow management within a clear scope.
 
     Restores the previous workflow management scope on exiting the context manager.
@@ -1225,6 +1224,9 @@ def scope(manager):
     only when the last "scope" context manager for *manager* exits. Multiple "scope"
     context managers are not allowed for different *manager* instances in the same
     :py:class:`context <contextvars.Context>`.
+
+    If *close_on_exit=True*, calls ``manager.close()`` when leaving *manager's*
+    scope for the last time, if possible.
 
     Note:
         Scope indicates the "active" WorkflowManager instance.
@@ -1241,6 +1243,12 @@ def scope(manager):
     non-root threads, but the Dispatcher needs to curate the contextvars.ContextVars
     and ensure that the Context is properly cleaned up.
     """
+    _close = None
+    if close_on_exit:
+        _close = getattr(manager, 'close', None)
+        if not callable(_close):
+            raise ValueError('close_on_exit is True, but manager has no close() method.')
+
     logger.debug(f'Request to enter the scope of {manager}.')
     with _shared_scope_lock:
         parent = get_scope()
@@ -1263,6 +1271,8 @@ def scope(manager):
             if _shared_scope_count.get() == 0:
                 logger.debug('Leaving scope of {}'.format(str(manager)))
                 token.var.reset(token)
+                if _close:
+                    _close()
     # If we need to have multiple nested scopes across different threads, we can
     # hold the lock only for __enter__ and __exit__, but we will need to get the
     # lock object from a ContextVar or from the dispatcher. Then the above `try`

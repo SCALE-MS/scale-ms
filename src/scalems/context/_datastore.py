@@ -428,6 +428,7 @@ class FileStore:
         """
         with self._update_lock:
             if self._dirty.is_set():
+                # Warning: This can throw if, for instance, the parent directory disappears.
                 with tempfile.NamedTemporaryFile(dir=self.datastore,
                                                  delete=False,
                                                  mode='w',
@@ -459,7 +460,11 @@ class FileStore:
                 raise StaleFileStore(
                     f'{self.directory} is currently managed by {actual_manager}')
 
-        self.flush()
+        try:
+            self.flush()
+        except Exception as e:
+            raise StaleFileStore(f'Could not flush {repr(self)}.') from e
+
         current_instance = getattr(self, 'instance', None)
         self._data.instance = None
 
@@ -596,16 +601,19 @@ class FileStore:
 
             return _FileReference(filestore=self, key=key)
         except Exception as e:
-            logger.exception(f'Unhandled exception while trying to store {obj}',
-                             exc_info=e)
-            # Something went wrong. Let's try to clean up as best we can.
-            if key and key in self._data.files:
-                pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
-                del self._data.files[key]
-            if isinstance(filename, pathlib.Path):
-                filename.unlink(missing_ok=True)
+            if isinstance(e, (scalems.exceptions.DuplicateKeyError, StaleFileStore)):
+                tmpfile_target.unlink(missing_ok=True)
+            else:
+                # Something went particularly wrong. Let's try to clean up as best we can.
+                logger.exception(f'Unhandled exception while trying to store {obj}')
+                if key and key in self._data.files:
+                    pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
+                    del self._data.files[key]
+                if isinstance(filename, pathlib.Path):
+                    filename.unlink(missing_ok=True)
             if tmpfile_target.exists():
                 logger.warning(f'Temporary file left at {tmpfile_target}')
+            raise e
 
     @property
     def files(self) -> typing.Mapping[str, pathlib.Path]:
@@ -738,12 +746,10 @@ def filestore_generator(directory=None):
             if not _closed:
                 logger.debug(f'filestore_generator is closing {filestore}.')
                 filestore.close()
-        except Exception as e:
-            logger.exception(f'Exception while trying to close {filestore}.',
-                             exc_info=e)
-            # logger.debug(
-            #     f'Exception while trying to close {filestore}: {e}'
-            # )
+        except Exception:
+            # Note that this exception will probably be in the context of handling the
+            # GeneratorExit exception from the `try` block.
+            logger.exception(f'Exception while trying to close {filestore}.')
         else:
             assert filestore.closed
 

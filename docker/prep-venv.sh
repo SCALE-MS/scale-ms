@@ -27,3 +27,5 @@ pip install --upgrade pip setuptools wheel pydevd-pycharm && \
 pip uninstall -y radical.pilot radical.saga radical.utils && \
 pip install -r /tmp/scalems_dev/requirements-testing.txt && \
 pip install -e /tmp/scalems_dev'
+
+export RADICAL_PILOT_DBURL="mongodb://root:password@127.0.0.1:27017/admin"

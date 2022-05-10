@@ -455,7 +455,6 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     # script may crash even before it can write anything, but if it does write
     # anything, we _will_ have the output file locally
     td.output_staging = [
-
     ]
 
     # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
@@ -468,9 +467,15 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
 
+    # Master tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    master_identity = EphemeralIdentifier()
+    td.uid = 'scalems-rp-master.' + str(master_identity)
+
     # TODO(#75): Automate handling of file staging directives for scalems.FileReference
     # e.g. _add_file_dependency(td, config_file)
-    config_file_name = config_file.path().name
+    config_file_name = str(td.uid) + '-config.json'
     td.input_staging = [
         {
             'source': config_file.as_uri(),
@@ -480,11 +485,6 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     ]
     td.arguments = [config_file_name]
 
-    # Master tasks may not appear unique, but must be uniquely identified within the
-    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
-    # information at this time, we can generate a random ID and track it in our metadata.
-    master_identity = EphemeralIdentifier()
-    td.uid = str(master_identity)
     task_metadata = {
         'uid': td.uid,
         'task_manager': task_manager.uid
@@ -527,7 +527,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
 # unhashable dict member).
 # @cache
 def get_pre_exec(conf: Configuration) -> tuple:
-    """Get the sequence of pre_exec commands.
+    """Get the sequence of pre_exec commands for tasks on the currently configured execution target.
 
     Warning:
         Use cases may require a `list` object. Caller is responsible for converting
@@ -652,18 +652,31 @@ class RPDispatchingExecutor(RuntimeManager):
         Restores the previous global configuration when exiting the ``with`` block.
 
         Warning:
+            Not thread-safe.
+
             We do not check for re-entrance, which will cause race conditions w.r.t.
             which Context state is restored! Moreover, the Configuration object is not
             currently hashable and does not have an equality test defined.
 
-        .. todo:: Reconsider this logic.
+            This contextmanager is not async, but it could be (and is) used within
+            an asynchronous context manager, so we don't have anything structurally
+            prohibiting reentrant calls, even without multithreading.
 
-        Design notes:
-            Do we want two-way interaction between module
-            and instance configuration? Under what circumstances will one or the other
-            change during execution? Should we be providing the configuration through
-            the current Context, through a Context instance (usable for Context.run() or
-            to the task launching command), or simply as a Configuration object?
+        TODO:
+            Reconsider logic for runtime module scoped Configuration management.
+
+            Instead of managing the current contextvars.Context,
+            this should be used to produce an updated contextvars.Context for use by
+            a Task or Context.run() scope. Alternatively, we can decouple the runtime configuration
+            from the global module configuration, reduce the dynamic utility of
+            *<module>.configuration()*, and not use contextvars.
+
+            Design notes:
+                Do we want two-way interaction between module
+                and instance configuration? Under what circumstances will one or the other
+                change during execution? Should we be providing the configuration through
+                the current Context, through a Context instance (usable for Context.run() or
+                to the task launching command), or simply as a Configuration object?
         """
 
         # Get default configuration.
@@ -810,7 +823,7 @@ class RPDispatchingExecutor(RuntimeManager):
             # How and when should we update pilot description?
             logger.debug('Submitting PilotDescription {}'.format(repr(
                 pilot_description)))
-            pilot = await asyncio.create_task(
+            pilot: rp.Pilot = await asyncio.create_task(
                 to_thread(pilot_manager.submit_pilots, pilot_description),
                 name='submit_pilots'
             )
@@ -830,6 +843,8 @@ class RPDispatchingExecutor(RuntimeManager):
             #
 
             assert _runtime.scheduler is None
+            # Note that _get_scheduler is a coroutine that, itself, returns a Task.
+            # We await the result of _get_scheduler, then store the scheduler Task.
             _runtime.scheduler = await asyncio.create_task(
                 _get_scheduler(
                     pre_exec=list(get_pre_exec(config)),
@@ -889,7 +904,12 @@ class RPDispatchingExecutor(RuntimeManager):
                 # behavior.
                 # See https://github.com/radical-cybertools/radical.pilot/issues/2336
                 runtime.scheduler.wait(state=rp.FINAL)
-                logger.debug('Master scheduling task complete.')
+                logger.debug(f'Master scheduling task complete: {repr(runtime.scheduler)}.')
+                if runtime.scheduler.stdout:
+                    logger.debug(runtime.scheduler.stdout)
+                if runtime.scheduler.stderr:
+                    logger.error(runtime.scheduler.stderr)
+                # TODO: Receive report of work handled by Master.
 
             # Note: there are no documented exceptions or errors to check for,
             # programmatically. Some issues encountered during shutdown will be

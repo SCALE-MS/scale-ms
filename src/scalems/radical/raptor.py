@@ -16,8 +16,7 @@ import importlib
 import importlib.metadata
 import json
 # We import rp before `logging` to avoid warnings when rp monkey-patches the
-# logging module. This `try` suite helps prevent auto-code-formatters from
-# rearranging the import order of built-in versus third-party modules.
+# logging module.
 import logging
 import os
 import typing
@@ -84,6 +83,7 @@ class _ConfigurationDict(typing.TypedDict):
 #     return obj.as_dict()
 
 
+# TODO: Disambiguate from scalems.radical.runtime.Configuration.
 @dataclasses.dataclass
 class Configuration:
     """Input to the script responsible for the RP raptor Master.

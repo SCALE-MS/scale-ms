@@ -11,7 +11,7 @@ logger = _logging.getLogger(__name__)
 logger.debug('Importing {}'.format(__name__))
 
 
-class ScaleMSError(BaseException):
+class ScaleMSError(Exception):
     """Base exception for scalems package errors.
 
     Users should be able to use this base class to catch errors

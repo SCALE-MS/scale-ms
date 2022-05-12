@@ -642,7 +642,7 @@ class WorkflowManager:
                 # RuntimeManager.__exit__().
 
         except Exception as e:
-            logger.exception('Uncaught exception while in dispatching context.')
+            logger.exception('Unhandled exception while in dispatching context.')
             raise e
 
         finally:

@@ -358,7 +358,7 @@ class Runtime:
                 return self.pilot(pilot)
 
 
-async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) -> FileReference:
+async def _master_input(filestore: FileStore, pre_exec: list, worker_venv: str) -> FileReference:
     """Provide the input file for a SCALE-MS Raptor Master script.
 
     Args:
@@ -381,8 +381,9 @@ async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) ->
     # information at this time, we can generate a random ID and track it in our metadata.
     worker_identity = EphemeralIdentifier()
     task_metadata = worker_description(
-        uid=str(worker_identity),
-        named_env=named_env,
+        uid='scalems_worker.' + str(worker_identity),
+        named_env=worker_venv,
+        pre_exec=pre_exec,
         cpu_processes=cores_per_worker,
         gpu_processes=gpus_per_worker
     )
@@ -390,6 +391,7 @@ async def _master_input(filestore: FileStore, pre_exec: list, named_env: str) ->
 
     # TODO: Add additional dependencies that we can infer from the workflow.
     versioned_modules = (
+        ('mpi4py', '3.0.0'),
         ('scalems', scalems.__version__),
         ('radical.pilot', rp.version)
     )
@@ -460,9 +462,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
     # asyncio.get_running_loop().slow_callback_duration = 0.5
     config_file = await asyncio.create_task(
-        _master_input(filestore,
-                      pre_exec=list(pre_exec),
-                      named_env=scalems_env),
+        _master_input(filestore, pre_exec=list(pre_exec), worker_venv=scalems_env),
         name='get-master-input'
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
@@ -851,7 +851,7 @@ class RPDispatchingExecutor(RuntimeManager):
                     pre_exec=list(get_pre_exec(config)),
                     task_manager=task_manager,
                     filestore=config.datastore,
-                    scalems_env=config.target_venv,
+                    scalems_env='scalems_venv',  # TODO: normalize ownership of this name.
                 ),
                 name='get-scheduler'
             )

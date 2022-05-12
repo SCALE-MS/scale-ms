@@ -220,7 +220,7 @@ def run(manager_factory: _ManagerT,  # noqa: C901
                     try:
                         run_dispatch(main, manager)
                     except Exception as e:
-                        logger.exception('Uncaught exception in scalems runner calling dispatch(): ' + str(e))
+                        logger.exception('Unhandled exception in scalems runner calling dispatch(): ' + str(e))
                         raise e
                     finally:
                         loop.close()

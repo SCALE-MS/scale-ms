@@ -140,17 +140,21 @@ class SoftwareCompatibilityError(RuntimeError):
     """Incompatible package versions or software interfaces."""
 
 
-def check_module_version(module: str, minimum_version: str):
-    """Get version metadata for importable module and check that it is at least version."""
+def _get_module_version(module: str):
+    """Get version metadata for importable module."""
     try:
         found_version = importlib.metadata.version(module)
     except importlib.metadata.PackageNotFoundError:
-        spec: ModuleSpec = find_spec(module)
-        found_version = importlib.metadata.version(spec.parent)
-    found_version = packaging.version.Version(found_version)
-    minimum_version = packaging.version.Version(minimum_version)
-    if found_version < minimum_version:
-        return False
+        found_version = None
+    if found_version is None:
+        try:
+            spec: ModuleSpec = find_spec(module)
+            if spec and hasattr(spec, 'parent'):
+                found_version = importlib.metadata.version(spec.parent)
+        except Exception as e:
+            logger.debug(f'Exception when trying to find {module}: ', exc_info=e)
+    if found_version is not None:
+        found_version = packaging.version.Version(found_version)
     return found_version
 
 
@@ -158,12 +162,15 @@ class ScaleMSMaster(rp.raptor.Master):
     def __init__(self, configuration: Configuration):
         for module, version in configuration.versioned_modules:
             logger.debug(f'Looking for {module} version {version}.')
-            found_version = check_module_version(module=module, minimum_version=version)
-            if found_version:
+            found_version = _get_module_version(module)
+            if found_version is None:
+                raise SoftwareCompatibilityError(f'{module} not found.')
+            minimum_version = packaging.version.Version(version)
+            if found_version >= minimum_version:
                 logger.debug(f'Found {module} version {found_version}: Okay.')
             else:
                 raise SoftwareCompatibilityError(
-                    f'{module} version not compatible with {version}.'
+                    f'{module} version {found_version} not compatible with {version}.'
                 )
         kwargs = {}
         rp_version = packaging.version.parse(rp.version_short)
@@ -228,15 +235,36 @@ def master():
     with open(args.file, 'r') as fh:
         configuration = Configuration.from_dict(json.load(fh))
 
+    # TODO: Configurable log level?
+    logger.setLevel(logging.DEBUG)
+    character_stream = logging.StreamHandler()
+    character_stream.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    character_stream.setFormatter(formatter)
+    logger.addHandler(character_stream)
+
+    logger.info(f'Launching ScaleMSMaster task with {repr(dataclasses.asdict(configuration))}.')
+
     worker_submission = configuration.worker
 
     _master = ScaleMSMaster(configuration)
+    logger.debug(f'Created {repr(_master)}.')
 
     _master.submit_workers(**worker_submission)
+    _workers = list(_master._workers.keys())
+    message = 'Submitted workers: '
+    message += ', '.join(_workers)
+    logger.info(message)
 
     _master.start()
+    logger.debug('Master started.')
+
+    # TODO: Confirm workers start successfully or produce useful error.
+
     _master.join()
+    logger.debug('Master joined.')
     _master.stop()
+    logger.debug('Master stopped.')
 
 
 def dispatch(*args, comm=None, **kwargs):

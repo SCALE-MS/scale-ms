@@ -212,6 +212,7 @@ class RaptorWorkerConfig(typing.TypedDict):
 def worker_description(*,
                        uid: str,
                        named_env: str,
+                       pre_exec: typing.Iterable[str] = (),
                        cpu_processes: int = None,
                        gpu_processes: int = None,
                        ):
@@ -225,15 +226,17 @@ def worker_description(*,
     Keyword Args:
         cpu_processes (int, optional): See `radical.pilot.TaskDescription.cpu_processes`
         gpu_processes (int, optional): See `radical.pilot.TaskDescription.gpu_processes`
-        named_env (str): Python virtual environment known to the Pilot agent.
-            Example: the *env_name* argument to :py:meth:`radical.pilot.Pilot.prepare_env`.
+        named_env (str): Python virtual environment registered with `Pilot.prepare_env`
+            (currently ignored. see #90).
+        pre_exec (list[str]): Shell command lines for preparing the worker environment.
         uid (str): Identifier for the worker task.
     """
     descr = {
         'uid': uid,
-        'named_env': named_env,
+        # 'named_env': named_env,
+        'pre_exec': list(pre_exec),
         'worker_class': 'MPIWorker',
-        'worker_file': None,
+        # 'worker_file': None,
         'cpu_processes': cpu_processes,
         'gpu_processes': gpu_processes
     }

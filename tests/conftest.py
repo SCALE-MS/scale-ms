@@ -10,8 +10,6 @@ variable to 1."
 Note: Enable more radical.pilot debugging information by exporting
 RADICAL_LOG_LVL=DEBUG before invocation.
 """
-import uuid
-
 import scalems.radical.runtime
 
 try:
@@ -245,7 +243,6 @@ def pilot_description(request) -> rp.PilotDescription:
             "RADICAL_PILOT_DBURL")
 
     pilot_description = {
-        'uid': f'pilot.{str(uuid.uuid4())}',
         'resource': resource,
         'cores': 4,
         'gpus': 0,

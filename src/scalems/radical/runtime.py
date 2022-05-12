@@ -809,6 +809,7 @@ class RPDispatchingExecutor(RuntimeManager):
             # Get a Pilot
             #
 
+            # Warning: The Pilot ID needs to be unique within the Session.
             pilot_description = {
                 'uid': f'pilot.{str(uuid.uuid4())}'
             }

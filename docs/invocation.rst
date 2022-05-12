@@ -75,7 +75,7 @@ More notes on Python virtual environments
 Pilot environment
 ~~~~~~~~~~~~~~~~~
 
-The RADICAL Pilot remote software components are based in a Python virtual
+The RADICAL Pilot remote software components launch from a Python virtual
 environment determined by parameters in the :ref:`RP resource` definition.
 
 By default, RADICAL Pilot resources are configured to bootstrap the target
@@ -108,7 +108,7 @@ The user (or client) is then responsible for maintaining venv(s) with the
 correct RCT stack (matching the API used by the client-side RCT stack).
 Optionally, the same static venv *may* be used for task execution (see below),
 in which case the user must also maintain a compatible `scalems` installation,
-and any other dependencies of the workflow.
+along with any other software dependencies of the workflow.
 
 Task environment
 ~~~~~~~~~~~~~~~~
@@ -135,22 +135,35 @@ in which tasks should execute at the target `resource`.
 The user is responsible for ensuring a compatible `scalems` installation in the
 target venv, as well as for satisfying any other workflow software dependencies.
 
-The RADICAL stack will be made available to the Task (and Master and Worker)
-Python interpreters from the Pilot sandbox through :envvar:`PYTHONPATH`.
+.. warning:: When maintaining a venv for task execution, keep the RCT stack synchronized.
+
+    The `scalems` package depends on the RADICAL packages, but it is important that
+    the RCT stack in the :py:class:`~radical.pilot.raptor.Worker` environment is
+    compatible with that in the Pilot agent environment and the client environment.
+    If the Pilot resource is set to ``update`` (see `above <static pilot venv>`),
+    the agent environment will be updated to the client-side versions automatically.
+    When the task uses a separate environment,
+    the user must separately update the environment named by
+    :option:`--venv <scalems.radical --venv>`.
+
+    Ultimately, `scalems.radical` will provide more automatic assistance for this.
+    (See `https://github.com/SCALE-MS/scale-ms/issues/141`__). In the mean time,
+    users should be aware that they need to update remote RADICAL installations
+    whenever they update their client-side installation.
+
 To reproduce the environment seen by your Tasks when interactively using the
-static venv, be sure to include the RP installation in PYTHONPATH.
+static venv, be sure to *activate* the venv.
 
-.. todo:: Clarify the relevant RP installation path and how to discover it.
+.. Note: the agent venv is not fully hidden in RP 1.14:
+   https://github.com/radical-cybertools/radical.pilot/issues/2609
 
-You may specify the :ref:`Pilot venv <venvs>` path to
-:option:`--venv <scalems.radical --venv>`
+If you are using a static venv for the Pilot resource,
+you may specify the :ref:`Pilot venv <venvs>` path to
+:option:`--venv <scalems.radical --venv>`.
 You still must make sure that the venv provides `scalems` and the other
 workflow software dependencies.
-This use case probably makes more sense for a :ref:`static pilot venv`,
-where you have already specified the venv filesystem path, and
-in which case you would no longer need to extend the PYTHONPATH to reproduce
-the Task environment, interactively.
-
+If you are using a dynamically maintained Pilot venv (``create`` or ``update``),
+then you should use a separate venv for your tasks.
 
 .. note::
     The :option:`scalems.radical --venv` option is intended to be optional.
@@ -171,8 +184,19 @@ Python-aware environment preparation,
 TaskDescription may use :py:attr:`~radical.pilot.TaskDescription.named_env`
 to identify a virtual environment to be activated for the Task.
 The virtual environment may be an existing virtual environment,
-or a new environment,
-scheduled for creation with :py:func:`~radical.pilot.Pilot.prepare_env`.
+or a new environment.
+
+In either case, to use *named_env*, :py:func:`~radical.pilot.Pilot.prepare_env`
+*must* be called to register the named environment.
+
+.. warning:: *prepare_env()* may not be lead to hard-to-diagnose states
+    with invalid virtual environments.
+    https://github.com/radical-cybertools/radical.pilot/issues/2589 describes
+    incompletely provisioned new virtual environments. But similar symptoms
+    can occur when trying to reference existing virtual environments.
+
+See https://github.com/SCALE-MS/scale-ms/issues/90 for discussion on how
+environments are named and provisioned, and how they are made available to tasks.
 
 In addition to supporting :py:attr:`~radical.pilot.TaskDescription.named_env`
 and the other task environment hooks,

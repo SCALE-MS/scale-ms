@@ -189,7 +189,7 @@ or a new environment.
 In either case, to use *named_env*, :py:func:`~radical.pilot.Pilot.prepare_env`
 *must* be called to register the named environment.
 
-.. warning:: *prepare_env()* may not be lead to hard-to-diagnose states
+.. warning:: *prepare_env()* may enter hard-to-diagnose states
     with invalid virtual environments.
     https://github.com/radical-cybertools/radical.pilot/issues/2589 describes
     incompletely provisioned new virtual environments. But similar symptoms

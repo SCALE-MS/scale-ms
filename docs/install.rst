@@ -28,6 +28,8 @@ use the :file:`requirements-testing.txt` file in the root directory of the repos
 
     pip install -r requirements-testing.txt
 
+.. _rp setup:
+
 RADICAL Pilot (RP)
 ==================
 
@@ -45,21 +47,16 @@ along with any software required for your workflow.
 
 .. admonition:: Explicitly activate the virtual environment.
 
-    Some packages (including LAMMPS and RP) do not behave properly unless their virtual environment is explicitly activated.
-    You must ``. /path/to/venv/bin/activate`` before installing or using ``radical.pilot`` or ``scalems.radical``.
-    (It is insufficient simply to use ``/path/to/venv/bin/python -m scalems.radical ...``)
+    Some packages (including LAMMPS and RP) do not behave properly
+    unless their virtual environment is explicitly activated.
+    You must ``. /path/to/venv/bin/activate`` before installing or using
+    :py:mod:`radical.pilot` or :py:mod:`scalems.radical`.
+    (It is insufficient simply to use
+    ``/path/to/venv/bin/python -m scalems.radical ...``)
 
-You will need an equivalent virtual environment in the execution environment.
-If you are using a shared filesystem
-(or if you are using the *local.localhost* `RP resource`_
-or *local* :py:data:`~radical.pilot.PilotDescription.access_schema`)
-then you can execute in the same venv used on the client side.
-Otherwise, you will need to prepare a virtual environment
-(accessible to the chosen `RP resource`_) and inform `scalems.radical` of it
-at run time. (See :option:`scalems.radical --venv`)
-
-When executing the workflow, `scalems.radical` will automatically direct RP to *activate*
-the chosen virtual environment before launching Tasks.
+Depending on various configuration information and workflow details,
+RP automatically manages one or more venvs for Pilot agents and Tasks.
+See :ref:`venvs` for details.
 
 Configuration
 -------------
@@ -85,14 +82,18 @@ you must add or edit a resource
 in your home directory **before launching** :py:mod:`scalems.radical`.
 
 .. note:: Password-less ssh private key is not necessary.
-    It may not be clearly documented, but RP does not require that you set up a password-less ssh key pair.
-    It is only necessary that RP is able to make new ssh connections at run time without storing or asking for a password.
-    Refer to the ``ssh-agent`` documentation for your SSH client.
+
+    RP documentation for `machconf` implies a need to set up a password-less
+    ssh key pair, but this is not strictly necessary.
+    It is only necessary that RP is able to make new ssh connections at run time
+    without storing or asking for a password.
+    Refer to the :program:`ssh-agent` documentation for your SSH client, and
+    unlock your private key before launching your script with `scalems.radical`.
 
 Setting resource parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-https://radicalpilot.readthedocs.io/en/stable/machconf.html#writing-a-custom-resource-configuration-file.
+https://radicalpilot.readthedocs.io/en/stable/machconf.html#writing-a-custom-resource-configuration-file
 describes the user files for defining new resources or replacing built-in resource definitions.
 
 To override the default logic for a built-in resource definition,
@@ -100,48 +101,17 @@ copy the JSON object for the resource(s) from your RP version
 (e.g. https://github.com/radical-cybertools/radical.pilot/tree/devel/src/radical/pilot/configs)
 to your home directory and then apply updates.
 
-For example
-"""""""""""
-
 To update parameters for ``local.localhost``::
 
     mkdir $HOME/.radical/pilot/configs/
     cp $VIRTUAL_ENV/lib/python3*/site-packages/radical/pilot/configs/resource_local.json $HOME/.radical/pilot/configs/
 
-Then edit the ``localhost`` JSON object in ``$HOME/.radical/pilot/configs/resource_local.json``.
+Then edit the ``localhost`` JSON object in
+:file:`$HOME/.radical/pilot/configs/resource_local.json`.
 
-More notes on Python virtual environments
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-RP recommends (but does not require) a completely static set of virtual environments.
-For simplicity and convenience, the built-in resource definitions have automatic
-environment bootstrapping logic.
-
-To minimize the amount of bootstrapping RP performs for each :py:class:`~radical.pilot.Session`,
-make sure the `RP resource`_ is configured to *use* an existing *virtenv* and the
-RP installation it contains.
-Set ``virtenv_mode=use``, ``virtenv=/path/to/venv``, ``rp_version=installed`` in the RP resource
-definition.
-
-.. note:: This optimization is relevant even for the ``local.localhost`` resource and ``local`` access scheme!
-
-The user (or client) is
-then responsible for maintaining venv(s) with the correct RCT stack (matching the API
-used by the client-side RCT stack), the `scalems` package, and any dependencies of the
-workflow.
-
-.. note:: Environment management for RP Tasks is under active development.
-
-    As of RP 1.6.7, a traditional :py:class:`~radical.pilot.Task` does not have explicitly Python-aware
-    environment preparation, though users are free to activate Task venvs using
-    :py:data:`~radical.pilot.TaskDescription.pre_exec`.
-    :py:mod:`radical.pilot.raptor`
-    `Workers <https://github.com/radical-cybertools/radical.pilot/blob/devel/src/radical/pilot/raptor/worker.py>`__
-    have some of the RP stack injected into their environment, in addition to allowing *pre_exec*.
-
-    These details are subject to rapid evolution for the foreseeable future.
-
-    See also https://github.com/radical-cybertools/radical.pilot/pull/2312
+.. note::
+    The resource definition determines the virtual environment in which
+    remote Pilot agent software runs. See :ref:`venvs` for details.
 
 Additional notes
 ----------------

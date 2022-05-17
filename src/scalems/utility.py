@@ -102,7 +102,7 @@ def make_parser(module: str, parents: typing.Iterable[argparse.ArgumentParser] =
         parents = [parser()]
     _parser = argparse.ArgumentParser(
         prog=module,
-        description=f'Process {module} command line arguments.',
+        description=f'Command line interface for `{module}` workflow execution module.',
         usage=f'python -m {module} <{module} args> script-to-run.py.py '
               '<script args>',
         parents=parents

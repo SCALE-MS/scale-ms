@@ -71,8 +71,6 @@ Operations provide a ``run()`` method to force execution at the point of call.
     The mechanism (subscription, transfer of ownership, etc.) is a detail of the
     Context collaboration.
 
-.. _backend:
-
 Execution Module
 ================
 

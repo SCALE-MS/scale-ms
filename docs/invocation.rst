@@ -147,7 +147,7 @@ target venv, as well as for satisfying any other workflow software dependencies.
     :option:`--venv <scalems.radical --venv>`.
 
     Ultimately, `scalems.radical` will provide more automatic assistance for this.
-    (See `https://github.com/SCALE-MS/scale-ms/issues/141`__). In the mean time,
+    (See https://github.com/SCALE-MS/scale-ms/issues/141). In the mean time,
     users should be aware that they need to update remote RADICAL installations
     whenever they update their client-side installation.
 

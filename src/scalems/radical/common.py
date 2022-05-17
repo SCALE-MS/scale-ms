@@ -148,6 +148,10 @@ class TaskDictionary(typing.TypedDict):
     :py:meth:`scalems.radical.raptor.ScaleMSMaster.request_cb()` and
     :py:meth:`scalems.radical.raptor.ScaleMSMaster.result_cb()` have the following fields.
     Result fields will not be populated until the Task runs.
+
+    For the expected fields, see the source code for
+    :py:meth:`~radical.pilot.Task.as_dict()`:
+    https://radicalpilot.readthedocs.io/en/stable/_modules/radical/pilot/task.html#Task.as_dict
     """
     uid: str
     """Canonical identifier for the Task.
@@ -158,19 +162,19 @@ class TaskDictionary(typing.TypedDict):
     description: _RaptorTaskDescription
     """Encoding of the original task description."""
 
-    out: str
+    stdout: str
     """Task standard output."""
 
-    err: str
+    stderr: str
     """Task standard error."""
 
-    ret: int
+    exit_code: int
     """Function return code."""
 
-    val: typing.Any
+    return_value: typing.Any
     """Function return value."""
 
-    exc: typing.Tuple[str, str]
+    exception: typing.Tuple[str, str]
     """Exception type name and message."""
 
     state: str

@@ -134,7 +134,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     await asyncio.sleep(60)
     # TODO: Try to find a better way to wait for previous resources to be released.
 
-    with scalems.workflow.scope(manager):
+    with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         cmd1 = scalems.executable(('/bin/echo',))

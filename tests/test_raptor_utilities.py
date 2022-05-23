@@ -11,17 +11,11 @@ except ImportError:
     rp = None
 else:
     from scalems.radical.common import RaptorWorkerConfig
-    from scalems.radical.raptor import check_module_version
     from scalems.radical.common import worker_description
     from scalems.radical.raptor import object_encoder
 
 pytestmark = pytest.mark.skipif(condition=rp is None,
                                 reason='These tests require RADICAL Pilot.')
-
-
-def test_check_module_version():
-    assert not check_module_version('scalems', '1')
-    assert check_module_version('scalems', '0a0')
 
 
 def test_master():
@@ -41,6 +35,7 @@ def test_master():
     _uid = uuid.uuid4()
     _worker_description = worker_description(
         uid='scalems_worker.' + str(_uid),
+        pre_exec=[],
         named_env='scalems_test_ve',
         cpu_processes=cores_per_worker,
         gpu_processes=gpus_per_worker,
@@ -70,6 +65,3 @@ def test_master():
     configuration = scalems.radical.raptor.Configuration.from_dict(
         json.loads(encoded)
     )
-    for module, version in configuration.versioned_modules:
-        found_version = check_module_version(module=module, minimum_version=version)
-        assert found_version

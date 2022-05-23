@@ -17,6 +17,8 @@ python-hostlist
 radical.pilot==1.14.*
 setproctitle
 tox>=2.0
+# Raptor MPI worker requirements
+mpi4py>=3
 
 # Use `pip install -r requirements-testing.txt --upgrade` to get branch updates.
 # https://github.com/radical-cybertools/radical.pilot/archive/53e85ea99345b6f50f3adfd975385be3200b750f.tar.gz

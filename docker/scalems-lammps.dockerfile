@@ -122,3 +122,6 @@ RUN cd scalems && \
 
 #COPY --chown=rp:radical examples/basic_gmxapi/*.py $EXAMPLE/examples/basic_gmxapi/
 #COPY --chown=rp:radical testdata $EXAMPLE/testdata
+
+# Restore the user for the default entry point (the mongodb server)
+USER mongodb

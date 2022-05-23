@@ -102,7 +102,7 @@ COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.tx
 RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
 
 COPY --chown=rp:radical . scalems
-RUN ./rp-venv/bin/pip install --no-deps --use-feature=in-tree-build scalems/
+RUN ./rp-venv/bin/pip install --no-deps scalems/
 
 # Try to update the testdata submodule if it is missing or out of date.
 # If there are files in testdata, but it is not tracked as a git submodule,

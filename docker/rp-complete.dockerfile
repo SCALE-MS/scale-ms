@@ -63,13 +63,14 @@ USER rp
 
 WORKDIR /home/rp
 
-RUN python3.8 -m venv rp-venv
+ENV RPVENV=/home/rp/rp-venv
+RUN python3.8 -m venv $RPVENV
 
-RUN rp-venv/bin/pip install --upgrade \
+RUN $RPVENV/bin/pip install --upgrade \
         pip \
         setuptools \
         wheel && \
-    rp-venv/bin/pip install --upgrade \
+    $RPVENV/bin/pip install --upgrade \
         build \
         coverage \
         flake8 \
@@ -91,7 +92,7 @@ ARG RPREF="v1.14.0"
 #ARG RPREF="project/scalems"
 # Note: radical.pilot does not work properly with an "editable install"
 RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
-    . ~rp/rp-venv/bin/activate && \
+    . $RPVENV/bin/activate && \
     cd ~rp/radical.pilot && \
     pip install --no-cache-dir --no-build-isolation .
 

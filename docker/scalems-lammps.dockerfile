@@ -66,12 +66,12 @@ USER rp
 
 WORKDIR /home/rp
 
-RUN /home/rp/rp-venv/bin/pip install --upgrade pip setuptools wheel
-RUN /home/rp/rp-venv/bin/pip install --upgrade cmake
-RUN ./rp-venv/bin/pip install mpi4py
+RUN $RPVENV/bin/pip install --upgrade pip setuptools wheel
+RUN $RPVENV/bin/pip install --upgrade cmake
+RUN $RPVENV/bin/pip install mpi4py
 
 # Patch release will have a path like lammps-27May2021
-RUN . $HOME/rp-venv/bin/activate && \
+RUN . $RPVENV/bin/activate && \
     mkdir /tmp/lammps && \
     cd /tmp/lammps && \
     wget https://download.lammps.org/tars/lammps.tar.gz && \
@@ -91,18 +91,18 @@ RUN . $HOME/rp-venv/bin/activate && \
         -DPKG_COMPRESS=yes \
         -DBUILD_SHARED_LIBS=on \
         -DLAMMPS_EXCEPTIONS=on \
-        -DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV \
+        -DCMAKE_INSTALL_PREFIX=$RPVENV \
         && \
     cmake --build . && \
     cmake --build . --target install && \
     rm -rf /tmp/lammps && \
-    echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $HOME/rp-venv/bin/activate
+    echo 'export LD_LIBRARY_PATH=$RPVENV/lib:$LD_LIBRARY_PATH' >> $RPVENV/bin/activate
 
 COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
-RUN . $HOME/rp-venv/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
+RUN . $RPVENV/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
 
 COPY --chown=rp:radical . scalems
-RUN ./rp-venv/bin/pip install --no-deps scalems/
+RUN $RPVENV/bin/pip install --no-deps scalems/
 
 # Try to update the testdata submodule if it is missing or out of date.
 # If there are files in testdata, but it is not tracked as a git submodule,

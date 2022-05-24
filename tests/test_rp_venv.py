@@ -4,6 +4,8 @@ import os
 import typing
 import urllib.parse
 
+import packaging.version
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -74,20 +76,66 @@ def test_prepare_venv(rp_task_manager, sdist):
         'wheel']
     packages.extend(sdist_session_paths.values())
 
+    python_version = '3.8'
+
     pilot.prepare_env(env_name='scalems_env',
                       env_spec={'type': 'virtualenv',
-                                'version': '3.8',
+                                'version': python_version,
                                 'setup': packages})
 
-    td = rp.TaskDescription({'executable': 'python3',
-                             'arguments': ['-c',
-                                           'import radical.pilot as rp;'
-                                           'import scalems;'
-                                           'print(rp.version_detail);'
-                                           'print(scalems.__file__)'],
-                             'named_env': 'scalems_env'})
-    task = tmgr.submit_tasks(td)
+    rp_check_desc = rp.TaskDescription(
+        {
+            'executable': 'python3',
+            'arguments': [
+                '-c',
+                'import radical.pilot as rp; print(rp.version_detail)'
+            ],
+            'named_env': 'scalems_env'
+        }
+    )
+    scalems_check_desc = rp.TaskDescription(
+        {
+            'executable': 'python3',
+            'arguments': [
+                '-c',
+                'import scalems; print(scalems.__file__)'
+            ],
+            'named_env': 'scalems_env'
+        }
+    )
+
+    rp_check_task, scalems_check_task = \
+        tmgr.submit_tasks([rp_check_desc, scalems_check_desc])
     tmgr.wait_tasks()
-    logger.debug(f'RP version details and scalems location: {task.stdout}')
-    logger.debug(f'Task stderr: {task.stderr}')
-    assert task.exit_code == 0
+
+    rp_version = rp_check_task.stdout.rstrip()
+    rp_version = packaging.version.parse(rp_version)
+    if rp_check_task.stdout:
+        logger.debug(f'RP version details: {rp_version}')
+    if rp_check_task.stderr:
+        logger.debug(f'Task stderr: {rp_check_task.stderr}')
+    assert rp_version == packaging.version.parse(rp.version)
+    assert rp_check_task.exit_code == 0
+
+    if scalems_check_task.stdout:
+        logger.debug(f'scalems package module: {scalems_check_task.stdout}')
+    if scalems_check_task.stderr:
+        logger.debug(f'Task stderr: {scalems_check_task.stderr}')
+    assert scalems_check_task.exit_code == 0
+
+    # Check for fix to https://github.com/radical-cybertools/radical.pilot/issues/2624
+    if rp_version >= packaging.version.parse('1.15'):
+        td = rp.TaskDescription(
+            {
+                'executable': 'python3',
+                'arguments': ['-c', 'import sys; print(sys.version)'],
+                'named_env': 'scalems_env'
+            }
+        )
+        task = tmgr.submit_tasks(td)
+        tmgr.wait_tasks()
+        assert task.exit_code == 0
+        remote_py_version = task.stdout.rstrip()
+        requested_version = packaging.version.parse(python_version)
+        remote_py_version = packaging.version.parse(remote_py_version)
+        assert requested_version == remote_py_version

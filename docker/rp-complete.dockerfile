@@ -7,7 +7,7 @@
 #     docker run --rm --name rp_test -d scalems/rp-complete
 #     # Either use '-d' with 'run' or issue the 'exec' in a separate terminal
 #     # after waiting a few seconds for the DB to be ready to accept connections.
-#     docker exec -ti -u rp rp_test bash -c "cd ~/radical.pilot && ~/rp-venv/bin/python -m pytest tests"
+#     docker exec -ti -u rp rp_test bash -c "cd ~/radical.pilot && . ~/rp-venv/bin/activate && python -m pytest tests"
 #     # The examples need the venv to be activated in order to find supporting
 #     # shell scripts on the default PATH. The current working directory also
 #     # needs to be writable.
@@ -38,8 +38,9 @@ RUN apt-get update && \
         locales \
         openmpi-bin \
         openssh-server \
+        python3.8 \
         python3.8-dev \
-        python3-venv \
+        python3.8-venv \
         tox \
         vim \
         wget && \
@@ -48,14 +49,8 @@ RUN apt-get update && \
 RUN locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8
 
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y --no-install-recommends \
-        python3.8-venv \
-         && \
-    rm -rf /var/lib/apt/lists/*
-
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10
 
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 

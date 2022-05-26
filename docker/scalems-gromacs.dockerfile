@@ -1,8 +1,11 @@
 # Extend base scalems testing image with a gromacs installation.
 #
 # Summary:
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile .
 #     docker build -t scalems/gromacs -f scalems-gromacs.dockerfile ..
-#     docker run --rm -ti scalems/gromacs bash
+#     docker run --rm -ti -u rp scalems/gromacs bash
+#     # or
+#     docker run --rm --name scalems_test -d scalems/gromacs
 #
 # Before building this image, pull or build the `rp-complete` image from `rp-complete.dockerfile`
 #     docker build -t scalems/rp-complete -f rp-complete.dockerfile .
@@ -13,13 +16,13 @@
 #     docker pull scalems/gromacs
 #     docker build -t scalems/gromacs --cache-from scalems/gromacs -f scalems-gromacs.dockerfile ..
 #
-# Example usage (Python):
-#     docker run --rm -ti scalems/gromacs bash
+# Example usage---LAMMPS+Python only:
+#     docker run --rm -ti -u rp scalems/gromacs bash
 #     $ . ./rp-venv/bin/activate
 #     $ $RPVENV/bin/lmp ...
 #
-# Example usage (Python):
-#     docker run --rm -ti scalems/gromacs bash
+# Example usage---GROMACS+Python only:
+#     docker run --rm -ti -u rp scalems/gromacs bash
 #     $ . ./rp-venv/bin/activate
 #     $ python
 #     >>> import gmxapi as gmx
@@ -32,10 +35,11 @@
 # 2. Wait a few seconds for the MongoDB service to start.
 # 3. Exec the tests in the container.
 #
-#     docker run --rm --name scalems_test -u root -d scalems/gromacs
+#     docker run --rm --name scalems_test -d scalems/gromacs
 #     sleep 3
-#     docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests --rp-resource=local.localhost"
-#     docker exec -ti scalems_test bash -c ". rp-venv/bin/activate && python -m scalems.radical --resource=local.localhost --venv /home/rp/rp-venv scalems/examples/basic/echo.py hi there"
+#     docker exec -ti -u rp scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests --rp-resource=local.localhost"
+#     docker exec -ti -u rp scalems_test bash -c ". rp-venv/bin/activate && python -m scalems.radical --resource=local.localhost --venv /home/rp/rp-venv scalems/examples/basic/echo.py hi there"
+#     docker exec -ti -u rp scalems_test bash -c 'cat 0*0/stdout'
 #     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile

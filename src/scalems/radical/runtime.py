@@ -41,6 +41,7 @@ __all__ = (
 
 import argparse
 import asyncio
+import collections.abc
 import contextlib
 import contextvars
 import dataclasses
@@ -591,8 +592,9 @@ def _(namespace: argparse.Namespace) -> Configuration:
             }
     }
     if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:
-        logger.debug(f'Pilot options: {repr(namespace.pilot_option)}')
-        rp_resource_params.update(namespace.pilot_option)
+        user_options = _PilotDescriptionProxy.normalize_values(namespace.pilot_option)
+        rp_resource_params['PilotDescription'].update(user_options)
+        logger.debug(f'Pilot options: {repr(rp_resource_params["PilotDescription"])}')
 
     config = Configuration(
         execution_target=namespace.resource,
@@ -600,6 +602,164 @@ def _(namespace: argparse.Namespace) -> Configuration:
         rp_resource_params=rp_resource_params
     )
     return _set_configuration(config)
+
+
+async def new_session():
+    """Start a new RADICAL Pilot Session.
+
+    Returns:
+        Runtime instance.
+
+    """
+    to_thread = _utility.get_to_thread()
+
+    # Note that we cannot resolve the full _resource config until we have a Session
+    # object.
+    # We cannot get the default session config until after creating the Session,
+    # so we don't have a template for allowed, required, or default values.
+    # Question: does the provided *cfg* need to be complete? Or will it be merged
+    # with default values from some internal definition, such as by dict.update()?
+    # I don't remember what the use cases are for overriding the default session
+    # config.
+    session_config = None
+
+    # Note: We may soon want Session ID to be deterministic (or to be re-used?).
+    session_id = None
+
+    # Note: radical.pilot.Session creation causes several deprecation warnings.
+    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', category=DeprecationWarning)
+        # This would be a good time to `await`, if an event-loop friendly
+        # Session creation function becomes available.
+        session_args = dict(uid=session_id, cfg=session_config)
+        _task = asyncio.create_task(to_thread(rp.Session, (), **session_args),
+                                    name='create-Session')
+        session = await _task
+        runtime = Runtime(session=session)
+    return runtime
+
+
+@functools.singledispatch
+def normalize(hint: object, value):
+    """Dispatching value normalizer.
+
+    Normalize value according to hint.
+
+    Raises:
+        MissingImplementationError: if key could not be dispatched for normalization.
+        TypeError: if value could not be normalized according to hint.
+
+    """
+    raise MissingImplementationError(f'No dispatcher for {repr(value)} -> {repr(hint)}.')
+
+
+@normalize.register
+def _(hint: type, value):
+    return hint(value)
+
+
+@normalize.register
+def _(hint: list, value):
+    if len(hint) != 1:
+        raise InternalError(f'Expected a list of one type element. Got {repr(hint)}.')
+    if isinstance(value, (str, bytes)) or not isinstance(value, collections.abc.Iterable):
+        raise TypeError(f'Expected a list-like value. Got {repr(value)}.')
+    return [normalize(hint[0], element) for element in value]
+
+
+@normalize.register
+def _(hint: dict, value):
+    try:
+        for key in value.keys():
+            if key not in hint:
+                raise MissingImplementationError(f'{key} is not a valid field.')
+        items: tuple = value.items()
+    except AttributeError:
+        raise TypeError(f'Expected a dict-like value. Got {repr(value)}.')
+    return {key: normalize(hint[key], val) for key, val in items}
+
+
+class _PilotDescriptionProxy(rp.PilotDescription):
+    """Use PilotDescription details to normalize the value types of description fields."""
+    assert hasattr(rp.PilotDescription, '_schema')
+    assert isinstance(rp.PilotDescription._schema, dict)
+    assert all(map(lambda v: isinstance(v, (type, list, dict, type(None))), rp.PilotDescription._schema.values()))
+
+    @classmethod
+    def normalize_values(cls, desc: typing.Sequence[tuple]):
+        """Generate normalized key-value tuples.
+
+        For values that are not already of the appropriate type, cast according to
+        PilotDescription._schema.
+
+        Args:
+            desc: sequence of key-value tuples for PilotDescription fields.
+
+        Raises:
+            MissingImplementationError: if key could not be dispatched for normalization.
+            TypeError: if value could not be normalized according to hint.
+
+        """
+        for key, value in desc:
+            try:
+                hint = cls._schema[key]
+            except KeyError:
+                raise MissingImplementationError(f'{key} is not a valid PilotDescription field.')
+            if not isinstance(hint, type):
+                # This may be overly aggressive, but at the moment we are only normalizing values from
+                # the command line parser, and we don't have a good way to pre-parse list or dict values.
+                raise MissingImplementationError(f'No handler for {key} field of type {repr(hint)}.')
+
+            if isinstance(None, hint) or isinstance(value, hint):
+                yield key, value
+            else:
+                yield key, normalize(hint, value)
+
+
+async def add_pilot(runtime: Runtime, **kwargs):
+    """Get a new rp.Pilot and add it to the Runtime instance."""
+    if kwargs:
+        message = f'scalems.radical.runtime.add_pilot() version {scalems.__version__} ' \
+                  + 'does not support keyword arguments ' \
+                  + ', '.join(kwargs.keys())
+        raise MissingImplementationError(message)
+    pilot_manager = runtime.pilot_manager()
+    task_manager = runtime.task_manager()
+    if not pilot_manager or not task_manager:
+        raise ProtocolError(f'Runtime {runtime} is not ready to use.')
+
+    # Note: Consider fetching through the Runtime instance.
+    config: Configuration = configuration()
+
+    to_thread = _utility.get_to_thread()
+
+    # Warning: The Pilot ID needs to be unique within the Session.
+    pilot_description = {
+        'uid': f'pilot.{str(uuid.uuid4())}'
+    }
+    pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
+    pilot_description.update({'resource': config.execution_target})
+
+    # TODO: Pilot venv (#90, #94).
+    # Currently, Pilot venv must be specified in the JSON file for resource
+    # definitions.
+    pilot_description = rp.PilotDescription(pilot_description)
+    logger.debug('Submitting PilotDescription {}'.format(repr(
+        pilot_description.as_dict())))
+    pilot: rp.Pilot = await asyncio.create_task(
+        to_thread(pilot_manager.submit_pilots, pilot_description),
+        name='submit_pilots'
+    )
+    logger.debug(f'Got Pilot {pilot.uid}: {pilot.as_dict()}')
+    runtime.pilot(pilot)
+
+    await asyncio.create_task(
+        to_thread(task_manager.add_pilots, pilot),
+        name='add_pilots'
+    )
+
+    return pilot
 
 
 class RPDispatchingExecutor(RuntimeManager):
@@ -748,47 +908,19 @@ class RPDispatchingExecutor(RuntimeManager):
             # Start the Session.
             #
 
-            # Note that we cannot resolve the full _resource config until we have a Session
-            # object.
-            # We cannot get the default session config until after creating the Session,
-            # so we don't have a template for allowed, required, or default values.
-            # Question: does the provided *cfg* need to be complete? Or will it be merged
-            # with default values from some internal definition, such as by dict.update()?
-            # I don't remember what the use cases are for overriding the default session
-            # config.
-            session_config = None
-            # At some point soon, we need to track Session ID for the workflow metadata.
-            # We may also want Session ID to be deterministic (or to be re-used?).
-            session_id = None
-
             # Note: the current implementation implies that only one Task for the dispatcher
             # will exist at a time. We are further assuming that there will probably only
             # be one Task per the lifetime of the dispatcher object.
             # We could choose another approach and change our assumptions, if appropriate.
             logger.debug('Entering RP dispatching context. Waiting for rp.Session.')
 
-            # Note: radical.pilot.Session creation causes several deprecation warnings.
-            # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-            with warnings.catch_warnings():
-                warnings.simplefilter('ignore', category=DeprecationWarning)
-                # This would be a good time to `await`, if an event-loop friendly
-                # Session creation function becomes available.
-                session_args = dict(uid=session_id, cfg=session_config)
-                _task = asyncio.create_task(to_thread(rp.Session, (), **session_args),
-                                            name='create-Session')
-                session = await _task
-                _runtime = Runtime(session=session)
-                # runtime = Runtime(session=rp.Session(uid=session_id, cfg=session_config))
+            _runtime: Runtime = await new_session()
+            # At some point soon, we need to track Session ID for the workflow metadata.
             session_id = _runtime.session.uid
             # Do we want to log this somewhere?
             # session_config = copy.deepcopy(self.session.cfg.as_dict())
             logger.debug('RP dispatcher acquired session {}'.format(session_id))
 
-            # We can launch an initial Pilot, but we may have to run further Pilots
-            # during self._queue_runner_task (or while servicing scalems.wait() within the
-            # with block) to handle dynamic work load requirements.
-            # Optionally, we could refrain from launching the pilot here, at all,
-            # but it seems like a good chance to start bootstrapping the agent environment.
             logger.debug('Launching PilotManager.')
             pilot_manager = await asyncio.create_task(
                 to_thread(rp.PilotManager, session=_runtime.session),
@@ -808,36 +940,18 @@ class RPDispatchingExecutor(RuntimeManager):
             #
             # Get a Pilot
             #
+            # We can launch an initial Pilot, but we may have to run further Pilots
+            # during self._queue_runner_task (or while servicing scalems.wait() within the
+            # with block) to handle dynamic work load requirements.
+            # Optionally, we could refrain from launching the pilot here, at all,
+            # but it seems like a good chance to start bootstrapping the agent environment.
+            #
+            # How and when should we update the pilot description?
 
-            # Warning: The Pilot ID needs to be unique within the Session.
-            pilot_description = {
-                'uid': f'pilot.{str(uuid.uuid4())}'
-            }
-            pilot_description.update(config.rp_resource_params.get('PilotDescription', {}))
-            pilot_description.update({'resource': config.execution_target})
-
-            # TODO: Pilot venv (#90, #94).
-            # Currently, Pilot venv must be specified in the JSON file for resource
-            # definitions.
-            pilot_description = rp.PilotDescription(pilot_description)
-
-            # How and when should we update pilot description?
-            logger.debug('Submitting PilotDescription {}'.format(repr(
-                pilot_description)))
-            pilot: rp.Pilot = await asyncio.create_task(
-                to_thread(pilot_manager.submit_pilots, pilot_description),
-                name='submit_pilots'
-            )
-            logger.debug('Got Pilot {}'.format(pilot.uid))
-            _runtime.pilot(pilot)
-
-            await asyncio.create_task(
-                to_thread(task_manager.add_pilots, pilot),
-                name='add_pilots'
-            )
+            pilot = await add_pilot(runtime=_runtime)
             logger.debug('Added Pilot {} to task manager {}.'.format(
                 pilot.uid,
-                task_manager.uid))
+                _runtime.task_manager().uid))
 
             #
             # Get a scheduler task.

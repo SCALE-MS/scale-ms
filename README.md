@@ -53,5 +53,5 @@ From the root of a local copy of the repository, build HTML documentation for th
 Then open `./web/index.html`
 
 Note: Depending on your Sphinx installation, you may have a `sphinx-build` executable
-or you may access the :py:mod:`sphinx` module with the `-m` Python interpreter option
+or you may access the `sphinx` module with the `-m` Python interpreter option
 (`python -m sphinx ...`).

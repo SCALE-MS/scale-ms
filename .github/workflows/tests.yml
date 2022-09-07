@@ -117,7 +117,7 @@ jobs:
         fail_ci_if_error: true
         name: codecov-local-${{ matrix.python-version }}
 
-  rp_local_rct_1_16:
+  rp_local:
 
     runs-on: ubuntu-latest
     timeout-minutes: 20

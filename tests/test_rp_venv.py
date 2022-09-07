@@ -1,8 +1,12 @@
 """Tests related to RP handling of virtual environments."""
 import logging
 import os
+import shlex
+import shutil
+import subprocess
 import typing
-import urllib.parse
+from urllib.parse import ParseResult
+from urllib.parse import urlparse
 
 import packaging.version
 
@@ -10,7 +14,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def test_prepare_venv(rp_task_manager, sdist):
+def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     Note that we cannot wait on the environment preparation directly, but we can define
@@ -52,7 +56,7 @@ def test_prepare_venv(rp_task_manager, sdist):
     for path in sdist_local_paths.values():
         assert os.path.exists(path)
 
-    sandbox_path = urllib.parse.urlparse(pilot.pilot_sandbox).path
+    sandbox_path = urlparse(pilot.pilot_sandbox).path
 
     sdist_session_paths = {name: os.path.join(sandbox_path, sdist_names[name]) for name in sdist_names.keys()}
 
@@ -76,8 +80,67 @@ def test_prepare_venv(rp_task_manager, sdist):
         'wheel']
     packages.extend(sdist_session_paths.values())
 
+    # We test in multiple environments, so we have to check what Python
+    # interpreter is installed in the current target resource.
+    # Note that, at this time, we use a single (user-specified) venv for the
+    # Pilot agent and for the tasks.
+    executable = os.path.join(rp_venv, 'bin', 'python3')
+    scriptlet = 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")'
+    access = pilot.description['access_schema']
+    if access == 'local':
+        command = [
+            executable,
+            '-c',
+            scriptlet]
+        process = subprocess.run(
+            args=command,
+            capture_output=True,
+            check=True,
+            text=True
+        )
+    else:
+        # We don't have automated handling for other access methods at this time.
+        assert access == 'ssh'
+
+        domain, target = str(pilot.resource).split('.')
+        resource_config = ru.Config(module='radical.pilot.resource',
+                           name=domain)[target]
+        ssh_target = resource_config[access]['job_manager_endpoint']
+        result: ParseResult = urlparse(ssh_target)
+        assert result.scheme == 'ssh'
+        user = result.username
+        port = result.port
+        host = result.hostname
+
+        ssh = [shutil.which('ssh')]
+        if user:
+            ssh.extend(['-l', user])
+        if port:
+            ssh.extend(['-p', str(port)])
+        ssh.append(host)
+
+        command = [
+            executable,
+            '-c',
+            shlex.quote(scriptlet)]
+
+        logger.debug(f'Executing subprocess {ssh + command}')
+        process = subprocess.run(
+            ssh + command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            encoding='utf-8')
+        if process.returncode != 0:
+            logger.error('Failed ssh stdout: ' + str(process.stdout))
+            logger.error('Failed ssh stderr: ' + str(process.stderr))
+
+    assert process.returncode == 0
+    python_version = process.stdout.rstrip()
+    logger.debug(f'Requesting Python version {python_version}.')
     pilot.prepare_env(env_name='scalems_env',
                       env_spec={'type': 'virtualenv',
+                                'version': python_version,
                                 'setup': packages})
 
     rp_check_desc = rp.TaskDescription(
@@ -119,3 +182,20 @@ def test_prepare_venv(rp_task_manager, sdist):
     if scalems_check_task.stderr:
         logger.debug(f'Task stderr: {scalems_check_task.stderr}')
     assert scalems_check_task.exit_code == 0
+
+    # Check for fix to https://github.com/radical-cybertools/radical.pilot/issues/2624
+    if rp_version >= packaging.version.parse('1.15'):
+        td = rp.TaskDescription(
+            {
+                'executable': 'python3',
+                'arguments': ['-c', 'import sys; print(sys.version)'],
+                'named_env': 'scalems_env'
+            }
+        )
+        task = tmgr.submit_tasks(td)
+        tmgr.wait_tasks()
+        assert task.exit_code == 0
+        requested_version = packaging.version.parse(python_version)
+        remote_py_version = '.'.join(task.stdout.rstrip().split('.')[0:2])
+        remote_py_version = packaging.version.parse(remote_py_version)
+        assert requested_version == remote_py_version

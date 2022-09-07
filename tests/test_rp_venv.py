@@ -136,9 +136,7 @@ def test_prepare_venv(rp_task_manager, sdist):
         task = tmgr.submit_tasks(td)
         tmgr.wait_tasks()
         assert task.exit_code == 0
-        remote_py_version = task.stdout.rstrip()
         requested_version = packaging.version.parse(python_version)
+        remote_py_version = '.'.join(task.stdout.rstrip().split('.')[0:2])
         remote_py_version = packaging.version.parse(remote_py_version)
-        remote_py_version = packaging.version.Version('.'.join((remote_py_version.major,
-                                                                remote_py_version.minor)))
         assert requested_version == remote_py_version

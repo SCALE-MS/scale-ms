@@ -1,6 +1,7 @@
 """Tests related to RP handling of virtual environments."""
 import logging
 import os
+import platform
 import typing
 import urllib.parse
 
@@ -76,8 +77,8 @@ def test_prepare_venv(rp_task_manager, sdist):
         'wheel']
     packages.extend(sdist_session_paths.values())
 
-    python_version = '3.8'
-
+    platform_version = platform.python_version()
+    python_version = '.'.join(platform_version.split('.')[0:2])
     pilot.prepare_env(env_name='scalems_env',
                       env_spec={'type': 'virtualenv',
                                 'version': python_version,

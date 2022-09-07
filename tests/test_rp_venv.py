@@ -139,4 +139,6 @@ def test_prepare_venv(rp_task_manager, sdist):
         remote_py_version = task.stdout.rstrip()
         requested_version = packaging.version.parse(python_version)
         remote_py_version = packaging.version.parse(remote_py_version)
+        remote_py_version = packaging.version.Version('.'.join((remote_py_version.major,
+                                                                remote_py_version.minor)))
         assert requested_version == remote_py_version

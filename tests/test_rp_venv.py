@@ -1,7 +1,6 @@
 """Tests related to RP handling of virtual environments."""
 import logging
 import os
-import platform
 import typing
 import urllib.parse
 

@@ -77,11 +77,8 @@ def test_prepare_venv(rp_task_manager, sdist):
         'wheel']
     packages.extend(sdist_session_paths.values())
 
-    platform_version = platform.python_version()
-    python_version = '.'.join(platform_version.split('.')[0:2])
     pilot.prepare_env(env_name='scalems_env',
                       env_spec={'type': 'virtualenv',
-                                'version': python_version,
                                 'setup': packages})
 
     rp_check_desc = rp.TaskDescription(
@@ -123,20 +120,3 @@ def test_prepare_venv(rp_task_manager, sdist):
     if scalems_check_task.stderr:
         logger.debug(f'Task stderr: {scalems_check_task.stderr}')
     assert scalems_check_task.exit_code == 0
-
-    # Check for fix to https://github.com/radical-cybertools/radical.pilot/issues/2624
-    if rp_version >= packaging.version.parse('1.15'):
-        td = rp.TaskDescription(
-            {
-                'executable': 'python3',
-                'arguments': ['-c', 'import sys; print(sys.version)'],
-                'named_env': 'scalems_env'
-            }
-        )
-        task = tmgr.submit_tasks(td)
-        tmgr.wait_tasks()
-        assert task.exit_code == 0
-        requested_version = packaging.version.parse(python_version)
-        remote_py_version = '.'.join(task.stdout.rstrip().split('.')[0:2])
-        remote_py_version = packaging.version.parse(remote_py_version)
-        assert requested_version == remote_py_version

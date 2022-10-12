@@ -35,7 +35,7 @@ def test_master():
         pre_exec=[],
         named_env='scalems_test_ve',
         cpu_processes=cores_per_worker,
-        gpus_per_process=0
+        gpus_per_process=gpus_per_worker
     )
     _worker_description['uid'] = 'raptor-worker-test'
 

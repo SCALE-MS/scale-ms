@@ -181,6 +181,23 @@ class TaskDictionary(typing.TypedDict):
     """RADICAL Pilot Task state."""
 
 
+class WorkerDescriptionDict(typing.TypedDict):
+    """Worker description.
+
+    See Also:
+        * :py:meth:`~radical.pilot.raptor.Master.submit_workers()`
+        * https://github.com/radical-cybertools/radical.pilot/issues/2731
+    """
+    cores_per_rank: typing.Optional[int]
+    environment: typing.Optional[dict]
+    gpus_per_rank: typing.Optional[int]
+    named_env: typing.Optional[str]
+    pre_exec: typing.Optional[list]
+    ranks: int
+    worker_class: typing.Optional[str]
+    worker_file: typing.Optional[str]
+
+
 class RaptorWorkerConfig(typing.TypedDict):
     """Container for the raptor worker parameters.
 
@@ -193,13 +210,8 @@ class RaptorWorkerConfig(typing.TypedDict):
 
     Create with `worker_description()`.
     """
-    descr: dict
+    descr: WorkerDescriptionDict
     """Worker description.
-
-    Fields:
-        named_env (str): venv for the Worker task.
-        worker_class (str): raptor concrete Worker class to base the Worker task on, built-in or custom.
-        worker_file (str, optional): module from which to import *worker_class*.
 
     See Also:
         :py:meth:`~radical.pilot.raptor.Master.submit_workers()`
@@ -210,11 +222,10 @@ class RaptorWorkerConfig(typing.TypedDict):
 
 
 def worker_description(*,
-                       uid: str,
                        named_env: str,
                        pre_exec: typing.Iterable[str] = (),
                        cpu_processes: int = None,
-                       gpu_processes: int = None,
+                       gpus_per_process: int = None,
                        ):
     """Get a worker description for Master.submit_workers().
 
@@ -224,20 +235,22 @@ def worker_description(*,
     Worker environment for dispatching scalems tasks.
 
     Keyword Args:
-        cpu_processes (int, optional): See `radical.pilot.TaskDescription.cpu_processes`
-        gpu_processes (int, optional): See `radical.pilot.TaskDescription.gpu_processes`
+        cpu_processes (int, optional): See `radical.pilot.TaskDescription.ranks`
+        gpus_per_process (int, optional): See `radical.pilot.TaskDescription.gpus_per_rank`
         named_env (str): Python virtual environment registered with `Pilot.prepare_env`
             (currently ignored. see #90).
         pre_exec (list[str]): Shell command lines for preparing the worker environment.
-        uid (str): Identifier for the worker task.
+
+    The *uid* for the Worker task is defined by the Master.submit_workers().
     """
-    descr = {
-        'uid': uid,
-        # 'named_env': named_env,
-        'pre_exec': list(pre_exec),
-        'worker_class': 'MPIWorker',
-        # 'worker_file': None,
-        'cpu_processes': cpu_processes,
-        'gpu_processes': gpu_processes
-    }
+    descr = WorkerDescriptionDict(
+        cores_per_rank=1,
+        environment={},
+        gpus_per_rank=gpus_per_process,
+        named_env=None,
+        pre_exec=list(pre_exec),
+        ranks=cpu_processes,
+        worker_class='MPIWorker',
+        worker_file=None,
+    )
     return descr

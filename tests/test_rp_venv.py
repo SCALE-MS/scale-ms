@@ -9,11 +9,13 @@ from urllib.parse import ParseResult
 from urllib.parse import urlparse
 
 import packaging.version
+import pytest
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+@pytest.mark.skip(reason='Currently unused.')
 def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 

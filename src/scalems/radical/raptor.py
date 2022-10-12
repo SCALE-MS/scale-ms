@@ -172,11 +172,7 @@ class ScaleMSMaster(rp.raptor.Master):
                 raise SoftwareCompatibilityError(
                     f'{module} version {found_version} not compatible with {version}.'
                 )
-        kwargs = {}
-        rp_version = packaging.version.parse(rp.version_short)
-        if rp_version < packaging.version.Version('1.15'):
-            kwargs['cfg'] = {}
-        super(ScaleMSMaster, self).__init__(**kwargs)
+        super(ScaleMSMaster, self).__init__()
 
     def result_cb(self, tasks: typing.Sequence[TaskDictionary]):
         """SCALE-MS specific handling of tasks completed by the collaborating Worker(s).
@@ -260,6 +256,7 @@ def master():
     logger.debug('Master started.')
 
     # TODO: Confirm workers start successfully or produce useful error.
+    # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
 
     _master.join()
     logger.debug('Master joined.')

@@ -1,5 +1,4 @@
 import json
-import uuid
 
 import packaging.version
 import pytest

@@ -219,7 +219,7 @@ jobs:
   rp_ssh:
 
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       mongodb:
         image: mongo
@@ -275,7 +275,7 @@ jobs:
         pip freeze
         radical-stack
     - name: Test local.github with pytest
-      timeout-minutes: 15
+      timeout-minutes: 20
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -331,7 +331,7 @@ jobs:
   rp_ssh_head:
 
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     services:
       mongodb:
         image: mongo

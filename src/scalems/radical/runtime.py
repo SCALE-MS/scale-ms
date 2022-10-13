@@ -377,18 +377,14 @@ async def _master_input(filestore: FileStore, pre_exec: list, worker_venv: str) 
     cores_per_worker = 1
     gpus_per_worker = 0
 
-    # Worker tasks may not appear unique, but must be uniquely identified within the
-    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
-    # information at this time, we can generate a random ID and track it in our metadata.
-    worker_identity = EphemeralIdentifier()
     task_metadata = worker_description(
-        uid='scalems_worker.' + str(worker_identity),
         named_env=worker_venv,
         pre_exec=pre_exec,
         cpu_processes=cores_per_worker,
-        gpu_processes=gpus_per_worker
+        gpus_per_process=gpus_per_worker
     )
-    filestore.add_task(worker_identity, **task_metadata)
+    # TODO: Decide on how to identify the workers from the client side.
+    # filestore.add_task(worker_identity, **task_metadata)
 
     # TODO: Add additional dependencies that we can infer from the workflow.
     versioned_modules = (
@@ -426,7 +422,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     """Establish the radical.pilot.raptor.Master task.
 
     Create a master rp.Task (running the scalems_rp_master script) with the
-    provide *name* to be referenced as the *scheduler* for raptor tasks.
+    provided *name* to be referenced as the *scheduler* for raptor tasks.
 
     Returns the rp.Task for the master script once the Master is ready to
     receive submissions.
@@ -440,6 +436,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     """
     # define a raptor.scalems master and launch it within the pilot
     td = rp.TaskDescription()
+    td.mode = rp.RAPTOR_MASTER
 
     td.pre_exec = pre_exec
     td.stage_on_error = True
@@ -468,6 +465,8 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
 
+    # The master uid is used as the `scheduler` value for raptor task routing.
+    # TODO(#108): Use caller-provided *name* for master_identity.
     # Master tasks may not appear unique, but must be uniquely identified within the
     # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
     # information at this time, we can generate a random ID and track it in our metadata.
@@ -480,7 +479,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     td.input_staging = [
         {
             'source': config_file.as_uri(),
-            'target': f'task://{config_file_name}',
+            'target': f'{config_file_name}',
             'action': rp.TRANSFER
         }
     ]

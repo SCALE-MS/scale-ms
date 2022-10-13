@@ -2,10 +2,10 @@
 import logging
 import os
 import platform
+import sys
 import shlex
 import shutil
 import subprocess
-import sys
 import typing
 from urllib.parse import ParseResult
 from urllib.parse import urlparse
@@ -98,6 +98,7 @@ def test_register_venv(cleandir, pilot_description):
         assert env_path + '/bin/python' in task.stdout
 
 
+@pytest.mark.skip(reason='Currently unused.')
 def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 

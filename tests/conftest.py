@@ -88,7 +88,7 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    # Ref https://docs.pytest.org/en/latest/example/simple.html#control-skipping-of-tests-according-to-command-line-option
+    # Ref https://docs.pytest.org/en/latest/example/simple.html#control-skipping-of-tests-according-to-command-line-option  # noqa: E501
     if config.getoption("--experimental"):
         # --experimental given in cli: do not skip experimental tests
         return

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
+@pytest.mark.experimental
 def test_register_venv(cleandir, rp_task_manager, rp_venv):
     """Use prepare_env() to register an existing venv."""
     import radical.pilot as rp

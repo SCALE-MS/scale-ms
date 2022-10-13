@@ -393,7 +393,7 @@ jobs:
         pip freeze
         radical-stack
     - name: Test local.github with pytest
-      timeout-minutes: 15
+      timeout-minutes: 20
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -412,7 +412,8 @@ jobs:
             --cov=scalems --cov-report=xml:coverage-$file.xml \
             -rA -l --full-trace --log-cli-level=debug \
             tests/$file \
-            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
+            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
+            --experimental
         done
     - name: Command line tests
       timeout-minutes: 3

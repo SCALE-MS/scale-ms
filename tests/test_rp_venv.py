@@ -191,8 +191,9 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
         assert access == 'ssh'
 
         domain, target = str(pilot.resource).split('.')
-        resource_config = ru.Config(module='radical.pilot.resource',
-                           name=domain)[target]
+        resource_config = ru.Config(
+            module='radical.pilot.resource',
+            name=domain)[target]
         ssh_target = resource_config[access]['job_manager_endpoint']
         result: ParseResult = urlparse(ssh_target)
         assert result.scheme == 'ssh'
@@ -227,9 +228,11 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     python_version = process.stdout.rstrip()
     logger.debug(f'Requesting Python version {python_version}.')
     pilot.prepare_env(env_name='scalems_env',
-                      env_spec={'type': 'virtualenv',
-                                'version': python_version,
-                                'setup': packages})
+                      env_spec={
+                          'type': 'virtualenv',
+                          'version': python_version,
+                          'setup': packages
+                      })
 
     rp_check_desc = rp.TaskDescription(
         {

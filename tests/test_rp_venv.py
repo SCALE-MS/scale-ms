@@ -4,7 +4,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 import typing
 from urllib.parse import ParseResult
 from urllib.parse import urlparse
@@ -52,7 +51,7 @@ def test_register_venv(cleandir, rp_task_manager, rp_venv):
     scriptlet = f'test -d {env_path} && rm -rf {env_path} || true '
     scriptlet += f'; {executable} -m venv {env_path} '
     scriptlet += f'; . {env_path}/bin/activate '
-    scriptlet += f'; python -m pip install --upgrade pip setuptools wheel '
+    scriptlet += '; python -m pip install --upgrade pip setuptools wheel '
     scriptlet += f'; pip install radical.pilot=={rp.version}'
     command = [
         'bash',

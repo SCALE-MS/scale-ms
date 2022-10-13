@@ -78,6 +78,24 @@ def pytest_addoption(parser):
         default='always',
         help='Remove temporary test working directory "always", "never", or on "success".'
     )
+    parser.addoption(
+        "--experimental", action="store_true", default=False, help="run tests for experimental features"
+    )
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "experimental: mark test as experimental")
+
+
+def pytest_collection_modifyitems(config, items):
+    # Ref https://docs.pytest.org/en/latest/example/simple.html#control-skipping-of-tests-according-to-command-line-option  # noqa: E501
+    if config.getoption("--experimental"):
+        # --experimental given in cli: do not skip experimental tests
+        return
+    skip_experimental = pytest.mark.skip(reason="need --experimental option to run")
+    for item in items:
+        if "experimental" in item.keywords:
+            item.add_marker(skip_experimental)
 
 
 @pytest.fixture(scope='session', autouse=True)

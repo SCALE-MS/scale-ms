@@ -144,7 +144,7 @@ target venv, as well as for satisfying any other workflow software dependencies.
     the agent environment will be updated to the client-side versions automatically.
     When the task uses a separate environment,
     the user must separately update the environment named by
-    :option:`--venv <scalems.radical --venv>`.
+    :option:`--venv <scalems.radical venv>`.
 
     Ultimately, `scalems.radical` will provide more automatic assistance for this.
     (See https://github.com/SCALE-MS/scale-ms/issues/141). In the mean time,
@@ -154,12 +154,9 @@ target venv, as well as for satisfying any other workflow software dependencies.
 To reproduce the environment seen by your Tasks when interactively using the
 static venv, be sure to *activate* the venv.
 
-.. Note: the agent venv is not fully hidden in RP 1.14:
-   https://github.com/radical-cybertools/radical.pilot/issues/2609
-
 If you are using a static venv for the Pilot resource,
 you may specify the :ref:`Pilot venv <venvs>` path to
-:option:`--venv <scalems.radical --venv>`.
+:option:`--venv <scalems.radical venv>`.
 You still must make sure that the venv provides `scalems` and the other
 workflow software dependencies.
 If you are using a dynamically maintained Pilot venv (``create`` or ``update``),
@@ -172,6 +169,9 @@ then you should use a separate venv for your tasks.
 
 named_env
 """""""""
+
+.. note:: `scalems` does not currently use *prepare_env()* or *named_env*.
+    See https://github.com/SCALE-MS/scale-ms/issues/90
 
 `scalems.radical` is migrating towards more dynamic and automated Python
 environment preparation for workflow tasks.

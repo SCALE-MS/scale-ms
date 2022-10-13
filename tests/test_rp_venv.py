@@ -16,89 +16,127 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def test_register_local_venv(cleandir, pilot_description):
+def test_register_venv(cleandir, rp_task_manager, rp_venv):
     """Use prepare_env() to register an existing venv."""
     import radical.pilot as rp
-
-    access = pilot_description['access_schema']
-    # Hopefully, this requirement is temporary.
-    if access != 'local':
-        pytest.skip('This test only runs for local tests.')
+    import radical.utils as ru
 
     logger.debug(f'Client RP version is {rp.version}.')
+
+    # We only expect one pilot
+    pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
+    # We get a dictionary...
+    # assert isinstance(pilot, rp.Pilot)
+    # But it looks like it has the pilot id in it.
+    pilot_uid = typing.cast(dict, pilot)['uid']
+    pmgr_uid = typing.cast(dict, pilot)['pmgr']
+    session: rp.Session = rp_task_manager.session
+    pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
+    assert isinstance(pmgr, rp.PilotManager)
+    pilot = pmgr.get_pilots(uids=pilot_uid)
+    assert isinstance(pilot, rp.Pilot)
+    # It looks like either the pytest fixture should deliver something other than the TaskManager,
+    # or the prepare_venv part should be moved to a separate function, such as in conftest...
+
+    access = pilot.description['access_schema']
+    if access not in ('local', 'ssh'):
+        pytest.skip('This test only understands "local" and "ssh" RP access schema.')
+
+    # We use a (user-specified) venv for the Pilot agent.
+    executable = os.path.join(rp_venv, 'bin', 'python3')
 
     # Create a temporary venv for this test.
     env_name = 'test-env'
     env_path = '/tmp/test_env'
 
-    process = subprocess.run(
-        args=[
-            sys.executable,
-            '-m', 'venv',
-            env_path
-        ],
-        shell=False
-    )
-    logger.debug(f'stdout: {process.stdout}')
-    if process.stderr:
-        logger.error(f'stderr: {process.stderr}')
-    assert process.returncode == 0
+    scriptlet = f'test -d {env_path} && rm -rf {env_path} || true '
+    scriptlet += f'; {executable} -m venv {env_path} '
+    scriptlet += f'; . {env_path}/bin/activate '
+    scriptlet += f'; python -m pip install --upgrade pip setuptools wheel '
+    scriptlet += f'; pip install radical.pilot=={rp.version}'
+    command = [
+        'bash',
+        '-c',
+        scriptlet]
 
-    shell = f'. {env_path}/bin/activate; python -m pip install radical.pilot=={rp.version}'
+    if access == 'local':
+        process = subprocess.run(
+            args=command,
+            capture_output=True,
+            check=True,
+            text=True,
+            shell=False
+        )
+    else:
+        # We don't have automated handling for other access methods at this time.
+        assert access == 'ssh'
 
-    process = subprocess.run(
-        args=[
-            '/bin/bash', '-c', shell
-        ],
-        shell=False
-    )
+        domain, target = str(pilot.resource).split('.')
+        resource_config = ru.Config(
+            module='radical.pilot.resource',
+            name=domain)[target]
+        ssh_target = resource_config[access]['job_manager_endpoint']
+        result: ParseResult = urlparse(ssh_target)
+        assert result.scheme == 'ssh'
+        user = result.username
+        port = result.port
+        host = result.hostname
+
+        ssh = [shutil.which('ssh')]
+        if user:
+            ssh.extend(['-l', user])
+        if port:
+            ssh.extend(['-p', str(port)])
+        ssh.append(host)
+
+        command = [shlex.quote(arg) for arg in command]
+        logger.debug(f'Executing subprocess {ssh + command}')
+        process = subprocess.run(
+            ssh + command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=180,
+            encoding='utf-8',
+            shell=False
+        )
+        if process.returncode != 0:
+            logger.error('Failed ssh stdout: ' + str(process.stdout))
+            logger.error('Failed ssh stderr: ' + str(process.stderr))
+
     logger.debug(f'stdout: {process.stdout}')
     if process.stderr:
         logger.error(f'stderr: {process.stderr}')
     assert process.returncode == 0
 
     # Use the client-managed venv in a rp.Task with `named_env`
-    pilot_description = {
-        'resource': 'local.localhost',
-        'cores': 4,
-        'gpus': 0,
-        'runtime': 10,
-        'exit_on_error': False
-    }
-    with rp.Session() as session:
-        logger.info(f'Session ID: {session.uid}')
-        pmgr = rp.PilotManager(session=session)
-        pilot = pmgr.submit_pilots(rp.PilotDescription(pilot_description))
-        tmgr = rp.TaskManager(session=session)
-        tmgr.add_pilots(pilot)
-
-        # Register venv
-        pilot.prepare_env(
-            env_name=env_name,
-            env_spec={
-                'type': 'venv',
-                'path': env_path,
-                'setup': []
-            }
-        )
-
-        # Use the registered venv.
-        td = {
-            'executable': 'python',
-            'arguments': ['-c', 'import sys; print(sys.executable)'],
-            'named_env': env_name,
-            'pre_exec': [],
-            'stage_on_error': True,
+    # Register venv
+    pilot.prepare_env(
+        env_name=env_name,
+        env_spec={
+            'type': 'venv',
+            'path': env_path,
+            'setup': []
         }
+    )
 
-        task = tmgr.submit_tasks(rp.TaskDescription(td))
-        task.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL, timeout=120)
-        logger.info(f'state is {task.state}.')
-        if task.stderr:
-            logger.error(task.stderr)
-        assert task.exit_code == 0
-        # Confirm we used the venv we think we used.
-        assert env_path + '/bin/python' in task.stdout
+    # Use the registered venv.
+    td = {
+        'executable': 'python',
+        'arguments': ['-c', 'import sys; print(sys.executable)'],
+        'named_env': env_name,
+        'pre_exec': [],
+        'stage_on_error': True,
+    }
+
+    task = rp_task_manager.submit_tasks(rp.TaskDescription(td))
+    task.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL, timeout=120)
+    logger.info(f'state is {task.state}.')
+    logger.debug(f'stdout: {task.stdout}')
+    if task.stderr:
+        logger.error(f'stderr: {task.stderr}')
+    assert task.exit_code == 0
+    # Confirm we used the venv we think we used.
+    assert env_path + '/bin/python' in task.stdout
 
 
 @pytest.mark.skip(reason='Currently unused.')
@@ -273,20 +311,3 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     if scalems_check_task.stderr:
         logger.debug(f'Task stderr: {scalems_check_task.stderr}')
     assert scalems_check_task.exit_code == 0
-
-    # Check for fix to https://github.com/radical-cybertools/radical.pilot/issues/2624
-    if rp_version >= packaging.version.parse('1.15'):
-        td = rp.TaskDescription(
-            {
-                'executable': 'python3',
-                'arguments': ['-c', 'import sys; print(sys.version)'],
-                'named_env': 'scalems_env'
-            }
-        )
-        task = tmgr.submit_tasks(td)
-        tmgr.wait_tasks()
-        assert task.exit_code == 0
-        requested_version = packaging.version.parse(python_version)
-        remote_py_version = '.'.join(task.stdout.rstrip().split('.')[0:2])
-        remote_py_version = packaging.version.parse(remote_py_version)
-        assert requested_version == remote_py_version

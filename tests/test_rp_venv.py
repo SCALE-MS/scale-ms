@@ -1,11 +1,10 @@
 """Tests related to RP handling of virtual environments."""
 import logging
 import os
-import platform
-import sys
 import shlex
 import shutil
 import subprocess
+import sys
 import typing
 from urllib.parse import ParseResult
 from urllib.parse import urlparse
@@ -17,14 +16,48 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
-def test_register_venv(cleandir, pilot_description):
+def test_register_local_venv(cleandir, pilot_description):
+    """Use prepare_env() to register an existing venv."""
+    import radical.pilot as rp
+
     access = pilot_description['access_schema']
     # Hopefully, this requirement is temporary.
     if access != 'local':
         pytest.skip('This test only runs for local tests.')
 
-    import radical.pilot as rp
+    logger.debug(f'Client RP version is {rp.version}.')
 
+    # Create a temporary venv for this test.
+    env_name = 'test-env'
+    env_path = '/tmp/test_env'
+
+    process = subprocess.run(
+        args=[
+            sys.executable,
+            '-m', 'venv',
+            env_path
+        ],
+        shell=False
+    )
+    logger.debug(f'stdout: {process.stdout}')
+    if process.stderr:
+        logger.error(f'stderr: {process.stderr}')
+    assert process.returncode == 0
+
+    shell = f'. {env_path}/bin/activate; python -m pip install radical.pilot=={rp.version}'
+
+    process = subprocess.run(
+        args=[
+            '/bin/bash', '-c', shell
+        ],
+        shell=False
+    )
+    logger.debug(f'stdout: {process.stdout}')
+    if process.stderr:
+        logger.error(f'stderr: {process.stderr}')
+    assert process.returncode == 0
+
+    # Use the client-managed venv in a rp.Task with `named_env`
     pilot_description = {
         'resource': 'local.localhost',
         'cores': 4,
@@ -39,54 +72,23 @@ def test_register_venv(cleandir, pilot_description):
         tmgr = rp.TaskManager(session=session)
         tmgr.add_pilots(pilot)
 
-        env_name = 'test-env'
-        env_path = '/tmp/test_env'
-
-        process = subprocess.run(
-            args=[
-                sys.executable,
-                '-m', 'venv',
-                env_path
-            ],
-            shell=False
-        )
-        logger.debug(f'stdout: {process.stdout}')
-        logger.error(f'stderr: {process.stderr}')
-        assert process.returncode == 0
-
-        shell = f'. {env_path}/bin/activate; python -m pip install radical.pilot==1.14'
-
-        process = subprocess.run(
-            args=[
-                '/bin/bash', '-c', shell
-            ],
-            shell=False
-        )
-        logger.debug(f'stdout: {process.stdout}')
-        logger.error(f'stderr: {process.stderr}')
-        assert process.returncode == 0
-
-        version = platform.python_version()
-        version = '.'.join(version.split('.')[0:2])
-
         # Register venv
         pilot.prepare_env(
             env_name=env_name,
             env_spec={
-                'type': 'virtualenv',
+                'type': 'venv',
                 'path': env_path,
-                'version': version,
                 'setup': []
             }
         )
 
+        # Use the registered venv.
         td = {
             'executable': 'python',
             'arguments': ['-c', 'import sys; print(sys.executable)'],
             'named_env': env_name,
             'pre_exec': [],
             'stage_on_error': True,
-            'cpu_processes': 1,
         }
 
         task = tmgr.submit_tasks(rp.TaskDescription(td))
@@ -95,6 +97,7 @@ def test_register_venv(cleandir, pilot_description):
         if task.stderr:
             logger.error(task.stderr)
         assert task.exit_code == 0
+        # Confirm we used the venv we think we used.
         assert env_path + '/bin/python' in task.stdout
 
 

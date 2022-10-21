@@ -193,10 +193,10 @@ User interface is documented at :py:mod:`scalems.radical`.
 
 .. autofunction:: scalems.radical.configuration
 
-scalems.radical.common
+scalems.radical.raptor
 ----------------------
 
-.. automodule:: scalems.radical.common
+.. automodule:: scalems.radical.raptor
     :members:
 
 scalems.radical.runtime support module

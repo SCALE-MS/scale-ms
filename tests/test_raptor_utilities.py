@@ -9,8 +9,8 @@ try:
 except ImportError:
     rp = None
 else:
-    from scalems.radical.common import RaptorWorkerConfig
-    from scalems.radical.common import worker_description
+    from scalems.radical.raptor import RaptorWorkerConfig
+    from scalems.radical.raptor import worker_description
     from scalems.radical.raptor import object_encoder
 
 pytestmark = pytest.mark.skipif(condition=rp is None,

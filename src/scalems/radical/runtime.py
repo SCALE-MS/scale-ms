@@ -70,8 +70,8 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
-from .common import RaptorWorkerConfig
-from .common import worker_description
+from .raptor import RaptorWorkerConfig
+from .raptor import worker_description
 from .raptor import master_script
 from .raptor import object_encoder
 from .. import FileReference

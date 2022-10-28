@@ -1,47 +1,94 @@
 """Support for scalems on radical.pilot.raptor.
 
-Client:
-    The client should be reasonably certain that the target environment has a
-    compatible installation of RP and scalems. A rp.raptor.Master task script is
-    installed with the scalems package. The script name is provide by the
-    module function :py:func:`~scalems.radical.raptor.master_script()`, and will
-    be resolvable on the PATH for a Python interpreter process in an
-    environment that has the `scalems` package installed.
-
 Define the connective tissue for SCALE-MS tasks embedded in rp.Task arguments.
 
-This module should not depend on any scalems modules, and ultimately may disappear as
-the RP.raptor interfaces are formalized.
+Provide the RP Raptor Master and Worker details. Implement the master task
+script as a package entry point that we expect to be executable from the
+command line in a virtual environment where the scalems package is installed,
+without further modification to the PATH.
 
-As of :py:mod:`radical.pilot` version 1.14, the distinct "raptor" Request container
-has been merged into an updated TaskDescription. The new TaskDescription supports
+The client should be reasonably certain that the target environment has a
+compatible installation of RP and scalems. A rp.raptor.Master task script is
+installed with the scalems package. The script name is provide by the
+module function :py:func:`~scalems.radical.raptor.master_script()`, and will
+be resolvable on the PATH for a Python interpreter process in an
+environment that has the `scalems` package installed.
+
+We should try to keep this module as stable as possible so that the run time
+interface provided by scalems to RP is robust, and the entry point scripts
+change as little as possible across versions.
+scalems.radical runtime details live in runtime.py.
+
+As of :py:mod:`radical.pilot` version 1.18, TaskDescription supports
 a *mode* field and several additional fields. The extended schema for the TaskDescription
 depends on the value of *mode*. The structured data provided to the executor callable
 is composed from these additional fields according to the particular mode.
 
-We can use the 'call' mode, specifying a *function* field to name a callable in the
-global namespace. We can populate the global namespace with imported callables by
-subclassing DefaultWorker (or, soon, MPIWorker), or we could define a method on our
-subclass, which would then also convey access to any resources available privately
-to Worker and its subclasses. However, we expect to have to relaunch the Worker task
-if the work load changes substantially, so it should be sufficient to inject imported
-callables into the scope of the Worker through the worker script that we prepare or
-through
+We use the :py:data:`radical.pilot.task_description.TASK_FUNCTION` mode,
+specifying a *function* field to name a callable in the (global) namespace
+accessible by the worker process.
+
+We populate the worker global namespace with imported callables in the module
+file from which Raptor imports our :py:class:`radical.pilot.raptor.MPIWorker` subclass,
+:py:class:`~scalems.radical.raptor.ScalemsWorker`.
 
 The callable for *call* accepts ``*args`` and ``**kwargs``, which are extracted
-from the *data* positional argument (Mapping) of ``Worker._call()``. *data* is
-composed from the TaskDescription.
-
-.. todo:: How is *data* composed?
+from fields in the TaskDescription. Since we derive from MPIWorker, an mpi4py
+communicator is inserted at ``args[0]``.
 
 Protocol
 --------
-A "master task" is an *executable* task in which the script named by
+
+As of RP 1.18, the :py:mod:`radical.pilot.raptor` interface is not documented.
+The following diagrams illustrate the approximate architecture of a Raptor Session.
+
+.. uml::
+
+    title RP Raptor client Session
+
+    box "RP client"
+    participant TaskManager
+    end box
+
+    'queue "Taskmanager: Scheduler and Input Queue" as Queue
+    queue "Scheduler/Input Queue" as Queue
+
+    -> TaskManager: submit(master_task_description)
+    activate TaskManager
+
+    'note left
+    note over TaskManager
+     TaskDescription uses `mode=rp.RAPTOR_MASTER`.
+    end note
+
+    TaskManager -> Queue: task_description
+    deactivate TaskManager
+    -> TaskManager: submit(task_description)
+    activate TaskManager
+
+    'note left
+    note over TaskManager
+     TaskDescription names a Master uid in *scheduler* field.
+    end note
+
+    TaskManager -> Queue: task_description
+    activate Queue
+    deactivate TaskManager
+    == ==
+    deactivate Queue
+
+    TaskManager <-- : master task results
+
+A "master task" is an *executable* task (*mode* = ``rp.RAPTOR_MASTER``)
+in which the script named by
 :py:data:`radical.pilot.TaskDescription.executable`
-manages the life cycle of a :py:class:`radical.pilot.raptor.Master` (or subclass instance).
+manages the life cycle of a :py:class:`radical.pilot.raptor.Master`
+(or subclass instance).
 As of RP 1.14, the protocol is as follows.
 
 .. uml::
+
+    title raptor master task lifetime management
 
     "master task" -> "master task": create Master(cfg)
     "master task" -> master: Master.submit_workers(descr=descr, count=n_workers)
@@ -52,8 +99,185 @@ As of RP 1.14, the protocol is as follows.
     "master task" -> master: Master.join()
     "master task" -> master: Master.stop()
 
-.. todo:: Master config input.
-    What fields are required in the *cfg* input? What optional fields are allowed?
+
+The *cfg* argument to :py:class:`radical.pilot.raptor.Master` does not currently
+appear to be required.
+
+*scalems* encodes worker requirements on the client side. The *scalems* master
+script decodes the client-provided requirements, combines the information with
+run time details and work load inspection, and produces the WorkerDescription
+with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
+
+.. warning:: The data structure for *descr* may still be evolving.
+    See https://github.com/radical-cybertools/radical.pilot/issues/2731
+
+.. todo:: Raptor config class diagram.
+
+We do not submit scalems tasks directly as RP Tasks from the client.
+We encode scalems tasks as instructions to the Master task, which will be
+decoded and translated to RP Tasks by the `ScalemsMaster.request_cb` and
+self-submitted to the `ScalemsWorker`.
+
+Results of such tasks are only available through to the `ScalemsMaster.result_cb`.
+The Master can translate results of generated Tasks into results for the Task
+carrying the coded instruction, or it can produce data files to stage during or
+after the Master task. Additionally, the Master could respond to other special
+instructions (encoded in later client-originated Tasks) to query or retrieve
+generated task results.
+
+.. uml::
+
+    title raptor Master task
+
+    queue "Queue" as Queue
+
+    box "RP Agent"
+    participant Scheduler
+    end box
+
+    queue "Master input queue" as master_queue
+
+    box "scalems.radical.raptor.Master"
+    participant ScalemsMaster
+    participant rpt.Master
+    'participant Master._request_cb
+    'participant Master._request_cb
+    'participant Master._result_cb
+    'participant Master.result_cb
+    end box
+
+    queue "ZMQ Raptor work channel" as channel
+
+    activate Queue
+
+    Scheduler -> Queue: accepts work
+    activate Scheduler
+    Scheduler <-- Queue: task dictionary
+    deactivate Queue
+
+    note over Scheduler
+    Scheduler gets task from queue,
+    observes `scheduler` field and routes to Master.
+    end note
+
+    Scheduler -> master_queue: task dictionary
+    activate master_queue
+    deactivate Scheduler
+
+    rpt.Master -> master_queue: accept Task
+    activate rpt.Master
+    rpt.Master <-- master_queue: task_description
+    deactivate master_queue
+
+    rpt.Master -> rpt.Master: _request_cb(List[TaskDescription]))
+    activate rpt.Master
+    rpt.Master -> ScalemsMaster: request_cb(List[TaskDescription])
+    activate ScalemsMaster
+
+    alt optionally process or update requests
+    ScalemsMaster -> ScalemsMaster: self.submit_tasks(TaskDescription)
+    activate ScalemsMaster
+    deactivate ScalemsMaster
+    end
+
+    rpt.Master <-- ScalemsMaster: optional[updated list]
+    deactivate ScalemsMaster
+
+    rpt.Master -> rpt.Master: self.submit_tasks(TaskDescription))
+    activate rpt.Master
+    deactivate rpt.Master
+    rpt.Master -> channel: send message
+    deactivate rpt.Master
+    deactivate rpt.Master
+
+    rpt.Master -> channel: accept result
+    activate rpt.Master
+    rpt.Master <-- channel: task_description
+    deactivate channel
+
+    rpt.Master -> rpt.Master: _result_cb(List[TaskDescription]))
+    activate rpt.Master
+    rpt.Master -> ScalemsMaster: result_cb(List[TaskDescription])
+    activate ScalemsMaster
+
+    alt optionally process or update requests
+    ScalemsMaster -> ScalemsMaster: ?TODO?
+    activate ScalemsMaster
+    deactivate ScalemsMaster
+    end
+
+    rpt.Master <-- ScalemsMaster: ?TODO?
+    deactivate ScalemsMaster
+
+    rpt.Master -> rpt.Master: ?TODO?
+    activate rpt.Master
+    deactivate rpt.Master
+    rpt.Master -> master_queue: send message
+    activate master_queue
+    deactivate rpt.Master
+    deactivate rpt.Master
+
+
+    '<-- scalems.radical: sys.exit
+
+scalems tasks encode the importable function and inputs in the arguments to
+the ... dispatching function, which is available to the `ScalemsWorker` instance.
+
+.. uml::
+
+    title ScalemsWorker task dispatching
+
+    queue "ZMQ Raptor work channel" as channel
+
+    box "scalems.radical.raptor.Worker"
+    participant rpt.Worker
+    end box
+
+    box "usermodule"
+    participant usermodule
+    end box
+
+    box "target venv"
+    end box
+
+    rpt.Worker -> channel: pop message
+    activate rpt.Worker
+    rpt.Worker <-- channel: mode, data
+
+    rpt.Worker -> rpt.Worker: dispatch to unpickled scalems handler
+    activate rpt.Worker
+    rpt.Worker -> usermodule: ""*args, **kwargs""
+    activate usermodule
+    rpt.Worker <-- usermodule
+    deactivate usermodule
+    rpt.Worker --> rpt.Worker: {out, err, ret, value}
+    deactivate rpt.Worker
+
+    rpt.Worker -> channel: put result
+    deactivate rpt.Worker
+
+
+TODO
+----
+Pass input and output objects more efficiently.
+
+Worker processes come and go,
+and are not descended from Master processes (which may not even be on the same node),
+so we can't generally pass objects by reference or even in shared memory segments.
+However, we can use optimized ZMQ facilities for converting network messages
+directly to/from memory buffers.
+
+In other cases, we can use the scalems typing system to specialize certain types
+for optimized (de)serialization from/to file-backed storage or streams.
+
+See https://github.com/SCALE-MS/scale-ms/issues/106
+
+TODO
+----
+Get a stronger specification of the RP Raptor interface.
+
+See https://github.com/radical-cybertools/radical.pilot/issues/2731
+
 """
 import argparse
 import dataclasses
@@ -82,6 +306,8 @@ try:
 except (ImportError, TypeError):
     warnings.warn('RADICAL Pilot installation not found.')
 
+# QUESTION: How should we approach logging? To what degree can/should we integrate
+# with rp logging?
 import logging
 
 logger = logging.getLogger(__name__)

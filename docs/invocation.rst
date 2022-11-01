@@ -117,9 +117,7 @@ shell command injection
 """""""""""""""""""""""
 
 RP TaskDescriptions allow environment preparation with lines of shell commands
-using :py:attr:`~radical.pilot.TaskDescription.pre_exec`,
-:py:attr:`~radical.pilot.TaskDescription.pre_launch`,
-and :py:attr:`~radical.pilot.TaskDescription.pre_rank`.
+using :py:attr:`~radical.pilot.TaskDescription.pre_exec`.
 (Note that, in addition to the attribute descriptions,
 RP docs include further discussion at the bottom of the
 :py:class:`~radical.pilot.TaskDescription` class documentation section.)

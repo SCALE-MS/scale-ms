@@ -38,7 +38,7 @@ output to task input is not known until data is produced during execution.
 
 :file:`examples/async_adaptive_msm/unordered_mapping.py`
 
-.. literalinclude:: ../../examples/async_adaptive_msm/unordered_mapping.py
+.. literalinclude:: ../../../examples/async_adaptive_msm/unordered_mapping.py
 
 
 Example 2: Data queue
@@ -49,7 +49,7 @@ inform the simulations added back to the queue.
 
 :file:`examples/async_adaptive_msm/async_queue.py`
 
-.. literalinclude:: ../../examples/async_adaptive_msm/async_queue.py
+.. literalinclude:: ../../../examples/async_adaptive_msm/async_queue.py
 
 Example 3: Asynchronous batches
 -------------------------------
@@ -62,4 +62,4 @@ dependencies are satisfied.
 
 :file:`examples/async_adaptive_msm/async_iteration.py`
 
-.. literalinclude:: ../../examples/async_adaptive_msm/async_iteration.py
+.. literalinclude:: ../../../examples/async_adaptive_msm/async_iteration.py

@@ -19,18 +19,18 @@ wraps GROMACS command line tools and gmxapi.
 
 The entry point for the researcher's application is the main script body from :file:`examples/parallel_adaptive_msm/workflow.py`:
 
-.. literalinclude:: ../../examples/parallel_adaptive_msm/workflow.py
+.. literalinclude:: ../../../examples/parallel_adaptive_msm/workflow.py
 
 The algorithmic details of the above scriplet depend on two supporting modules,
 given here for completeness.
 
 :file:`examples/parallel_adaptive_msm/msmtool.py`:
 
-.. literalinclude:: ../../examples/parallel_adaptive_msm/msmtool.py
+.. literalinclude:: ../../../examples/parallel_adaptive_msm/msmtool.py
 
 Simulation preparation and output
 manipulation use command line tools. Simulation is executed with gmxapi.
 
 :file:`src/scalems/wrappers/gromacs.py`
 
-.. literalinclude:: ../../src/scalems/wrappers/gromacs.py
+.. literalinclude:: ../../../src/scalems/wrappers/gromacs.py

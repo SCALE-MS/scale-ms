@@ -302,7 +302,6 @@ try:
 
     if parse_version(rp.version) < parse_version('1.14') or not hasattr(rp, 'TASK_FUNCTION'):
         warnings.warn('RADICAL Pilot version 1.14 or newer is required.')
-    from radical.pilot import PythonTask
 except (ImportError, TypeError):
     warnings.warn('RADICAL Pilot installation not found.')
 

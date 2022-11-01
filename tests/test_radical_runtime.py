@@ -10,6 +10,7 @@ from scalems.radical.runtime import Runtime
 
 
 def test_runtime_normal_instance(rp_task_manager, pilot_description):
+    """Set the Runtime.pilot from an rp.Pilot instance."""
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', category=DeprecationWarning,
                                 module='radical.pilot.task_manager')
@@ -42,6 +43,7 @@ def test_runtime_normal_instance(rp_task_manager, pilot_description):
 
 
 def test_runtime_normal_uid(rp_task_manager, pilot_description):
+    """Set the Runtime.pilot from the UID obtained from the task_manager."""
     with warnings.catch_warnings():
         warnings.filterwarnings('ignore', category=DeprecationWarning,
                                 module='radical.pilot.task_manager')

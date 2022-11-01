@@ -1,0 +1,103 @@
+@startuml
+'Illustrate
+'- the meanings of UML symbols in use, and
+'- how to achieve them with PlantUML.
+'
+'See: https://plantuml.com/class-diagram
+'Usage:
+'- Clicking on the rendered image's text finds it in the source
+'- Ctrl + Click in the editor navigates between occurrences
+'- File Structure displays the first occurrence
+'
+'Intentions (Alt+Enter):
+'- reverse arrow
+'- with a caret on top of @startuml:
+' - disable syntax check
+' - enable partial rendering - renders each page on it's own, useful for big sequence diagram files
+'
+'Diagram [[file links]]:
+'- supported paths: relative to the source code file, relative to module content roots, absolute
+'- methods, fields, variables and other identifiers can be referenced by suffix, e.g. file.java#methodName
+'- paths with spaces are not supported
+'
+'Performance tips:
+'- disable automatic rendering and use Update (Ctrl Alt Shift F) or Reload (Ctrl Alt Shift G) buttons
+'- do not put @newpage into included files (it prohibits incremental and partial rendering)
+'- try to enable partial rendering - add to the first page: 'idea.partialRender
+'- disable 'Render links for PNG'
+'- disable syntax checking - add to the first page: 'idea.disableSyntaxCheck
+'- reduce limits and disable 'SVG preview scaling'
+'- tune cache size in settings, make sure you have enough heap memory (enable Memory Indicator)
+
+'idea.partialRender
+
+namespace Nested::Namespace {
+class ConcreteClass {
+-{field} type1: privateVal
++type2: publicVal
+~type3: packagePrivateVal
+{static} staticVal
+{abstract} returnType abstractMethod()
+returnType method()
+}
+
+ConcreteClass --|> AbstractBase: "is a"
+
+AbstractBase --() providedInterface
+
+Participant --(( requiredInterface
+
+ConcreteClass ..|> Interface: "implements a"
+
+Client ..> Interface: "depends on"
+}
+
+package package {
+package package.subpackage {
+class Module << (M,yellow) >>
+
+
+'Aggregate o-- Part: "comprises"
+
+Composition "1" *-- "*" Constituent: "has"
+
+A "role of A" -- "role of B" B: "association"
+
+Source  --> "property" Target: "navigability"
+
+Consumer -(0- Provider
+}
+}
+
+CollaboratorA "0..*" - "1..*" CollaboratorB
+(CollaboratorA, CollaboratorB) . Association
+
+class Association {
+associationProperty
+associationMethod()
+}
+
+object object {
+field = value
+}
+
+map "map: Map<Integer, String>" as users {
+ 1 => Alice
+ 2 => Bob
+ 3 => Charlie
+}
+
+json StructuredData {
+   "fruit":"Apple",
+   "size":"Large",
+   "color": ["Red", "Green"]
+}
+@enduml
+
+@startuml
+'see https://plantuml.com/sequence-diagram
+Alice ->> Bob: asynchronous message
+Alice -> Bob: message
+Alice <--Bob: response
+Alice <<--Bob: asynchronous response
+@enduml

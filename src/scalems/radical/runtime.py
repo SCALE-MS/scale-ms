@@ -27,6 +27,127 @@ Deferred:
 See Also:
     https://github.com/SCALE-MS/scale-ms/issues/55
 
+.. uml::
+
+    title scalems on radical.pilot run time
+
+    box "SCALE-MS framework" #honeydew
+    participant WorkflowManager as client_workflowmanager
+    participant RuntimeManager
+    participant "runner task" as scalems.execution
+    end box
+    box "SCALE-MS RP adapter" #linen
+    participant Runtime as client_runtime
+    participant Executor as client_executor
+    end box
+
+    autoactivate on
+
+    client_workflowmanager -> client_executor: async with executor
+    activate client_workflowmanager
+    client_executor -> RuntimeManager: ~__aenter__()
+    RuntimeManager -> client_executor: runtime_configuration()
+    RuntimeManager -> client_executor: runtime_startup()
+
+    client_executor -> : rp.Session()
+    return
+    client_executor -> client_runtime **
+    activate client_runtime
+    client_executor -> : rp.PilotManager()
+    return
+    client_executor -> client_runtime: pilot_manager()
+    return
+    client_executor -> : rp.TaskManager()
+    return
+    client_executor -> client_runtime: task_manager()
+    return
+    client_executor -> : pilot_manager.submit_pilots()
+    return
+    client_executor -> client_runtime: pilot()
+    note left
+    Pilot venv is determined by resource definition (JSON file).
+    end note
+    return
+
+    client_executor -> client_executor: get_scheduler()
+    client_executor -> client_executor: master_input()
+    'Update: worker_description() is an execution side tool.
+    'client_executor -> client_executor: worker_description()
+    client_executor -> client_executor: worker_requirements()
+    note left
+    TODO: Allocate Worker according to workload
+    through a separate call to the running Master.
+    end note
+    return
+    return Master input
+    client_executor -> client_executor: launch Master Task
+    note left
+    We currently require a pre-existing venv for Master task.
+    TODO(#90,#141): Allow separate venv for Worker task and Tasks.
+    end note
+    client_executor -> : task_manager.submit(master)
+    note left
+    Master cfg is staged with TaskDescription.
+    end note
+    return
+    note left
+    TODO(#92,#105): Make sure the Worker starts successfully!!!
+    end note
+    return Master Task
+    return
+
+    client_executor -> client_runtime: set scheduler
+    return
+
+    client_executor -> scalems.execution **: create_task(manage_execution)
+    client_executor -> scalems.execution: await runner_started
+    RuntimeManager <-- client_executor: set runner_task
+    deactivate client_executor
+    deactivate RuntimeManager
+
+    client_workflowmanager -> client_workflowmanager #gray: async with dispatcher
+    ' activate client_workflowmanager #gray
+
+    == Raptor workload handling ==
+
+    ' client_workflowmanager <-- client_workflowmanager: leave dispatcher context
+    return leave dispatcher context
+    ' deactivate client_workflowmanager
+
+    == Shut down runtime ==
+
+    client_executor -> RuntimeManager: ~__aexit__()
+    RuntimeManager -> RuntimeManager: await runner_task
+    RuntimeManager <-- scalems.execution
+    deactivate RuntimeManager
+    RuntimeManager -> client_executor: runtime_shutdown()
+
+    client_runtime <- client_executor
+    return session
+    client_runtime <- client_executor
+    return scheduler
+    group Cancel Master task [if scheduler is not None]
+    client_runtime <- client_executor
+    return task_manager
+    client_executor -> : task_manager.cancel_tasks()
+    return
+    client_runtime <- client_executor
+    return scheduler
+    client_executor -> : runtime.scheduler.wait()
+    return
+    end
+    client_executor -> : session.close()
+    return
+
+    client_executor -> client_runtime !!
+    deactivate client_executor
+    deactivate RuntimeManager
+
+    client_workflowmanager <-- client_executor: leave executor context
+    deactivate client_workflowmanager
+
+.. todo:: Raptor configuration class diagram.
+
 """
 
 from __future__ import annotations
@@ -70,8 +191,8 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
-from .common import RaptorWorkerConfig
-from .common import worker_description
+from .raptor import RaptorWorkerConfig
+from .raptor import worker_description
 from .raptor import master_script
 from .raptor import object_encoder
 from .. import FileReference

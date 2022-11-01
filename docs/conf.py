@@ -31,9 +31,10 @@ release = '0'
 # ones.
 extensions = [
     'sphinx.ext.autodoc',
-    'sphinxcontrib.autoprogram',
+    'sphinx.ext.extlinks',
     'sphinx.ext.intersphinx',
     'sphinx.ext.todo',  # Note: todo_include_todos=True is required for directives to produce output.
+    'sphinxcontrib.autoprogram',
     'sphinxcontrib.napoleon',
     'sphinxcontrib.plantuml'
 ]
@@ -52,6 +53,11 @@ templates_path = ['_templates']
 exclude_patterns = []
 
 master_doc = 'index'
+
+# -- Options for extlinks --------------------
+
+extlinks = {'issue': ('https://github.com/SCALE-MS/scale-ms/issues/%s',
+                      'issue %s')}
 
 # -- Options for intersphinx extension ---------------------------------------
 

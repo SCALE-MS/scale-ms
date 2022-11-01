@@ -1,4 +1,63 @@
-"""Runtime management."""
+"""Runtime management for the scalems client.
+
+The following diagram illustrates the :py:mod:`scalems.radical`
+SCALE-MS connector for execution on :py:mod:`radical.pilot`.
+
+.. uml::
+
+    title scalems on radical.pilot (client side)
+
+    participant "workflow script" as script
+    box "SCALE-MS framework" #honeydew
+    participant "SCALE-MS API" as scalems.Runtime
+    participant WorkflowManager as client_workflowmanager
+    participant Queuer
+    end box
+    box "SCALE-MS RP adapter" #linen
+    participant scalems.radical
+    participant Executor as client_executor
+    end box
+
+    autoactivate on
+
+    -> scalems.radical: python -m scalems.radical ...
+
+    scalems.radical -> scalems.Runtime: scalems.invocation.run(workflow_manager)
+    scalems.Runtime -> scalems.radical: configuration()
+    return
+    scalems.Runtime -> scalems.radical: workflow_manager()
+    scalems.radical -> client_workflowmanager **: <<create>>
+    scalems.Runtime <-- scalems.radical:
+
+    scalems.Runtime -> script: <<runpy>>
+    return @scalems.app
+
+    scalems.Runtime -> scalems.Runtime: run_dispatch(work, context)
+    scalems.Runtime -> client_workflowmanager: async with dispatch()
+
+    client_workflowmanager -> client_workflowmanager: executor_factory()
+
+    client_workflowmanager -> client_executor **: <<create>>
+    client_workflowmanager --> client_workflowmanager: executor
+    client_workflowmanager -> Queuer **: <<create>>
+
+    == Launch runtime ==
+
+    client_workflowmanager -> client_executor: async with executor
+    activate client_workflowmanager #lightgray
+
+    == Dispatch work ==
+
+    client_workflowmanager <-- client_executor: leave executor context
+    deactivate client_workflowmanager
+    scalems.Runtime <-- client_workflowmanager: end dispatching context
+    scalems.Runtime --> scalems.Runtime: loop.run_until_complete()
+    deactivate client_workflowmanager
+    scalems.Runtime --> scalems.radical: SystemExit.code
+    deactivate scalems.Runtime
+    <-- scalems.radical: sys.exit
+
+"""
 
 from __future__ import annotations
 

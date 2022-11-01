@@ -8,10 +8,9 @@ and translated for execution on managed computing resources.
 Client context
 ==============
 
-The following diagram illustrates the :py:mod:`scalems.radical`
-SCALE-MS connector for execution on :py:mod:`radical.pilot`.
+.. automodule:: scalems.execution
 
-.. uml:: diagrams/radical/rp_launch_sequence.puml
+See also :ref:`scalems-execution`.
 
 WorkflowContext
 ===============
@@ -125,6 +124,9 @@ Deferred execution
 Multiple graph nodes may be received in the same packet of work, or asynchronously.
 The executor may locally manage dependencies to optimize execution and data placement.
 
+The following diagram is somewhat speculative.
+See also :issue:`15` and :issue:`23`.
+
 .. uml:: diagrams/runtime_deferred_sequence.puml
 
 Python package details
@@ -136,11 +138,20 @@ scalems.dispatching
 .. automodule:: scalems.dispatching
     :members:
 
+.. _scalems-execution:
+
 scalems.execution
 -----------------
 
-.. automodule:: scalems.execution
+.. py:currentmodule:: scalems.execution
+
+.. autoclass:: AbstractWorkflowUpdater
     :members:
+
+.. autoclass:: RuntimeManager
+    :members:
+
+.. autofunction:: manage_execution
 
 scalems.workflow
 ----------------
@@ -193,12 +204,6 @@ User interface is documented at :py:mod:`scalems.radical`.
 
 .. autofunction:: scalems.radical.configuration
 
-scalems.radical.common
-----------------------
-
-.. automodule:: scalems.radical.common
-    :members:
-
 scalems.radical.runtime support module
 --------------------------------------
 
@@ -221,4 +226,8 @@ scalems.radical.runtime support module
 
 .. autofunction:: scalems.radical.runtime.submit
 
-.. uml:: diagrams/radical/raptor_protocol_sequence.puml
+scalems.radical.raptor
+----------------------
+
+.. automodule:: scalems.radical.raptor
+    :members:

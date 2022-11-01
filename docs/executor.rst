@@ -40,10 +40,7 @@ Execution dispatching contexts
 Execution dispatching generally uses some sort of concurrency model,
 but there is not a consistent concurrency model for all dispatchers.
 ScaleMS provides abstractions to insulate scripting from particular implementations
-or concurrency primitives (such as the need to call
-:py:func:`asyncio.run`
-.. `asyncio.run() <https://docs.python.org/3/library/asyncio-task.html#asyncio.run>`__
-).
+or concurrency primitives (such as the need to call :py:func:`asyncio.run`).
 
 Design notes
 ------------
@@ -103,31 +100,6 @@ Upshot:
         #   already bound to a particular execution framework.
         # * Set the Context and then call scalems.run(workflow) to get behavior like
         #   asyncio.run().
-
-Runtime executor
-================
-
-.. uml:: diagrams/workflow_staging/runtime_interface_sequence.puml
-
-
-Simple work
-===========
-
-A single node of work may be executed immediately in the Worker Context,
-or not at all (if the local checkpoint state is already final).
-
-.. uml:: diagrams/runtime_immediate_sequence.puml
-
-Deferred execution
-==================
-
-Multiple graph nodes may be received in the same packet of work, or asynchronously.
-The executor may locally manage dependencies to optimize execution and data placement.
-
-The following diagram is somewhat speculative.
-See also :issue:`15` and :issue:`23`.
-
-.. uml:: diagrams/runtime_deferred_sequence.puml
 
 Python package details
 ======================

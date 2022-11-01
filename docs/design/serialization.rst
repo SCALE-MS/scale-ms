@@ -193,11 +193,11 @@ Consider a client issuing the following command::
 The resulting workflow members are represented similarly in client or execution
 contexts.
 
-.. uml:: diagrams/workflow_staging/subprocess_simple_workflow_instance.puml
+.. uml:: diagrams/subprocess_simple_workflow_instance.puml
 
 For completeness, we can show representations of the object-type definitions.
 
-.. uml:: diagrams/workflow_staging/subprocesstypes_instance.puml
+.. uml:: diagrams/subprocesstypes_instance.puml
 
 Tasks and data types in the "scalems" namespace are built-in and do not
 generally need to be explicitly recorded.

@@ -16,10 +16,10 @@ Framework and object model
 
 Explain how operations are structured and implemented.
 
-Runtime
-=======
+Runtime executor
+================
 
-How are operations actually executed?
+.. uml:: diagrams/runtime_interface_sequence.puml
 
 Data flow, checkpoint, and resumption
 ----------------------------------------
@@ -63,3 +63,32 @@ Generating concrete tasks
 In the simplest abstraction, an operation input is expressed in terms of another
 operation. Demonstrate how this is translated to a concrete executable task,
 with implications for checkpointing and resumption.
+
+Simple work
+===========
+
+A single node of work may be executed immediately in the Worker Context,
+or not at all (if the local checkpoint state is already final).
+
+.. uml:: diagrams/runtime_immediate_sequence.puml
+
+Deferred execution
+==================
+
+Multiple graph nodes may be received in the same packet of work, or asynchronously.
+The executor may locally manage dependencies to optimize execution and data placement.
+
+The following diagram is somewhat speculative.
+See also :issue:`15` and :issue:`23`.
+
+.. uml:: diagrams/runtime_deferred_sequence.puml
+
+
+Orphaned diagrams
+=================
+
+TODO: Are these redundant? Are they useful?
+
+.. uml:: diagrams/client_context_sequence.puml
+
+.. uml:: diagrams/runtime_checkpoint_usecase.puml

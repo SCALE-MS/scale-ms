@@ -52,7 +52,7 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
-master_doc = 'index'
+root_doc = 'index'
 
 # -- Options for extlinks --------------------
 
@@ -83,6 +83,14 @@ html_theme = 'sphinx_rtd_theme'
 
 # -- Options for autodoc -----------------------------------------------------
 # autodoc_mock_imports = ['radical']
+autodoc_default_options = {
+    # 'inherited-members': True,
+    # 'show-inheritance': True,
+}
+autoclass_content = "class"
+autodoc_class_signature = "separated"
+autodoc_typehints = "description"
+autodoc_typehints_description_target = "all"
 autodoc_type_aliases = {
     'rp.Pilot': 'radical.pilot.Pilot',
     'rp.Session': 'radical.pilot.Session',
@@ -95,7 +103,7 @@ autodoc_type_aliases = {
 # -- Options for Napoleon ----------------------------------------------------
 napoleon_google_docstring = True
 napoleon_numpy_docstring = False
-napoleon_include_init_with_doc = True
+napoleon_include_init_with_doc = False
 # napoleon_include_private_with_doc = False
 # napoleon_include_special_with_doc = False
 # napoleon_use_admonition_for_examples = False

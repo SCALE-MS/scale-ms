@@ -1,4 +1,4 @@
-sphinx>=2
+sphinx>=4.1
 sphinxcontrib-autoprogram
 sphinxcontrib-napoleon
 sphinxcontrib-plantuml

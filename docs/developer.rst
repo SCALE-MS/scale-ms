@@ -6,5 +6,6 @@ Developer Documents
     :maxdepth: 2
 
     executor
+    executor_radical
     testing
     design/index

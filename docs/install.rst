@@ -83,7 +83,9 @@ in your home directory **before launching** :py:mod:`scalems.radical`.
 
 .. note:: Password-less ssh private key is not necessary.
 
-    RP documentation for `machconf` implies a need to set up a password-less
+    RP documentation for
+    `machconf <https://radicalpilot.readthedocs.io/en/stable/machconf.html>`__
+    implies a need to set up a password-less
     ssh key pair, but this is not strictly necessary.
     It is only necessary that RP is able to make new ssh connections at run time
     without storing or asking for a password.

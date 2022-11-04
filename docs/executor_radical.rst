@@ -46,11 +46,33 @@ master task
 `scalems` specialization of the "master" component in the
 :py:mod:`radical.pilot.raptor` federated scheduling protocol.
 
+.. autofunction:: master
+
+.. autofunction:: master_script
+
+.. autofunction:: master_input
+
+.. autofunction:: worker_requirements
+
+.. autoclass:: MasterTaskConfiguration
+    :members:
+
+.. autoclass:: ClientWorkerRequirements
+    :members:
+
+.. autoclass:: ScaleMSMaster
+    :members:
+
 worker task
 ~~~~~~~~~~~
 
 `scalems` specialization of the "worker" component in the
 :py:mod:`radical.pilot.raptor` federated scheduling protocol.
+
+.. autofunction:: worker_description
+
+.. autoclass:: ScaleMSWorker
+    :members:
 
 compatibility helpers
 ~~~~~~~~~~~~~~~~~~~~~
@@ -64,6 +86,3 @@ interfaces in :py:mod:`radical.pilot.raptor`.
 .. autoclass:: WorkerDescriptionDict
     :members:
     :exclude-members: __new__
-
-.. autoclass:: TaskDictionary
-    :members:

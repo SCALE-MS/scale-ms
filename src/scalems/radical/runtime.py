@@ -69,32 +69,10 @@ See Also:
     end note
     return
 
+    group ref [scalems.radical.raptor]
     client_executor -> client_executor: get_scheduler()
-    client_executor -> client_executor: master_input()
-    'Update: worker_description() is an execution side tool.
-    'client_executor -> client_executor: worker_description()
-    client_executor -> client_executor: worker_requirements()
-    note left
-    TODO: Allocate Worker according to workload
-    through a separate call to the running Master.
-    end note
     return
-    return Master input
-    client_executor -> client_executor: launch Master Task
-    note left
-    We currently require a pre-existing venv for Master task.
-    TODO(#90,#141): Allow separate venv for Worker task and Tasks.
-    end note
-    client_executor -> : task_manager.submit(master)
-    note left
-    Master cfg is staged with TaskDescription.
-    end note
-    return
-    note left
-    TODO(#92,#105): Make sure the Worker starts successfully!!!
-    end note
-    return Master Task
-    return
+    end
 
     client_executor -> client_runtime: set scheduler
     return
@@ -106,13 +84,10 @@ See Also:
     deactivate RuntimeManager
 
     client_workflowmanager -> client_workflowmanager #gray: async with dispatcher
-    ' activate client_workflowmanager #gray
 
     == Raptor workload handling ==
 
-    ' client_workflowmanager <-- client_workflowmanager: leave dispatcher context
     return leave dispatcher context
-    ' deactivate client_workflowmanager
 
     == Shut down runtime ==
 
@@ -146,8 +121,6 @@ See Also:
     client_workflowmanager <-- client_executor: leave executor context
     deactivate client_workflowmanager
 
-.. todo:: Raptor configuration class diagram.
-
 """
 
 from __future__ import annotations
@@ -171,7 +144,6 @@ import json
 import logging
 import os
 import pathlib
-import tempfile
 import threading
 import typing
 import uuid
@@ -191,13 +163,9 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
-from .raptor import RaptorWorkerConfig
-from .raptor import worker_description
+from .raptor import master_input
 from .raptor import master_script
-from .raptor import object_encoder
-from .. import FileReference
 from .. import utility as _utility
-from ..context import describe_file
 from ..context import FileStore
 from ..execution import AbstractWorkflowUpdater
 from ..execution import RuntimeManager
@@ -480,62 +448,6 @@ class Runtime:
                 return self.pilot(pilot)
 
 
-async def _master_input(filestore: FileStore, pre_exec: list, worker_venv: str) -> FileReference:
-    """Provide the input file for a SCALE-MS Raptor Master script.
-
-    Args:
-        filestore: (local) FileStore that will manage the generated FileReference.
-
-    """
-    if not isinstance(filestore, FileStore) or filestore.closed or not \
-            filestore.directory.exists():
-        raise ValueError(f'{filestore} is not a usable FileStore.')
-
-    # This is the initial Worker submission. The Master may submit other workers later,
-    # but we should try to make this one as usable as possible.
-    # TODO: Inspect workflow to optimize reusability of the initial Worker submission.
-    num_workers = 1
-    cores_per_worker = 1
-    gpus_per_worker = 0
-
-    task_metadata = worker_description(
-        named_env=worker_venv,
-        pre_exec=pre_exec,
-        cpu_processes=cores_per_worker,
-        gpus_per_process=gpus_per_worker
-    )
-    # TODO: Decide on how to identify the workers from the client side.
-    # filestore.add_task(worker_identity, **task_metadata)
-
-    # TODO: Add additional dependencies that we can infer from the workflow.
-    versioned_modules = (
-        ('mpi4py', '3.0.0'),
-        ('scalems', scalems.__version__),
-        ('radical.pilot', rp.version)
-    )
-
-    configuration = scalems.radical.raptor.Configuration(
-        worker=RaptorWorkerConfig(
-            descr=task_metadata,
-            count=num_workers
-        ),
-        versioned_modules=list(versioned_modules)
-    )
-
-    # Make sure the temporary directory is on the same filesystem as the local workflow.
-    tmp_base = filestore.directory
-    with tempfile.TemporaryDirectory(dir=tmp_base) as dir:
-        config_file_name = 'raptor_scheduler_config.json'
-        config_file_path = os.path.join(dir, config_file_name)
-        with open(config_file_path, 'w') as fh:
-            json.dump(configuration, fh, default=object_encoder, indent=2)
-        file_description = describe_file(config_file_path, mode='r')
-        handle: FileReference = await asyncio.create_task(
-            filestore.add_file(file_description),
-            name='add-file')
-    return handle
-
-
 async def _get_scheduler(pre_exec: typing.Iterable[str],
                          task_manager: rp.TaskManager,
                          filestore: FileStore,
@@ -565,9 +477,8 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     # caller.
     # td.named_env = 'scalems_env'
 
-    # This is the name that should be resolvable in an active venv for the script we
-    # install as
-    # pkg_resources.get_entry_info('scalems', 'console_scripts', 'scalems_rp_master').name
+    # This is the name that should be resolvable in an active venv for the installed
+    # master task entry point script
     td.executable = master_script()
 
     logger.debug(f'Using {filestore}.')
@@ -576,12 +487,13 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
     # script may crash even before it can write anything, but if it does write
     # anything, we _will_ have the output file locally
     td.output_staging = [
+        # TODO(#229) Write and stage output from master task.
     ]
 
     # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
     # asyncio.get_running_loop().slow_callback_duration = 0.5
     config_file = await asyncio.create_task(
-        _master_input(filestore, pre_exec=list(pre_exec), worker_venv=scalems_env),
+        master_input(filestore=filestore, pre_exec=list(pre_exec), worker_venv=scalems_env),
         name='get-master-input'
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
@@ -885,7 +797,8 @@ async def add_pilot(runtime: Runtime, **kwargs):
 class RPDispatchingExecutor(RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 
-    Configuration points
+    Configuration points:
+
     * resource config
     * pilot config
     * session config?
@@ -904,8 +817,12 @@ class RPDispatchingExecutor(RuntimeManager):
                  dispatcher_lock=None):
         """Create a client side execution manager.
 
-        Initialization and de-initialization occurs through
-        the Python (async) context manager protocol.
+        Warning:
+            The creation method does not fully initialize the instance.
+
+            Initialization and de-initialization occurs through
+            the Python (async) context manager protocol.
+
         """
         if 'RADICAL_PILOT_DBURL' not in os.environ:
             raise DispatchError('RADICAL Pilot environment is not available.')
@@ -1144,7 +1061,7 @@ class RPDispatchingExecutor(RuntimeManager):
                     logger.debug(runtime.scheduler.stdout)
                 if runtime.scheduler.stderr:
                     logger.error(runtime.scheduler.stderr)
-                # TODO: Receive report of work handled by Master.
+                # TODO(#108,#229): Receive report of work handled by Master.
 
             # Note: there are no documented exceptions or errors to check for,
             # programmatically. Some issues encountered during shutdown will be

@@ -106,8 +106,8 @@ As of RP 1.14, the protocol is as follows.
     queue scheduler
     scheduler -\\ master : request_cb
     scheduler -\\ master : result_cb
+    master -> master: Master.stop() (optional)
     "master task" -> master: Master.join()
-    "master task" -> master: Master.stop()
 
     [<-- "master task" : stage out
 
@@ -542,7 +542,6 @@ def master():
         "master task" -> master: submit_workers(**config)
         "master task" -> master: start()
         note over "master task" : "TODO: wait for worker"
-        "master task" -> master: join()
 
         ...
         scheduler -\\ master : request_cb
@@ -556,7 +555,8 @@ def master():
         master --> master : stop worker (TODO)
         master -> worker.py !! : delete
         deactivate master
-        "master task" -> master: stop()
+        master -> master: stop() (TBD)
+        "master task" -> master: join()
         deactivate master
         deactivate "master task"
 
@@ -601,7 +601,7 @@ def master():
         logger.debug('Master started.')
 
         # Make sure at least one worker comes online.
-        # TODO: Is 'wait' broken?
+        # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
         # _master.wait(count=1)
         # logger.debug('Ready to submit raptor tasks.')
         # TODO: Confirm workers start successfully or produce useful error
@@ -612,8 +612,6 @@ def master():
 
         _master.join()
         logger.debug('Master joined.')
-        _master.stop()
-        logger.debug('Master stopped.')
 
 
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:

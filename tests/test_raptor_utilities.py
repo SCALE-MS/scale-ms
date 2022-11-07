@@ -27,8 +27,6 @@ try:
 except ImportError:
     rp = None
 else:
-    from scalems.radical.raptor import RaptorWorkerConfig
-    from scalems.radical.raptor import worker_description
     from scalems.radical.raptor import object_encoder
 
 import logging
@@ -176,23 +174,23 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f'Session is {repr(dispatcher.runtime.session)}')
 
-            scheduler = dispatcher.runtime.scheduler.uid
-            task_uid = 'task.scalems-test-worker'
-            # TODO: Encode work in task args/kwargs.
-            args = []
-            kwargs = {}
-            task_description = rp.TaskDescription(
-                {
-                    'scheduler': scheduler,
-                    'uid': task_uid,
-                    'mode': rp.TASK_FUNCTION,
-                    'cpu_processes': 1,
-                    'cpu_process_type': rp.SERIAL,
-                    'function': scalems_task_wrapper(*args, **kwargs),
-                    # 'args': [],
-                    # 'kwargs': {}
-                }
-            )
+            # scheduler = dispatcher.runtime.scheduler.uid
+            # task_uid = 'task.scalems-test-worker'
+            # # TODO: Encode work in task args/kwargs.
+            # args = []
+            # kwargs = {}
+            # task_description = rp.TaskDescription(
+            #     {
+            #         'scheduler': scheduler,
+            #         'uid': task_uid,
+            #         'mode': rp.TASK_FUNCTION,
+            #         'cpu_processes': 1,
+            #         'cpu_process_type': rp.SERIAL,
+            #         'function': scalems_task_wrapper(*args, **kwargs),
+            #         # 'args': [],
+            #         # 'kwargs': {}
+            #     }
+            # )
 
             # Submit a raptor task
             # task = dispatcher.runtime.task_manager().submit_tasks(task_description)

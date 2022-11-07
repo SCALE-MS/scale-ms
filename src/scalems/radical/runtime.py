@@ -51,7 +51,7 @@ See Also:
 
     client_executor -> : rp.Session()
     return
-    client_executor -> client_runtime **
+    client_executor -> client_runtime **: Session
     activate client_runtime
     client_executor -> : rp.PilotManager()
     return

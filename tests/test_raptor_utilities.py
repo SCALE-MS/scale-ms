@@ -2,14 +2,13 @@
 
 For remote dispatching through RP and Raptor, it can be especially hard to get
 good test coverage with any granularity. Here, we do our best to unit test the
-important pieces for raptor interaction.
+important pieces for raptor interaction locally. Full raptor sessions are tested
+through :file:`test_rp_exec.py`.
 """
 
-import asyncio
 import dataclasses
 import json
 import os
-import warnings
 
 import packaging.version
 import pytest
@@ -20,7 +19,6 @@ from scalems.radical.raptor import MasterTaskConfiguration
 from scalems.radical.raptor import ScaleMSMaster
 from scalems.radical.raptor import ScaleMSWorker
 from scalems.radical.raptor import WorkerDescriptionDict
-from scalems.radical.runtime import Runtime
 
 try:
     import radical.pilot as rp
@@ -63,6 +61,9 @@ def test_master_configuration_details(rp_venv):
         ('radical.pilot', rp.version_short)
     )
 
+    # Note that the Worker launch has unspecified results if the `named_env`
+    # does not exist and is not scheduled to be created with `prepare_env`.
+    # However, we are not currently using `named_env`. See #90.
     configuration = MasterTaskConfiguration(
         worker=ClientWorkerRequirements(
             named_env='scalems_test_ve',
@@ -95,110 +96,3 @@ def test_master_configuration_details(rp_venv):
         assert descr['worker_class'] == ScaleMSWorker.__name__
         assert os.path.exists(descr['worker_file'])
     assert not os.path.exists(descr['worker_file'])
-
-
-# We either need to mock a RP agent or gather coverage files from remote environments.
-# This test does not add any coverage, and only adds measurable coverage or coverage
-# granularity if we either mock a RP agent or gather coverage files from remote environments.
-@pytest.mark.skip(reason='Incomplete.')
-def test_master(rp_task_manager, pilot_description):
-    """Check our ability to launch a Master and Worker."""
-
-    session: rp.Session = rp_task_manager.session
-    state = Runtime(session=session)
-    state.task_manager(rp_task_manager)
-
-    with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.task_manager')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.db.database')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.session')
-
-        # We only expect one pilot
-        pilot_dict: dict = rp_task_manager.get_pilots()[0]
-        pilot_uid = pilot_dict['uid']
-        pmgr_uid = pilot_dict['pmgr']
-
-        pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
-        state.pilot_manager(pmgr)
-
-        pilot: rp.Pilot = pmgr.get_pilots(uids=pilot_uid)
-        state.pilot(pilot)
-
-        # # Note that the Worker launch has unspecified results if the `named_env`
-        # # does not exist and is not scheduled to be created with `prepare_env`.
-        # # However, we are not currently using `named_env`. See #90.
-        # _worker_description = worker_description(
-        #     pre_exec=[],
-        #     named_env='scalems_test_ve',
-        #     cpu_processes=worker_processes,
-        #     gpus_per_process=gpus_per_process
-        # )
-        # # _worker_description['uid'] = 'raptor-worker-test'
-        #
-        # configuration: MasterTaskConfiguration = master_input()
-
-
-@pytest.mark.skip(reason='Temporarily disabled. Needs updates wrt #248, #108.')
-@pytest.mark.filterwarnings('ignore::DeprecationWarning')
-@pytest.mark.asyncio
-async def test_worker(pilot_description, rp_venv, cleandir):
-    """Launch the master script and execute a trivial workflow.
-    """
-
-    if rp_venv is None:
-        # Be sure to provision the venv.
-        # pytest.skip('This test requires a user-provided static RP venv.')
-        ...
-
-    loop = asyncio.get_event_loop()
-    loop.set_debug(True)
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
-
-    params = scalems.radical.runtime.Configuration(
-        execution_target=pilot_description.resource,
-        target_venv=rp_venv,
-        rp_resource_params={
-            'PilotDescription': pilot_description.as_dict()
-        }
-    )
-
-    manager = scalems.radical.workflow_manager(loop)
-    with scalems.workflow.scope(manager):
-        assert not loop.is_closed()
-        # Enter the async context manager for the default dispatcher
-        async with manager.dispatch(params=params) as dispatcher:
-            # We have now been through RPDispatchingExecutor.runtime_startup().
-            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
-            logger.debug(f'Session is {repr(dispatcher.runtime.session)}')
-
-            # scheduler = dispatcher.runtime.scheduler.uid
-            # task_uid = 'task.scalems-test-worker'
-            # # TODO: Encode work in task args/kwargs.
-            # args = []
-            # kwargs = {}
-            # task_description = rp.TaskDescription(
-            #     {
-            #         'scheduler': scheduler,
-            #         'uid': task_uid,
-            #         'mode': rp.TASK_FUNCTION,
-            #         'cpu_processes': 1,
-            #         'cpu_process_type': rp.SERIAL,
-            #         'function': scalems_task_wrapper(*args, **kwargs),
-            #         # 'args': [],
-            #         # 'kwargs': {}
-            #     }
-            # )
-
-            # Submit a raptor task
-            # task = dispatcher.runtime.task_manager().submit_tasks(task_description)
-            # TODO: Implement scalems.radical.raptor.dispatch()
-
-            # task.wait()
-            # exc_typename, exc_message = task.exception
-            # assert exc_typename.endswith('MissingImplementationError')
-
-            # TODO: Flesh out the Master result_cb().
-            # TODO: Check an actual data result.

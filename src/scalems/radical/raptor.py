@@ -101,7 +101,7 @@ As of RP 1.14, the protocol is as follows.
     "master task" -> master: Master.submit_workers(descr=descr, count=n_workers)
     "master task" -> master: Master.start()
     alt optional hook for self-submitting additional tasks
-    "master task" -> master: Master.submit(tasks)
+    "master task" -> master: Master.submit_tasks(tasks)
     end
     queue scheduler
     scheduler -\\ master : request_cb
@@ -257,6 +257,11 @@ import warnings
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
+try:
+    from mpi4py.MPI import Comm
+except ImportError:
+    Comm = None
+
 # TODO(Python 3.9): Remove this conditional when we require Python >= 3.9
 if sys.version_info.minor < 9:
     from typing import Generator
@@ -294,7 +299,14 @@ api_name = 'scalems_v0'
 """Key for dispatching raptor Requests.
 
 We can use this to identify the schema used for SCALE-MS tasks encoded in
-arguments to raptor *call* mode executor functions.
+arguments to raptor :py:data:`~radical.pilot.TASK_FUNCTION` mode executor.
+"""
+
+CPI_MESSAGE = 'scalems.cpi'
+"""Flag for scalems messages to be treated as CPI calls.
+
+Used in the :py:attr:`rp.TaskDescription.mode` field to indicate that the
+object should be handled through the SCALEMS Compute Provider Interface machinery.
 """
 
 EncodableAsDict = typing.Mapping[str, 'Encodable']
@@ -668,12 +680,84 @@ class ScaleMSMaster(rp.raptor.Master):
     decoded and translated to RP Tasks by the `ScaleMSMaster.request_cb` and
     self-submitted to the `ScaleMSWorker`.
 
-    Results of such tasks are only available through to the `ScaleMSMaster.result_cb`.
+    Results of such tasks are only available through to the :py:func:`result_cb`.
     The Master can translate results of generated Tasks into results for the Task
     carrying the coded instruction, or it can produce data files to stage during or
     after the Master task. Additionally, the Master could respond to other special
     instructions (encoded in later client-originated Tasks) to query or retrieve
     generated task results.
+
+    .. uml::
+
+        title raptor Master
+
+        queue "Queue" as Queue
+
+        box "RP Agent"
+        participant Scheduler
+        end box
+
+        queue "Master input queue" as master_queue
+
+        box "scalems.radical.raptor"
+        participant ScaleMSMaster
+        participant rpt.Master
+        end box
+
+        queue "ZMQ Raptor work channel" as channel
+
+        activate Queue
+
+        Scheduler -> Queue: accepts work
+        activate Scheduler
+        Scheduler <-- Queue: task dictionary
+        deactivate Queue
+
+        note over Scheduler
+        Scheduler gets task from queue,
+        observes `scheduler` field and routes to Master.
+        end note
+
+        Scheduler -> master_queue: task dictionary
+        activate master_queue
+        deactivate Scheduler
+
+        note over ScaleMSMaster, rpt.Master
+        Back end RP queue manager
+        passes messages to Master callbacks.
+        end note
+
+        rpt.Master -> master_queue: accept Task
+        activate rpt.Master
+        rpt.Master <-- master_queue: task_description
+        deactivate master_queue
+
+        rpt.Master -> rpt.Master: _request_cb(...)
+        activate rpt.Master
+        rpt.Master -> ScaleMSMaster: request_cb(...)
+        activate ScaleMSMaster
+        return filtered tasks
+
+        rpt.Master -> rpt.Master: submit_tasks(...)
+        activate rpt.Master
+        deactivate rpt.Master
+        rpt.Master -> channel: send message
+        deactivate rpt.Master
+        deactivate rpt.Master
+
+        rpt.Master -> channel: accept result
+        activate rpt.Master
+        rpt.Master <-- channel: task_description
+        deactivate channel
+
+        rpt.Master -> rpt.Master: _result_cb(...))
+        activate rpt.Master
+
+        rpt.Master -> master_queue: send message
+        activate master_queue
+        deactivate rpt.Master
+        deactivate rpt.Master
+
     """
 
     def __init__(self, configuration: MasterTaskConfiguration):
@@ -703,10 +787,7 @@ class ScaleMSMaster(rp.raptor.Master):
             warnings.warn('Master incomplete. Could not initialize raptor.Master base class.')
 
         # Initialize internal state.
-        self._dependents = dict()
-        self._submitted = 0
-        self._completed = 0
-        self._workload = set()
+        # TODO: Use a scalems RuntimeManager.
         self.__worker_files = {}
 
     @contextlib.contextmanager
@@ -747,6 +828,88 @@ class ScaleMSMaster(rp.raptor.Master):
                 self.__worker_files[worker] = filename
             yield filename
         del self.__worker_files[worker]
+
+    def request_cb(
+            self,
+            tasks: typing.Sequence[TaskDictionary]
+    ) -> typing.Sequence[TaskDictionary]:
+        """Allows all incoming requests to be processed by the Master.
+
+        RADICAL guarantees that :py:func:`~radical.pilot.raptor.Master.request_cb()`
+        calls are made sequentially in a single thread.
+        The implementation does not need to be thread-safe or reentrant.
+        (Ref: https://github.com/radical-cybertools/radical.utils/blob/master/src/radical/utils/zmq/queue.py#L386)
+
+        RADICAL does not guarantee that Tasks are processed in the same order in
+        which they are submitted by the client.
+
+        If overridden, request_cb() must return a :py:class:`list`. The returned list
+        is interpreted to be requests that should be processed normally after the callback.
+        This allows subclasses of rp.raptor.Master to add or remove requests before they become Tasks.
+        The returned list is submitted with self.submit_tasks() by the base class after the
+        callback returns.
+
+        A Master may call *self.submit_tasks()* to self-submit items (e.g. instead of or in
+        addition to manipulating the returned list in *request_cb()*).
+
+        It is the developer's responsibility to choose unique task IDs (uid) when crafting
+        items for Master.submit_tasks().
+        """
+        try:
+            # It is convenient to compartmentalize the filtering and dispatching
+            # of scalems tasks in a generator function, but this callback signature
+            # requires a `list` to be returned.
+            remaining_tasks = self._scalems_handle_requests(tasks)
+            # Let non-scalems tasks percolate to the default machinery.
+            return list(remaining_tasks)
+        except Exception as e:
+            logger.exception('scalems request filter propagated an exception.')
+            # TODO: Submit a clean-up task.
+            #  Use a thread or asyncio event loop controlled by the main master task thread
+            #  to issue a cancel to all outstanding tasks and stop the workers.
+            # Question: Is there a better / more appropriate way to exit cleanly on errors?
+            self.stop()
+            # Note that we are probably being called in a non-root thread.
+            # TODO: Avoid letting an exception escape unhandled.
+            # WARNING: RP 1.18 suppresses exceptions from request_cb(), but there is a note
+            # indicating that exceptions will cause task failure in a future version.
+            # But the failure modes of the scalems master task are not yet well-defined.
+            # See also
+            # * https://github.com/SCALE-MS/scale-ms/issues/218 and
+            # * https://github.com/SCALE-MS/scale-ms/issues/229
+            raise e
+
+    def _scalems_handle_requests(self, tasks: typing.Sequence[TaskDictionary]):
+        for task in tasks:
+            try:
+                mode = task['description']['mode']
+                # Allow non-scalems work to be handled normally.
+                if mode != CPI_MESSAGE:
+                    yield task
+                    continue
+                else:
+                    message = task['description']['metadata']
+                    logger.debug(f'Received message in {str(task)}')
+                    assert message == 'hello'
+
+                    # Finalize the task
+                    task['error'] = ''
+                    task['stderr'] = ''
+                    task['stdout'] = 'hello'
+                    task['exit_code'] = 0
+                    task['return_value'] = scalems.__version__
+                    # task['exception'] = None
+                    logger.debug('Finalizing...')
+                    self._result_cb(task)
+                    logger.debug(f'Finalized {str(task)}.')
+            except Exception as e:
+                # Exceptions here are presumably bugs in scalems or RP.
+                # Almost certainly, we should shut down after cleaning up.
+                # 1. TODO: Record error in log for ScaleMSMaster.
+                # 2. Make sure that task is resolved.
+                # 3. Trigger clean shut down of master task.
+                ...
+                raise e
 
 
 class WorkerDescriptionDict(typing.TypedDict):
@@ -801,7 +964,7 @@ def worker_description(*,
                        pre_exec: typing.Iterable[str] = (), ) -> WorkerDescriptionDict:
     """Get a worker description for Master.submit_workers().
 
-    Keyword Args:
+    Parameters:
         cores_per_process (int, optional): See `radical.pilot.TaskDescription.cores_per_rank`
         cpu_processes (int, optional): See `radical.pilot.TaskDescription.ranks`
         gpus_per_process (int, optional): See `radical.pilot.TaskDescription.gpus_per_rank`
@@ -834,6 +997,126 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
 
     scalems tasks encode the importable function and inputs in the arguments to
     the ... dispatching function, which is available to the `ScaleMSWorker` instance.
+    """
+
+
+class _RaptorTaskDescription(typing.TypedDict):
+    """Describe a Task to be executed through a Raptor Worker.
+
+    A specialization of `radical.pilot.TaskDescription`.
+
+    Note the distinctions of a TaskDescription to be processed by a raptor.Master.
+
+    The meaning or utility of some fields is dependent on the values of other fields.
+    """
+    uid: str
+    """Unique identifier for the Task across the Session."""
+
+    executable: str
+    """Unused by Raptor tasks."""
+
+    scheduler: str
+    """The UID of the raptor.Master scheduler task.
+    
+    This field is relevant to tasks routed from client TaskManagers. It is not
+    used for tasks originating in master tasks.
+    
+    .. ref https://github.com/SCALE-MS/scale-ms/discussions/258#discussioncomment-4087870
+
+    """
+
+    metadata: Encodable
+    """An arbitrary user-provided payload.
+    
+    May be any type that is encodable by :py:mod:`msgpack` (i.e. built-in types).
+    """
+
+    mode: str
+    """The executor mode for the Worker to use.
+
+    For ``rp.TASK_FUNCTION`` mode, either *function* or *method* must name a task executor.
+    Depending on the Worker (sub)class, resources such as an `mpi4py.MPI.Comm`
+    will be provided as the first positional argument to the executor.
+    ``*args`` and ``**kwargs`` will be provided to the executor from the corresponding
+    fields.
+    
+    See Also:
+        * :py:data:`CPI_MESSAGE`
+        * :py:class:`RaptorTaskExecutor`
+    """
+
+    function: str
+    """Executor for ``rp.TASK_FUNCTION`` mode.
+    
+    Names the callable for dispatching.
+
+    The callable can either be a function object present in the namespace of the interpreter launched
+    by the Worker for the task, or a `radical.pilot.pytask` pickled function object.
+    """
+
+    args: list
+    """For ``rp.TASK_FUNCTION`` mode, list of positional arguments provided to the executor function."""
+
+    kwargs: dict
+    """For ``rp.TASK_FUNCTION`` mode, a dictionary of key word arguments provided to the executor function."""
+
+
+class TaskDictionary(typing.TypedDict):
+    """Task representations seen by *request_cb* and *result_cb*.
+
+    Other fields may be present, but the objects in the sequences provided to
+    :py:meth:`scalems.radical.raptor.ScaleMSMaster.request_cb()` and
+    :py:meth:`scalems.radical.raptor.ScaleMSMaster.result_cb()` have the following fields.
+    Result fields will not be populated until the Task runs.
+
+    For the expected fields, see the source code for
+    :py:meth:`~radical.pilot.Task.as_dict()`:
+    https://radicalpilot.readthedocs.io/en/stable/_modules/radical/pilot/task.html#Task.as_dict
+    """
+    uid: str
+    """Canonical identifier for the Task.
+
+    Note that *uid* may be omitted from the original TaskDescription.
+    """
+
+    description: _RaptorTaskDescription
+    """Encoding of the original task description."""
+
+    error: str
+    """TBD. See https://github.com/SCALE-MS/scale-ms/discussions/259#discussioncomment-4095650"""
+
+    stdout: str
+    """Task standard output."""
+
+    stderr: str
+    """Task standard error."""
+
+    exit_code: int
+    """Task return code."""
+
+    return_value: typing.Any
+    """Function return value.
+    
+    Refer to the :py:class:`RaptorTaskExecutor` Protocol.
+    """
+
+    exception: typing.Tuple[str, str]
+    """Exception type name and message.
+    
+    TODO: Is this typing correct?
+    
+    Ref https://github.com/SCALE-MS/scale-ms/discussions/267
+    """
+
+    state: str
+    """RADICAL Pilot Task state."""
+
+    target_state: str
+    """State to which the Task should be advanced.
+    
+    Valid values are string constants from :py:mod:`radical.pilot.states`.
+    
+    Used internally, such as in Master._result_cb().
     """
 
 

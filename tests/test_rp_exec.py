@@ -1,18 +1,17 @@
 """Dispatch scalems.exec through RADICAL Pilot.
 
-In the first draft, we keep the tests simpler by assuming we are invoked in an
-environment where RP is already configured. In a follow-up, we will use a
-dispatching layer to run meaningful tests through an RP Context specialization.
-In turn, the initial RP dispatching will probably use a Docker container to
+For testing purposes, the RP dispatching can use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
+Refer to the repository directories ``docker`` and ``.github/workflows``.
 
-Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
+Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 """
+
 import asyncio
-import logging
 import os
 
+import packaging.version
 import pytest
 
 import scalems
@@ -21,11 +20,78 @@ import scalems.radical
 import scalems.radical.runtime
 import scalems.workflow
 
+try:
+    import radical.pilot as rp
+except ImportError:
+    rp = None
+else:
+    from scalems.radical.raptor import RaptorWorkerConfig
+
+import logging
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 # TODO: Catch sigint from RP and apply our own timeout.
+
+pytestmark = pytest.mark.skipif(condition=rp is None,
+                                reason='These tests require RADICAL Pilot.')
+
+client_scalems_version = packaging.version.Version(scalems.__version__)
+if client_scalems_version.is_prerelease:
+    minimum_scalems_version = client_scalems_version.public
+else:
+    minimum_scalems_version = client_scalems_version.base_version
+
+
+# We either need to mock a RP agent or gather coverage files from remote environments.
+# This test does not add any coverage, and only adds measurable coverage or coverage
+# granularity if we either mock a RP agent or gather coverage files from remote environments.
+@pytest.mark.asyncio
+async def test_raptor_master(pilot_description, rp_venv, cleandir):
+    """Check our ability to launch and interact with a Master task."""
+    import radical.pilot as rp
+
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+    # Configure module.
+    params = scalems.radical.runtime.Configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={
+            'PilotDescription': pilot_description.as_dict()
+        }
+    )
+
+    manager = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(manager, close_on_exit=True):
+        async with manager.dispatch(params=params) as dispatcher:
+            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
+            logger.debug(f'test_raptor_master Session is {repr(dispatcher.runtime.session)}')
+
+            # Bypass the scalems machinery and submit an instruction directly to the master task.
+            scheduler: rp.Task = dispatcher.runtime.scheduler
+            td = rp.TaskDescription()
+            td.scheduler = scheduler.uid
+            td.mode = scalems.radical.raptor.CPI_MESSAGE
+            td.metadata = 'hello'
+            logger.debug(f'Submitting {str(td.as_dict())}')
+            tasks = dispatcher.runtime.task_manager().submit_tasks([td])
+            task = tasks[0]
+            logger.debug(f'Submitted {str(task.as_dict())}. Waiting...')
+            state = task.wait(state=rp.FINAL, timeout=180)
+            logger.debug(str(task.as_dict()))
+    assert state == rp.DONE
+    assert 'hello' in task.stdout
+    # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
+    # assert task.return_value == scalems.__version__
 
 
 # def test_rp_raptor_remote_docker(sdist, rp_task_manager):

@@ -74,6 +74,30 @@ worker task
 .. autoclass:: ScaleMSWorker
     :members:
 
+task handling
+~~~~~~~~~~~~~
+
+`scalems` instructions are embedded in TaskDescriptions with the
+:py:data:`scalems.radical.raptor.CPI_MESSAGE` mode,
+using the :py:data:`rp.TaskDescription.metadata` field for the payload.
+Executable work is re-encoded by `ScaleMSMaster` for `ScaleMSWorker`
+to be dispatched through `scalems` machinery in the Worker process.
+
+.. autodata:: api_name
+    :annotation:
+
+.. autodata:: CPI_MESSAGE
+    :annotation:
+
+..
+    .. autofunction:: object_encoder
+
+    .. autofunction:: raptor_work_deserializer
+
+    .. autofunction:: run_in_worker
+
+    .. autofunction:: scalems_task_wrapper
+
 compatibility helpers
 ~~~~~~~~~~~~~~~~~~~~~
 

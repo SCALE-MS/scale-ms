@@ -544,7 +544,7 @@ async def _get_scheduler(pre_exec: typing.Iterable[str],
         name='check-Master-started'
     )
     await _task
-    logger.debug(f'Scheduler in state {scheduler.state}. Proceeding.')
+    logger.debug(f'Scheduler in state {scheduler.state}.')
     # TODO: Generalize the exit status checker for the Master task and perform this
     #  this check at the call site.
     if scheduler.state in rp.FINAL:

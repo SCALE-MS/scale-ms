@@ -392,12 +392,20 @@ def _new_pilot(session: rp.Session,
 
 @pytest.fixture(scope='session')
 def rp_runtime(pilot_description) -> Runtime:
-    runtime: Runtime = _new_runtime()
-    try:
-        yield runtime
-    finally:
-        scalems.radical.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
-    assert runtime.session.closed
+    with warnings.catch_warnings():
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.task_manager')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.db.database')
+        warnings.filterwarnings('ignore', category=DeprecationWarning,
+                                module='radical.pilot.session')
+
+        runtime: Runtime = _new_runtime()
+        try:
+            yield runtime
+        finally:
+            scalems.radical.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
+        assert runtime.session.closed
 
 
 def _check_pilot_manager(runtime: Runtime):

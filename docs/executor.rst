@@ -1,6 +1,6 @@
-====================
-Execution middleware
-====================
+==========================
+Execution middleware layer
+==========================
 
 Executable graphs or graph segments produced by client software are dispatched
 and translated for execution on managed computing resources.
@@ -168,38 +168,3 @@ Execution module authors should also be aware of the following utilities.
 .. autofunction:: scalems.utility.parser
 
 .. autofunction:: scalems.utility.make_parser
-
-Extra scalems.radical details
-=============================
-
-User interface is documented at :py:mod:`scalems.radical`.
-
-.. autofunction:: scalems.radical.configuration
-
-scalems.radical.runtime support module
---------------------------------------
-
-.. automodule:: scalems.radical.runtime
-
-.. autofunction:: scalems.radical.runtime.executor_factory
-
-.. autoclass:: scalems.radical.runtime.RPDispatchingExecutor
-    :members: __init__, runtime, runtime_configuration, runtime_startup, runtime_shutdown, updater
-
-.. autoclass:: scalems.radical.runtime.Configuration
-    :members:
-
-.. autoclass:: scalems.radical.runtime.Runtime
-    :members:
-
-.. autofunction:: scalems.radical.runtime.rp_task
-
-.. autofunction:: scalems.radical.runtime.scalems_callback
-
-.. autofunction:: scalems.radical.runtime.submit
-
-scalems.radical.raptor
-----------------------
-
-.. automodule:: scalems.radical.raptor
-    :members:

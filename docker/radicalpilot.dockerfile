@@ -30,6 +30,7 @@ RUN apt-get update && \
         libopenmpi-dev \
         openmpi-bin \
         openssh-server \
+        rsync \
         vim \
         wget && \
     rm -rf /var/lib/apt/lists/*

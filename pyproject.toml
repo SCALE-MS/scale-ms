@@ -1,3 +1,68 @@
 [build-system]
-requires = ["setuptools>=42.0", "wheel"]
+requires = ["setuptools>=61.0", "versioningit~=2.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[project]
+name = "scalems"
+dynamic = ["version"]
+description = "Reference implementation of the SCALE-MS data flow scripting and graph execution API for molecular science computational research protocols."
+authors = [{ name = "SCALE-MS team", email = "info@scalems.org" }]
+readme = "README.md"
+requires-python = ">=3.8"
+license = { text = "LGPL 2.1" }
+classifiers = [
+    "License :: OSI Approved :: GNU Lesser General Public License v2 or later (LGPLv2+)",
+    "Programming Language :: Python :: 3"
+]
+dependencies = [
+    'mpi4py',
+    'packaging',
+    'radical.pilot>="1.18"'
+]
+
+[project.urls]
+"Source" = "https://github.com/SCALE-MS/scale-ms/"
+
+[project.optional-dependencies]
+test = [
+    'build',
+    'packaging',
+    'pytest>="6.1.2"',
+    'pytest-asyncio>="0.14"',
+    'pytest-env',
+    'radical.pilot>="1.18"'
+]
+
+[project.scripts]
+scalems_rp_master = "scalems.radical.raptor:master"
+
+[tool.setuptools]
+zip-safe = false
+
+[tool.setuptools.package-dir]
+scalems = 'src/scalems'
+
+[tool.setuptools.package-data]
+scalems = [
+    'py.typed'
+]
+
+[tool.versioningit]
+default-version = "0+unknown"
+
+[tool.versioningit.format]
+distance = "{base_version}+{distance}.{vcs}{rev}"
+dirty = "{base_version}+{distance}.{vcs}{rev}.dirty"
+distance-dirty = "{base_version}+{distance}.{vcs}{rev}.dirty"
+
+[tool.versioningit.vcs]
+# The method key:
+method = "git"  # <- The method name
+# Parameters to pass to the method:
+match = ["scalems*"]
+
+[tool.versioningit.tag2version]
+rmprefix = "scalems-"
+
+[tool.versioningit.write]
+file = "src/scalems/_version.py"

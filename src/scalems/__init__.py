@@ -47,18 +47,12 @@ __all__ = [
 
 import logging
 
-from ._version import get_versions
+from ._version import __version__
 from .workflow import get_scope
 from .subprocess import executable
 from .utility import app
 from .utility import ScriptEntryPoint
 from .context import FileReference
-
-__version__ = get_versions()['version']
-del get_versions
-# We do not provide a version module or API.
-# Use :py:mod:`packaging.version <https://packaging.pypa.io/en/latest/version/>`
-# or pkg_resources.get_distribution('gmxapi').version for richer interfaces.
 
 logger = logging.getLogger(__name__)
 logger.debug('Imported {}'.format(__name__))

@@ -69,6 +69,12 @@ jobs:
             -DPKG_MOLECULE=yes \
             -DPKG_MPIIO=yes \
             -DPKG_PYTHON=yes \
+            -DPython3_ROOT=$VIRTUAL_ENV \
+            -DPython_ROOT=$VIRTUAL_ENV \
+            -DPython3_FIND_VIRTUALENV=FIRST \
+            -DPython_FIND_VIRTUALENV=FIRST \
+            -DPython3_FIND_STRATEGY=LOCATION \
+            -DPython_FIND_STRATEGY=LOCATION \
             -DPKG_REPLICA=yes \
             -DPKG_MISC=yes \
             -DPKG_EXTRA-DUMP=yes \

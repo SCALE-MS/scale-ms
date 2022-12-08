@@ -68,7 +68,7 @@ import logging
 import typing
 
 from scalems.context import FileStore
-from scalems.dispatching import QueueItem
+from scalems.messages import QueueItem
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError

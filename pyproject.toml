@@ -15,9 +15,9 @@ classifiers = [
     "Programming Language :: Python :: 3"
 ]
 dependencies = [
-    'mpi4py',
-    'packaging',
-    'radical.pilot>="1.18"'
+    "mpi4py",
+    "packaging",
+    "radical.pilot >= 1.18"
 ]
 
 [project.urls]
@@ -25,12 +25,12 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    'build',
-    'packaging',
-    'pytest>="6.1.2"',
-    'pytest-asyncio>="0.14"',
-    'pytest-env',
-    'radical.pilot>="1.18"'
+    "build",
+    "packaging",
+    "pytest >= 6.1.2 ",
+    "pytest-asyncio >= 0.14",
+    "pytest-env",
+    "radical.pilot >= 1.18"
 ]
 
 [project.scripts]
@@ -44,7 +44,7 @@ scalems = 'src/scalems'
 
 [tool.setuptools.package-data]
 scalems = [
-    'py.typed'
+    "py.typed"
 ]
 
 [tool.versioningit]

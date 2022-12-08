@@ -43,12 +43,15 @@ jobs:
       id: cache-venv
       with:
         path: ~/testenv
-        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-${{ hashFiles('requirements-testing.txt') }}
+        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-${{ hashFiles('requirements-testing.txt') }}-${{ hashFiles('pyproject.toml') }}
     - name: Set up venv
       if: steps.cache-venv.outputs.cache-hit != 'true'
       run: |
+        echo `which python`
         python -m venv $HOME/testenv
+        ls -ld $HOME/testenv/bin/*
         . $HOME/testenv/bin/activate
+        echo `which python`
         python -m pip install --upgrade pip setuptools wheel
         python -m pip install --upgrade coverage pytest-cov mpi4py
     - name: Install LAMMPS

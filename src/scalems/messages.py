@@ -3,8 +3,18 @@
 Message types and protocol support for control signals,
 queue management, and work dispatching.
 """
+__all__ = (
+    'Command',
+    'QueueItem',
+    'CommandQueueControlItem',
+    'CommandQueueAddItem',
+    'StopCommand'
+)
+
 import logging
 import typing
+import weakref
+from abc import abstractmethod
 
 from scalems.exceptions import APIError
 
@@ -72,3 +82,152 @@ class CommandQueueAddItem(QueueItem, typing.MutableMapping[str, bytes]):
                 raise APIError(f'Unsupported add_item key: {repr(v)}')
         else:
             raise APIError(f'Unsupported command: {repr(k)}')
+
+
+SerializedValueT = typing.TypeVar('SerializedValueT', bound=typing.Union[str, bytes])
+
+
+class Command(typing.Protocol[SerializedValueT]):
+    """An instruction to the workflow execution run time machinery.
+
+    A limited schema for Command objects allows abstraction of the workflow
+    management and run time collaborations to be represented in a way that is
+    wire-protocol-friendly, easily serializable, and easily converted between
+    structured data types or file formats.
+
+    Commands of different types (represented by subclasses of `Command`)
+    are directed to different components of the SCALE-MS workflow management model.
+
+    Support for serialization follows the model of the object encoding/decoding
+    hooks in the :py:mod:`json` module.
+
+    Immediate realizations of the Command Protocol are Abstract Base Classes
+    that map themselves to "command category" strings, which serve as keys in
+    the serialized mapping object representation.
+
+    The Abstract Base Classes are responsible for translating the serialized
+    object value into a Command subclass instance.
+    """
+    key: typing.ClassVar[str]
+    """Key word for mapping a named command to the Command creation function."""
+
+    __subtype: typing.ClassVar[
+        typing.MutableMapping[str, typing.Callable[..., typing.Callable[[SerializedValueT], typing.Any]]]] = {}
+    """Map named command categories to WeakMethod weakrefs to callable decoders."""
+
+    @classmethod
+    @abstractmethod
+    def create(cls, command: str) -> 'Command':
+        """Creation function will be registered during subclassing."""
+        raise NotImplemented
+
+    @staticmethod
+    def decode(obj: typing.Mapping[str, SerializedValueT]):
+        """Convert a deserialized object representation to a Command instance.
+
+        Abstract Command base classes
+        """
+        items = tuple(obj.items())
+        if len(items) != 1 or len(items[0]) != 2:
+            raise ValueError('Not a key-value pair. decode() expects a (single-element) Mapping.')
+        key, value = items[0]
+        creation_function = Command.__subtype[key]()
+        return creation_function(value)
+
+    @abstractmethod
+    def encode(self):
+        """Produce a serializeable object record."""
+        # Example:
+        #   return {self.key: self.value}
+        raise NotImplemented
+
+    def __init_subclass__(cls, **kwargs):
+        """Register an abstract command base class for dispatched creation."""
+        # Check the protocol.
+        if cls is not Command:
+            assert hasattr(cls, 'key')
+            assert cls.key not in Command.__subtype
+            Command.__subtype[cls.key] = weakref.WeakMethod(cls.create)
+            super().__init_subclass__(**kwargs)
+
+
+class Control(Command[str], typing.Protocol):
+    """Represent a "control" message.
+
+    Supported commands for runtime components.
+
+    Abstract Base Class for Control commands.
+    Serialized Control objects are identified by the key word "control".
+    The payload (or serialized object) is just a string naming the control command.
+
+    Note: I'm not sure that it is appropriate for concrete Control types to be
+    subclasses of Control, and, thus, Command. It is convenient metaprogramming,
+    but what we want is more akin to the `register` interaction of explicitly _virtual_
+    subclasses, or of the dispatching function objects from functools. I'm withholding
+    judgement or redesign until seeing how things play out with command types that
+    take arguments, or more complete functionality like dispatchable tasks. At that
+    point, though, I expect a decorator pattern will make more sense.
+    """
+    key: typing.ClassVar = 'control'
+
+    message: typing.ClassVar[str]
+
+    __control_type: typing.ClassVar[typing.MutableMapping[str, type]] = weakref.WeakValueDictionary()
+    """Map named control commands to their concrete types."""
+
+    def __init_subclass__(cls, **kwargs):
+        assert hasattr(cls, 'message')
+        assert cls.message not in Control.__control_type
+        Control.__control_type[cls.message] = cls
+        # The Control abstract base class has separate semi-private relationships
+        # with its parents and with its children. Control insulates subclasses
+        # from other base classes, and we interrupt the init_subclass protocol
+        # here.
+        # Do not call super().__init_subclass__(**kwargs)
+
+    @classmethod
+    def create(cls, command: str) -> 'Command':
+        assert cls is Control
+        return cls.__control_type[command]()
+
+    def encode(self):
+        return {self.key: self.message}
+
+
+class StopCommand(Control):
+    message: typing.ClassVar[str] = 'stop'
+    """Announce the end of the session, directing components to shut down cleanly.
+
+    No further commands will be processed after receiving this signal.
+    """
+
+    def __init__(self):
+        # With a Protocol parent, we need an __init__ to establish this as a concrete class.
+        ...
+
+
+class HelloCommand(Control):
+    message: typing.ClassVar[str] = 'hello'
+    """Elicit a response.
+
+    The structure of the response is a detail of the backend, but probably
+    includes version and configuration information to support compatibility
+    checks.
+    """
+
+    def __init__(self):
+        # With a Protocol parent, we need an __init__ to establish this as a concrete class.
+        ...
+
+
+class AddItem(Command):
+    """Announce an item to be added to the target workflow.
+
+    Direct an update to the workflow record, such as to describe a data source,
+    register a resource, or add a task.
+    """
+    key: typing.ClassVar = 'add_item'
+
+    def __init__(self):
+        # With a Protocol parent, we need an __init__ to establish this as a concrete class.
+        ...

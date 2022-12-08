@@ -108,3 +108,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Generated file(s)
+/src/scalems/_version.py

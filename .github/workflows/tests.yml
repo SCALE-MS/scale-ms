@@ -9,222 +9,222 @@ on:
     branches: [ $default-branch ]
 
 jobs:
-  simple_local:
-
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    strategy:
-      matrix:
-        python-version: [3.8, "3.10"]
-    env:
-      LAMMPSVER: 20201029
-      LAMMPSHASH: da9b6ecb5dc20c7614b9a2ef65903225654badfead9feb8937f1fbc6b4c9838e
-    steps:
-    - name: Update container
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y --no-install-suggests --no-install-recommends \
-          build-essential \
-          libfftw3-dev \
-          libopenmpi-dev \
-          make \
-          ninja-build \
-          pkg-config \
-          software-properties-common
-    - uses: actions/checkout@v3
-      with:
-        submodules: true
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip' # caching pip dependencies
-    - uses: actions/cache@v3
-      id: cache-venv
-      with:
-        path: ~/testenv
-        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-${{ hashFiles('requirements-testing.txt') }}-${{ hashFiles('pyproject.toml') }}
-    - name: Set up venv
-      if: steps.cache-venv.outputs.cache-hit != 'true'
-      run: |
-        echo `which python`
-        python -m venv $HOME/testenv
-        ls -ld $HOME/testenv/bin/*
-        . $HOME/testenv/bin/activate
-        echo `which python`
-        python -m pip install --upgrade pip setuptools wheel
-        python -m pip install --upgrade coverage pytest-cov mpi4py
-    - name: Install LAMMPS
-      if: steps.cache-venv.outputs.cache-hit != 'true'
-      run: |
-        . $HOME/testenv/bin/activate
-        mkdir /tmp/lammps
-        cd /tmp/lammps
-        wget https://download.lammps.org/tars/releases/stable/lammps-${LAMMPSVER}.tar.gz
-        echo "${LAMMPSHASH}  lammps-${LAMMPSVER}.tar.gz" | shasum -a 256 --check --status
-        tar xf lammps-${LAMMPSVER}.tar.gz
-        rm lammps-${LAMMPSVER}.tar.gz
-        cd lammps-*
-        mkdir build
-        cd build
-        cmake ../cmake -G Ninja \
-            -DPKG_KSPACE=yes \
-            -DPKG_MOLECULE=yes \
-            -DPKG_MPIIO=yes \
-            -DPKG_PYTHON=yes \
-            -DPython3_ROOT=$VIRTUAL_ENV \
-            -DPython_ROOT=$VIRTUAL_ENV \
-            -DPython3_FIND_VIRTUALENV=FIRST \
-            -DPython_FIND_VIRTUALENV=FIRST \
-            -DPython3_FIND_STRATEGY=LOCATION \
-            -DPython_FIND_STRATEGY=LOCATION \
-            -DPKG_REPLICA=yes \
-            -DPKG_MISC=yes \
-            -DPKG_EXTRA-DUMP=yes \
-            -DPKG_COMPRESS=yes \
-            -DBUILD_SHARED_LIBS=on \
-            -DLAMMPS_EXCEPTIONS=on \
-            -DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV
-        cmake --build .
-        cmake --build . --target install
-        rm -rf /tmp/lammps
-        echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $VIRTUAL_ENV/bin/activate
-    - name: Install scalems and dependencies
-      run: |
-        . $HOME/testenv/bin/activate
-        echo `which python`
-        python --version
-        python -m pip install --upgrade pip setuptools wheel
-        pip --version
-        pip uninstall -y radical.pilot radical.saga radical.utils scalems
-        pip install --upgrade -r requirements-testing.txt
-        pip install .
-        radical-stack
-    - name: Test with pytest
-      run: |
-        . $HOME/testenv/bin/activate
-        export RADICAL_LOG_LVL=DEBUG
-        echo "HOME=$HOME"
-        ls $HOME
-        pwd
-        ls
-        python -X dev -m pytest --cov=scalems --cov-report=xml tests -s
-    - name: Command line tests
-      run: |
-        . $HOME/testenv/bin/activate
-        coverage run -m scalems.local --version
-        coverage run --append -m scalems.local --help
-        coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
-        coverage xml -o coverage-cli.xml
-        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
-        (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
-        (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
-    - name: "Upload coverage to Codecov"
-      continue-on-error: true
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: true
-        name: codecov-local-${{ matrix.python-version }}
-
-  rp_local:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    services:
-      mongodb:
-        image: mongo
-        env:
-          MONGO_INITDB_ROOT_USERNAME: root
-          MONGO_INITDB_ROOT_PASSWORD: password
-        ports:
-        # will assign a random free host port
-        - 27017/tcp
-
-    strategy:
-      matrix:
-        python-version: [3.9]
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip' # caching pip dependencies
-    - name: Increase file limit
-      run: |
-        sudo sysctl -w fs.file-max=65536
-        ulimit -a
-    - name: Install dependencies
-      timeout-minutes: 10
-      run: |
-        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
-        which mpiexec
-        python -m venv $HOME/testenv
-        . $HOME/testenv/bin/activate
-        echo `which python`
-        python --version
-        python -m pip install --upgrade pip setuptools wheel
-        pip --version
-        pip uninstall -y radical.pilot radical.saga radical.utils scalems
-        pip install radical.pilot~=1.18.0
-        pip install -r requirements-testing.txt
-        pip install .
-        pip install coverage pymongo pytest-cov
-        mkdir -p $HOME/.radical/pilot/configs/
-        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
-        python -m pip freeze
-        radical-stack
-    - name: Test default local.localhost with pytest
-      # We use static venvs for most of the tests, but this expands our coverage a bit.
-      timeout-minutes: 15
-      env:
-        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
-      run: |
-        . $HOME/testenv/bin/activate
-        export RADICAL_LOG_LVL=DEBUG
-        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
-        ulimit -n 65536
-        echo "HOME=$HOME"
-        ls $HOME
-        pwd
-        ls
-        for file in $(cd tests && ls -d test*py); do
-          python -X dev -m pytest \
-            --cov=scalems --cov-report=xml:coverage-$file.xml \
-            -rA -l --full-trace --log-cli-level=debug \
-            tests/$file \
-            --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
-        done
-    - name: Command line tests with static venv
-      timeout-minutes: 3
-      env:
-        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
-      run: |
-        . $HOME/testenv/bin/activate
-        coverage run -m scalems.radical --version
-        coverage run --append -m scalems.radical --help
-        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
-        coverage xml -o coverage2.xml
-        stdout=$(echo 0*/stdout)
-        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
-    - name: "Upload coverage to Codecov"
-      continue-on-error: true
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: true
-        name: codecov-rp-local-${{ matrix.python-version }}
-    - name: Collect artifacts
-      if: ${{ always() }}
-      run: |
-        tar zcf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
-    - name: "Upload artifacts"
-      if: ${{ always() }}
-      uses: actions/upload-artifact@v3
-      with:
-        name: ${{ github.job }}-${{ matrix.python-version }}
-        path: '~/sessions.tgz'
+#  simple_local:
+#
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 15
+#    strategy:
+#      matrix:
+#        python-version: [3.8, "3.10"]
+#    env:
+#      LAMMPSVER: 20201029
+#      LAMMPSHASH: da9b6ecb5dc20c7614b9a2ef65903225654badfead9feb8937f1fbc6b4c9838e
+#    steps:
+#    - name: Update container
+#      run: |
+#        sudo apt-get update
+#        sudo apt-get install -y --no-install-suggests --no-install-recommends \
+#          build-essential \
+#          libfftw3-dev \
+#          libopenmpi-dev \
+#          make \
+#          ninja-build \
+#          pkg-config \
+#          software-properties-common
+#    - uses: actions/checkout@v3
+#      with:
+#        submodules: true
+#    - name: Set up Python ${{ matrix.python-version }}
+#      uses: actions/setup-python@v4
+#      with:
+#        python-version: ${{ matrix.python-version }}
+#        cache: 'pip' # caching pip dependencies
+#    - uses: actions/cache@v3
+#      id: cache-venv
+#      with:
+#        path: ~/testenv
+#        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-${{ hashFiles('requirements-testing.txt') }}-${{ hashFiles('pyproject.toml') }}
+#    - name: Set up venv
+#      if: steps.cache-venv.outputs.cache-hit != 'true'
+#      run: |
+#        echo `which python`
+#        python -m venv $HOME/testenv
+#        ls -ld $HOME/testenv/bin/*
+#        . $HOME/testenv/bin/activate
+#        echo `which python`
+#        python -m pip install --upgrade pip setuptools wheel
+#        python -m pip install --upgrade coverage pytest-cov mpi4py
+#    - name: Install LAMMPS
+#      if: steps.cache-venv.outputs.cache-hit != 'true'
+#      run: |
+#        . $HOME/testenv/bin/activate
+#        mkdir /tmp/lammps
+#        cd /tmp/lammps
+#        wget https://download.lammps.org/tars/releases/stable/lammps-${LAMMPSVER}.tar.gz
+#        echo "${LAMMPSHASH}  lammps-${LAMMPSVER}.tar.gz" | shasum -a 256 --check --status
+#        tar xf lammps-${LAMMPSVER}.tar.gz
+#        rm lammps-${LAMMPSVER}.tar.gz
+#        cd lammps-*
+#        mkdir build
+#        cd build
+#        cmake ../cmake -G Ninja \
+#            -DPKG_KSPACE=yes \
+#            -DPKG_MOLECULE=yes \
+#            -DPKG_MPIIO=yes \
+#            -DPKG_PYTHON=yes \
+#            -DPython3_ROOT=$VIRTUAL_ENV \
+#            -DPython_ROOT=$VIRTUAL_ENV \
+#            -DPython3_FIND_VIRTUALENV=FIRST \
+#            -DPython_FIND_VIRTUALENV=FIRST \
+#            -DPython3_FIND_STRATEGY=LOCATION \
+#            -DPython_FIND_STRATEGY=LOCATION \
+#            -DPKG_REPLICA=yes \
+#            -DPKG_MISC=yes \
+#            -DPKG_EXTRA-DUMP=yes \
+#            -DPKG_COMPRESS=yes \
+#            -DBUILD_SHARED_LIBS=on \
+#            -DLAMMPS_EXCEPTIONS=on \
+#            -DCMAKE_INSTALL_PREFIX=$VIRTUAL_ENV
+#        cmake --build .
+#        cmake --build . --target install
+#        rm -rf /tmp/lammps
+#        echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $VIRTUAL_ENV/bin/activate
+#    - name: Install scalems and dependencies
+#      run: |
+#        . $HOME/testenv/bin/activate
+#        echo `which python`
+#        python --version
+#        python -m pip install --upgrade pip setuptools wheel
+#        pip --version
+#        pip uninstall -y radical.pilot radical.saga radical.utils scalems
+#        pip install --upgrade -r requirements-testing.txt
+#        pip install .
+#        radical-stack
+#    - name: Test with pytest
+#      run: |
+#        . $HOME/testenv/bin/activate
+#        export RADICAL_LOG_LVL=DEBUG
+#        echo "HOME=$HOME"
+#        ls $HOME
+#        pwd
+#        ls
+#        python -X dev -m pytest --cov=scalems --cov-report=xml tests -s
+#    - name: Command line tests
+#      run: |
+#        . $HOME/testenv/bin/activate
+#        coverage run -m scalems.local --version
+#        coverage run --append -m scalems.local --help
+#        coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
+#        coverage xml -o coverage-cli.xml
+#        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
+#        (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
+#        (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
+#    - name: "Upload coverage to Codecov"
+#      continue-on-error: true
+#      uses: codecov/codecov-action@v3
+#      with:
+#        token: ${{ secrets.CODECOV_TOKEN }}
+#        fail_ci_if_error: true
+#        name: codecov-local-${{ matrix.python-version }}
+#
+#  rp_local:
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 20
+#    services:
+#      mongodb:
+#        image: mongo
+#        env:
+#          MONGO_INITDB_ROOT_USERNAME: root
+#          MONGO_INITDB_ROOT_PASSWORD: password
+#        ports:
+#        # will assign a random free host port
+#        - 27017/tcp
+#
+#    strategy:
+#      matrix:
+#        python-version: [3.9]
+#
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Set up Python ${{ matrix.python-version }}
+#      uses: actions/setup-python@v4
+#      with:
+#        python-version: ${{ matrix.python-version }}
+#        cache: 'pip' # caching pip dependencies
+#    - name: Increase file limit
+#      run: |
+#        sudo sysctl -w fs.file-max=65536
+#        ulimit -a
+#    - name: Install dependencies
+#      timeout-minutes: 10
+#      run: |
+#        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
+#        which mpiexec
+#        python -m venv $HOME/testenv
+#        . $HOME/testenv/bin/activate
+#        echo `which python`
+#        python --version
+#        python -m pip install --upgrade pip setuptools wheel
+#        pip --version
+#        pip uninstall -y radical.pilot radical.saga radical.utils scalems
+#        pip install radical.pilot~=1.18.0
+#        pip install -r requirements-testing.txt
+#        pip install .
+#        pip install coverage pymongo pytest-cov
+#        mkdir -p $HOME/.radical/pilot/configs/
+#        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
+#        python -m pip freeze
+#        radical-stack
+#    - name: Test default local.localhost with pytest
+#      # We use static venvs for most of the tests, but this expands our coverage a bit.
+#      timeout-minutes: 15
+#      env:
+#        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+#      run: |
+#        . $HOME/testenv/bin/activate
+#        export RADICAL_LOG_LVL=DEBUG
+#        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
+#        ulimit -n 65536
+#        echo "HOME=$HOME"
+#        ls $HOME
+#        pwd
+#        ls
+#        for file in $(cd tests && ls -d test*py); do
+#          python -X dev -m pytest \
+#            --cov=scalems --cov-report=xml:coverage-$file.xml \
+#            -rA -l --full-trace --log-cli-level=debug \
+#            tests/$file \
+#            --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
+#        done
+#    - name: Command line tests with static venv
+#      timeout-minutes: 3
+#      env:
+#        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+#      run: |
+#        . $HOME/testenv/bin/activate
+#        coverage run -m scalems.radical --version
+#        coverage run --append -m scalems.radical --help
+#        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+#        coverage xml -o coverage2.xml
+#        stdout=$(echo 0*/stdout)
+#        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
+#    - name: "Upload coverage to Codecov"
+#      continue-on-error: true
+#      uses: codecov/codecov-action@v3
+#      with:
+#        token: ${{ secrets.CODECOV_TOKEN }}
+#        fail_ci_if_error: true
+#        name: codecov-rp-local-${{ matrix.python-version }}
+#    - name: Collect artifacts
+#      if: ${{ always() }}
+#      run: |
+#        tar zcf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
+#    - name: "Upload artifacts"
+#      if: ${{ always() }}
+#      uses: actions/upload-artifact@v3
+#      with:
+#        name: ${{ github.job }}-${{ matrix.python-version }}
+#        path: '~/sessions.tgz'
 
   rp_ssh:
 
@@ -242,7 +242,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8, "3.10"]
+        python-version: [3.8, 3.9, "3.10"]
         rp-version: ["radical.pilot==1.18.0", "radical.pilot==1.18.1", "git+https://github.com/radical-cybertools/radical.pilot.git@devel#egg=radical.pilot"]
 
     steps:
@@ -340,148 +340,148 @@ jobs:
       with:
         name: ${{ github.job }}-${{ matrix.python-version }}
         path: '~/sessions.tgz'
-
-  rp_ssh_head:
-
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    services:
-      mongodb:
-        image: mongo
-        env:
-          MONGO_INITDB_ROOT_USERNAME: root
-          MONGO_INITDB_ROOT_PASSWORD: password
-        ports:
-        # will assign a random free host port
-        - 27017/tcp
-
-    strategy:
-      matrix:
-        python-version: ["3.10"]
-
-    steps:
-    - name: Prepare ssh
-      # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
-      run: |
-        ssh-keygen -f ~/.ssh/id -t ed25519 -N ''
-        echo -n 'from="127.0.0.1" ' | cat - ~/.ssh/id.pub > ~/.ssh/authorized_keys
-        ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
-        chmod og-rw ~
-        ls -la ~/.ssh
-        # Test:
-        eval "$(ssh-agent -s)"
-        ssh-add ~/.ssh/id
-        ssh 127.0.0.1 env
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip' # caching pip dependencies
-    - name: Increase file limit
-      run: |
-        sudo sysctl -w fs.file-max=65536
-        ulimit -a
-    - name: Install dependencies
-      timeout-minutes: 10
-      run: |
-        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
-        which mpiexec
-        python -m venv $HOME/testenv
-        . $HOME/testenv/bin/activate
-        python -m pip install --upgrade pip setuptools wheel
-        pip uninstall -y radical.pilot
-        pip install --upgrade --force \
-          git+https://github.com/radical-cybertools/radical.pilot.git@devel#egg=radical.pilot
-        pip install .
-        pip install --upgrade \
-          build \
-          coverage \
-          'pymongo<4' \
-          'pytest>=6.1.2' \
-          'pytest-asyncio>=0.14' \
-          pytest-cov \
-          pytest-env
-        mkdir -p $HOME/.radical/pilot/configs/
-        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
-        pip freeze
-        radical-stack
-    - name: Test local.github with pytest
-      timeout-minutes: 20
-      env:
-        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
-      run: |
-        eval "$(ssh-agent -s)"
-        ssh-add ~/.ssh/id
-        . $HOME/testenv/bin/activate
-        export RADICAL_LOG_LVL=DEBUG
-        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
-        ulimit -n 65536
-        echo "HOME=$HOME"
-        ls $HOME
-        pwd
-        ls
-        for file in $(cd tests && ls -d test*py); do
-          python -X dev -m pytest \
-            --cov=scalems --cov-report=xml:coverage-$file.xml \
-            -rA -l --full-trace --log-cli-level=debug \
-            tests/$file \
-            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
-            --experimental
-        done
-    - name: Command line tests
-      timeout-minutes: 3
-      env:
-        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
-      run: |
-        eval "$(ssh-agent -s)"
-        ssh-add ~/.ssh/id
-        . $HOME/testenv/bin/activate
-        coverage run -m scalems.radical --version
-        coverage run --append -m scalems.radical --help
-        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
-        coverage xml -o coverage2.xml
-        stdout=$(echo 0*/stdout)
-        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
-    - name: "Upload coverage to Codecov"
-      continue-on-error: true
-      uses: codecov/codecov-action@v3
-      with:
-        token: ${{ secrets.CODECOV_TOKEN }}
-        fail_ci_if_error: true
-        name: codecov-rp-ssh-${{ matrix.python-version }}
-    - name: Collect artifacts
-      if: ${{ always() }}
-      run: |
-        tar zcf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
-    - name: "Upload artifacts"
-      if: ${{ always() }}
-      uses: actions/upload-artifact@v3
-      with:
-        name: ${{ github.job }}-${{ matrix.python-version }}
-        path: '~/sessions.tgz'
-
-  lint:
-    runs-on: ubuntu-latest
-    timeout-minutes: 4
-    strategy:
-      matrix:
-        python-version: [3.9]
-
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python ${{ matrix.python-version }}
-      uses: actions/setup-python@v4
-      with:
-        python-version: ${{ matrix.python-version }}
-        cache: 'pip' # caching pip dependencies
-    - name: Install dependencies
-      run: |
-        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
-        python -m pip install --upgrade pip setuptools wheel
-        pip install .
-        pip install flake8
-    - name: Lint with flake8
-      run: |
-        flake8 src/ --count --show-source --statistics
-        flake8 tests/ --count --show-source --statistics
+#
+#  rp_ssh_head:
+#
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 25
+#    services:
+#      mongodb:
+#        image: mongo
+#        env:
+#          MONGO_INITDB_ROOT_USERNAME: root
+#          MONGO_INITDB_ROOT_PASSWORD: password
+#        ports:
+#        # will assign a random free host port
+#        - 27017/tcp
+#
+#    strategy:
+#      matrix:
+#        python-version: ["3.10"]
+#
+#    steps:
+#    - name: Prepare ssh
+#      # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
+#      run: |
+#        ssh-keygen -f ~/.ssh/id -t ed25519 -N ''
+#        echo -n 'from="127.0.0.1" ' | cat - ~/.ssh/id.pub > ~/.ssh/authorized_keys
+#        ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+#        chmod og-rw ~
+#        ls -la ~/.ssh
+#        # Test:
+#        eval "$(ssh-agent -s)"
+#        ssh-add ~/.ssh/id
+#        ssh 127.0.0.1 env
+#    - uses: actions/checkout@v3
+#    - name: Set up Python ${{ matrix.python-version }}
+#      uses: actions/setup-python@v4
+#      with:
+#        python-version: ${{ matrix.python-version }}
+#        cache: 'pip' # caching pip dependencies
+#    - name: Increase file limit
+#      run: |
+#        sudo sysctl -w fs.file-max=65536
+#        ulimit -a
+#    - name: Install dependencies
+#      timeout-minutes: 10
+#      run: |
+#        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
+#        which mpiexec
+#        python -m venv $HOME/testenv
+#        . $HOME/testenv/bin/activate
+#        python -m pip install --upgrade pip setuptools wheel
+#        pip uninstall -y radical.pilot
+#        pip install --upgrade --force \
+#          git+https://github.com/radical-cybertools/radical.pilot.git@devel#egg=radical.pilot
+#        pip install .
+#        pip install --upgrade \
+#          build \
+#          coverage \
+#          'pymongo<4' \
+#          'pytest>=6.1.2' \
+#          'pytest-asyncio>=0.14' \
+#          pytest-cov \
+#          pytest-env
+#        mkdir -p $HOME/.radical/pilot/configs/
+#        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
+#        pip freeze
+#        radical-stack
+#    - name: Test local.github with pytest
+#      timeout-minutes: 20
+#      env:
+#        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+#      run: |
+#        eval "$(ssh-agent -s)"
+#        ssh-add ~/.ssh/id
+#        . $HOME/testenv/bin/activate
+#        export RADICAL_LOG_LVL=DEBUG
+#        python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
+#        ulimit -n 65536
+#        echo "HOME=$HOME"
+#        ls $HOME
+#        pwd
+#        ls
+#        for file in $(cd tests && ls -d test*py); do
+#          python -X dev -m pytest \
+#            --cov=scalems --cov-report=xml:coverage-$file.xml \
+#            -rA -l --full-trace --log-cli-level=debug \
+#            tests/$file \
+#            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
+#            --experimental
+#        done
+#    - name: Command line tests
+#      timeout-minutes: 3
+#      env:
+#        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+#      run: |
+#        eval "$(ssh-agent -s)"
+#        ssh-add ~/.ssh/id
+#        . $HOME/testenv/bin/activate
+#        coverage run -m scalems.radical --version
+#        coverage run --append -m scalems.radical --help
+#        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+#        coverage xml -o coverage2.xml
+#        stdout=$(echo 0*/stdout)
+#        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
+#    - name: "Upload coverage to Codecov"
+#      continue-on-error: true
+#      uses: codecov/codecov-action@v3
+#      with:
+#        token: ${{ secrets.CODECOV_TOKEN }}
+#        fail_ci_if_error: true
+#        name: codecov-rp-ssh-${{ matrix.python-version }}
+#    - name: Collect artifacts
+#      if: ${{ always() }}
+#      run: |
+#        tar zcf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
+#    - name: "Upload artifacts"
+#      if: ${{ always() }}
+#      uses: actions/upload-artifact@v3
+#      with:
+#        name: ${{ github.job }}-${{ matrix.python-version }}
+#        path: '~/sessions.tgz'
+#
+#  lint:
+#    runs-on: ubuntu-latest
+#    timeout-minutes: 4
+#    strategy:
+#      matrix:
+#        python-version: [3.9]
+#
+#    steps:
+#    - uses: actions/checkout@v3
+#    - name: Set up Python ${{ matrix.python-version }}
+#      uses: actions/setup-python@v4
+#      with:
+#        python-version: ${{ matrix.python-version }}
+#        cache: 'pip' # caching pip dependencies
+#    - name: Install dependencies
+#      run: |
+#        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
+#        python -m pip install --upgrade pip setuptools wheel
+#        pip install .
+#        pip install flake8
+#    - name: Lint with flake8
+#      run: |
+#        flake8 src/ --count --show-source --statistics
+#        flake8 tests/ --count --show-source --statistics

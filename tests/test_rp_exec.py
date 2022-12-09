@@ -87,12 +87,26 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
             td.metadata = scalems.messages.HelloCommand().encode()
             logger.debug(f'Submitting {str(td.as_dict())}')
             tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
-            task = tasks[0]
-            logger.debug(f'Submitted {str(task.as_dict())}. Waiting...')
-            state = await to_thread(task.wait, state=rp.FINAL, timeout=180)
-            logger.debug(str(task.as_dict()))
+            hello_task = tasks[0]
+            logger.debug(f'Submitted {str(hello_task.as_dict())}. Waiting...')
+            state = await to_thread(hello_task.wait, state=rp.FINAL, timeout=180)
+            logger.debug(str(hello_task.as_dict()))
+
+            td.metadata = scalems.messages.StopCommand().encode()
+            logger.debug(f'Submitting {str(td.as_dict())}')
+            tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
+            stop_task = tasks[0]
+
+            # Note: Once `stop` is issued, the client will never see the Task complete. I.e. the following would fail:
+            # stop_watcher = asyncio.create_task(to_thread(stop_task.wait, state=rp.FINAL, timeout=180), name='stop-watcher')
+            # await asyncio.wait_for(stop_watcher, timeout=120)
+            assert stop_task.state not in rp.FINAL
+
+            # Note: We don't actually have anything to keep us from canceling the Master task
+            # before the work has been handled.
+
     assert state == rp.DONE
-    assert task.stdout == repr(scalems.radical.raptor.backend_version)
+    assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)
     # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
     # assert task.return_value == scalems.__version__
 

@@ -16,6 +16,7 @@ import pytest
 
 import scalems
 import scalems.context
+import scalems.messages
 import scalems.radical
 import scalems.radical.runtime
 import scalems.workflow
@@ -70,6 +71,8 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
         }
     )
 
+    to_thread = scalems.utility.get_to_thread()
+
     manager = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(manager, close_on_exit=True):
         async with manager.dispatch(params=params) as dispatcher:
@@ -81,15 +84,15 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
             td = rp.TaskDescription()
             td.scheduler = scheduler.uid
             td.mode = scalems.radical.raptor.CPI_MESSAGE
-            td.metadata = 'hello'
+            td.metadata = scalems.messages.HelloCommand().encode()
             logger.debug(f'Submitting {str(td.as_dict())}')
-            tasks = dispatcher.runtime.task_manager().submit_tasks([td])
+            tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             task = tasks[0]
             logger.debug(f'Submitted {str(task.as_dict())}. Waiting...')
-            state = task.wait(state=rp.FINAL, timeout=180)
+            state = await to_thread(task.wait, state=rp.FINAL, timeout=180)
             logger.debug(str(task.as_dict()))
     assert state == rp.DONE
-    assert 'hello' in task.stdout
+    assert task.stdout == repr(scalems.radical.raptor.backend_version)
     # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
     # assert task.return_value == scalems.__version__
 

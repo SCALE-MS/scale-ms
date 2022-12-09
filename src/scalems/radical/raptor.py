@@ -241,6 +241,7 @@ See https://github.com/radical-cybertools/radical.pilot/issues/2731
 """
 from __future__ import annotations
 
+import abc
 import argparse
 import asyncio
 import contextlib
@@ -254,6 +255,7 @@ import sys
 import tempfile
 import typing
 import warnings
+import weakref
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
@@ -278,10 +280,12 @@ try:
 except (ImportError,):
     warnings.warn('RADICAL Pilot installation not found.')
 
+import scalems.exceptions
 import scalems.radical
 from .. import FileReference
 from ..context import describe_file
 from ..context import FileStore
+from ..messages import Command, StopCommand, HelloCommand
 
 # QUESTION: How should we approach logging? To what degree can/should we integrate
 # with rp logging?
@@ -295,6 +299,21 @@ except AttributeError:
     # Note: functools.cache does not appear until Python 3.9
     cache = functools.lru_cache(maxsize=None)
 
+
+@dataclasses.dataclass
+class BackendVersion:
+    """Identifying information for the computing backend."""
+    name: str
+    """Identifying name (presumably a module name)."""
+
+    version: str
+    """Implementation revision identifier as a PEP 440 compatible version string."""
+
+
+backend_version = BackendVersion(name='scalems.radical.raptor', version='0.0.0')
+
+
+# TODO: Where does this identifier belong?
 api_name = 'scalems_v0'
 """Key for dispatching raptor Requests.
 
@@ -308,6 +327,85 @@ CPI_MESSAGE = 'scalems.cpi'
 Used in the :py:attr:`rp.TaskDescription.mode` field to indicate that the
 object should be handled through the SCALEMS Compute Provider Interface machinery.
 """
+
+
+class CpiCommand(abc.ABC):
+    _registry: typing.MutableMapping[str, type] = weakref.WeakValueDictionary()
+
+    @classmethod
+    @abc.abstractmethod
+    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+        """Process the RP Task as a CPI Command.
+
+        Called in ScaleMSMaster.request_cb().
+        """
+        ...
+
+    @classmethod
+    @abc.abstractmethod
+    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+        """Called during Master.result_cb."""
+
+    @typing.final
+    @classmethod
+    @functools.singledispatchmethod
+    def get(cls, command: Command):
+        return CpiCommand._registry[command.__class__.__qualname__]
+
+    @classmethod
+    @abc.abstractmethod
+    def command_class(cls) -> str:
+        """The qualified name of the associated `scalems.messages` Command class."""
+        ...
+
+    def __init_subclass__(cls, **kwargs):
+        if cls is not CpiCommand:
+            CpiCommand._registry[cls.command_class()] = cls
+        super().__init_subclass__(**kwargs)
+
+
+class CpiStop(CpiCommand):
+    """Provide implementation for StopCommand in RP Raptor."""
+
+    @classmethod
+    def command_class(cls) -> str:
+        return StopCommand.__qualname__
+
+    @classmethod
+    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+        logger.debug('CPI STOP issued.')
+        task['stderr'] = ''
+        task['stdout'] = ''
+        task['exit_code'] = 0
+        manager.cpi_finalize(task)
+
+    @classmethod
+    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+        manager.stop()
+        logger.debug(f'Finalized {str(task)}.')
+
+
+class CpiHello(CpiCommand):
+    """Provide implementation for HelloCommand in RP Raptor."""
+
+    @classmethod
+    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+        logger.debug('CPI HELLO in progress.')
+        task['stderr'] = ''
+        task['exit_code'] = 0
+        task['stdout'] = repr(backend_version)
+        task['return_value'] = dataclasses.asdict(backend_version)
+        logger.debug('Finalizing...')
+        manager.cpi_finalize(task)
+
+    @classmethod
+    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+        logger.debug(f'Finalized {str(task)}.')
+
+    @classmethod
+    def command_class(cls) -> str:
+        return HelloCommand.__qualname__
+
 
 EncodableAsDict = typing.Mapping[str, 'Encodable']
 EncodableAsList = typing.List['Encodable']
@@ -752,6 +850,13 @@ class ScaleMSMaster(rp.raptor.Master):
 
         rpt.Master -> rpt.Master: _result_cb(...))
         activate rpt.Master
+        rpt.Master -> ScaleMSMaster: result_cb(...)
+        activate ScaleMSMaster
+
+        ScaleMSMaster -> ScaleMSMaster: CpiCommand.result_hook()
+
+        rpt.Master <-- ScaleMSMaster: ?TODO?
+        deactivate ScaleMSMaster
 
         rpt.Master -> master_queue: send message
         activate master_queue
@@ -879,8 +984,18 @@ class ScaleMSMaster(rp.raptor.Master):
             # * https://github.com/SCALE-MS/scale-ms/issues/229
             raise e
 
+    def cpi_finalize(self, task: TaskDictionary):
+        """Short-circuit the normal Raptor protocol to finalize a task.
+
+        This is an alias for Master._result_cb(), but is a public method used
+        in the `CpiCommand.launch` method for `Control` commands, which do not
+        call `Master.submit_tasks`.
+        """
+        self._result_cb(task)
+
     def _scalems_handle_requests(self, tasks: typing.Sequence[TaskDictionary]):
         for task in tasks:
+            _finalized = False
             try:
                 mode = task['description']['mode']
                 # Allow non-scalems work to be handled normally.
@@ -888,28 +1003,43 @@ class ScaleMSMaster(rp.raptor.Master):
                     yield task
                     continue
                 else:
-                    message = task['description']['metadata']
-                    logger.debug(f'Received message in {str(task)}')
-                    assert message == 'hello'
+                    command = Command.decode(task['description']['metadata'])
+                    logger.debug(f'Received message {command} in {str(task)}')
 
-                    # Finalize the task
-                    task['error'] = ''
-                    task['stderr'] = ''
-                    task['stdout'] = 'hello'
-                    task['exit_code'] = 0
-                    task['return_value'] = scalems.__version__
-                    # task['exception'] = None
-                    logger.debug('Finalizing...')
-                    self._result_cb(task)
-                    logger.debug(f'Finalized {str(task)}.')
+                    impl: CpiCommand = CpiCommand.get(command)
+
+                    impl.launch(self, task)
+                    # Note: this _finalized flag is immediately useless for non-Control commands.
+                    # TODO: We need more task state maintenance, probably with thread-safety.
+                    _finalized = True
             except Exception as e:
                 # Exceptions here are presumably bugs in scalems or RP.
                 # Almost certainly, we should shut down after cleaning up.
                 # 1. TODO: Record error in log for ScaleMSMaster.
                 # 2. Make sure that task is resolved.
                 # 3. Trigger clean shut down of master task.
-                ...
+                if not _finalized:
+                    # TODO: Mark failed, or note exception
+                    self._result_cb(task)
                 raise e
+
+    def result_cb(self, tasks: typing.Sequence[TaskDictionary]):
+        """SCALE-MS specific handling of completed tasks.
+
+        We perform special handling for two types of tasks.
+        1. Tasks submitted throughcompleted by the collaborating Worker(s).
+        2. Tasks intercepted and resolved entirely by the Master (CPI calls).
+        """
+        # Note: At least as of RP 1.18, exceptions from result_cb() are suppressed.
+        for task in tasks:
+            mode = task['description']['mode']
+            # Allow non-scalems work to be handled normally.
+            if mode == CPI_MESSAGE:
+                command = Command.decode(task['description']['metadata'])
+                logger.debug(f'Finalizing {command} in {str(task)}')
+
+                impl: CpiCommand = CpiCommand.get(command)
+                impl.result_hook(self, task)
 
 
 class WorkerDescriptionDict(typing.TypedDict):

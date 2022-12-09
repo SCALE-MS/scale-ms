@@ -28,6 +28,8 @@ async def test_rp_future(rp_task_manager):
     """
     import radical.pilot as rp
 
+    timeout = 120
+
     tmgr = rp_task_manager
 
     td = rp.TaskDescription({
@@ -46,7 +48,7 @@ async def test_rp_future(rp_task_manager):
         # TODO: With Python 3.9, check cancellation message for how the cancellation
         #  propagated.
         with pytest.raises(asyncio.CancelledError):
-            await asyncio.wait_for(rp_future, timeout=120)
+            await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:
         # Useful point to insert an easy debugging break point
         raise e
@@ -69,8 +71,17 @@ async def test_rp_future(rp_task_manager):
         raise e
     assert rp_future.cancelled()
 
-    # WARNING: This blocks. Don't do it in the event loop thread.
-    task.wait()
+    # WARNING: rp.Task.wait blocks, and may never complete. Don't do it in the event loop thread.
+    to_thread = scalems.utility.get_to_thread()
+    watcher = asyncio.create_task(to_thread(task.wait), name=f'watch_{task.uid}')
+    try:
+        state = await asyncio.wait_for(watcher, timeout=timeout)
+    except asyncio.TimeoutError as e:
+        logger.exception(f'Waited more than {timeout} for {watcher}')
+        watcher.cancel('Canceled after waiting too long.')
+        raise e
+    else:
+        assert state in rp.states.FINAL
     # Note that if the test is paused by a debugger, the rp task may
     # have a chance to complete before being canceled.
     # Ordinarily, that will not happen in this test.
@@ -78,15 +89,20 @@ async def test_rp_future(rp_task_manager):
     assert task.state in (rp.states.CANCELED,)
 
     # Test run to completion
-    task: rp.Task = tmgr.submit_tasks(td)
+    watcher = asyncio.create_task(to_thread(tmgr.submit_tasks, td), name='rp_submit')
+    try:
+        task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
+    except asyncio.TimeoutError as e:
+        logger.exception(f'Waited more than {timeout} to submit {td}.')
+        watcher.cancel()
+        raise e
 
     rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
-
-    timeout = 120
     try:
         result: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:
         logger.debug(f'Waited more than {timeout} for {rp_future}: {e}')
+        rp_future.cancel('Canceled after waiting too long.')
         raise e
     assert task.exit_code == 0
     assert 'success' in task.stdout

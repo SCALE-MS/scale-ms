@@ -242,7 +242,8 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8]
+        python-version: [3.8, "3.10"]
+        rp-version: ["radical.pilot==1.18.0", "radical.pilot==1.18.1", "git+https://github.com/radical-cybertools/radical.pilot.git@devel#egg=radical.pilot"]
 
     steps:
     - name: Prepare ssh
@@ -267,7 +268,7 @@ jobs:
       run: |
         sudo sysctl -w fs.file-max=65536
         ulimit -a
-    - name: Install dependencies
+    - name: Install dependencies ${{ matrix.rp-version }}
       timeout-minutes: 10
       run: |
         sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
@@ -277,8 +278,9 @@ jobs:
         echo `which python`
         python --version
         python -m pip install --upgrade pip setuptools wheel
-        pip uninstall -y radical.pilot radical.saga radical.utils
         pip install --upgrade -r requirements-testing.txt
+        pip uninstall -y radical.pilot radical.saga radical.utils
+        pip install "${{ matrix.rp-version }}"
         pip install .
         pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/

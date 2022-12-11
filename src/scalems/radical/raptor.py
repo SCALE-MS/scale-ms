@@ -312,7 +312,6 @@ class BackendVersion:
 
 backend_version = BackendVersion(name='scalems.radical.raptor', version='0.0.0')
 
-
 # TODO: Where does this identifier belong?
 api_name = 'scalems_v0'
 """Key for dispatching raptor Requests.
@@ -1147,17 +1146,17 @@ class _RaptorTaskDescription(typing.TypedDict):
 
     scheduler: str
     """The UID of the raptor.Master scheduler task.
-    
+
     This field is relevant to tasks routed from client TaskManagers. It is not
     used for tasks originating in master tasks.
-    
+
     .. ref https://github.com/SCALE-MS/scale-ms/discussions/258#discussioncomment-4087870
 
     """
 
     metadata: Encodable
     """An arbitrary user-provided payload.
-    
+
     May be any type that is encodable by :py:mod:`msgpack` (i.e. built-in types).
     """
 
@@ -1169,7 +1168,7 @@ class _RaptorTaskDescription(typing.TypedDict):
     will be provided as the first positional argument to the executor.
     ``*args`` and ``**kwargs`` will be provided to the executor from the corresponding
     fields.
-    
+
     See Also:
         * :py:data:`CPI_MESSAGE`
         * :py:class:`RaptorTaskExecutor`
@@ -1177,7 +1176,7 @@ class _RaptorTaskDescription(typing.TypedDict):
 
     function: str
     """Executor for ``rp.TASK_FUNCTION`` mode.
-    
+
     Names the callable for dispatching.
 
     The callable can either be a function object present in the namespace of the interpreter launched
@@ -1226,15 +1225,15 @@ class TaskDictionary(typing.TypedDict):
 
     return_value: typing.Any
     """Function return value.
-    
+
     Refer to the :py:class:`RaptorTaskExecutor` Protocol.
     """
 
     exception: typing.Tuple[str, str]
     """Exception type name and message.
-    
+
     TODO: Is this typing correct?
-    
+
     Ref https://github.com/SCALE-MS/scale-ms/discussions/267
     """
 
@@ -1243,9 +1242,9 @@ class TaskDictionary(typing.TypedDict):
 
     target_state: str
     """State to which the Task should be advanced.
-    
+
     Valid values are string constants from :py:mod:`radical.pilot.states`.
-    
+
     Used internally, such as in Master._result_cb().
     """
 

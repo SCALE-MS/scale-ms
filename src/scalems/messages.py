@@ -119,7 +119,7 @@ class Command(typing.Protocol[SerializedValueT]):
     @abstractmethod
     def create(cls, command: str) -> 'Command':
         """Creation function will be registered during subclassing."""
-        raise NotImplemented
+        raise NotImplementedError
 
     @staticmethod
     def decode(obj: typing.Mapping[str, SerializedValueT]):
@@ -139,7 +139,7 @@ class Command(typing.Protocol[SerializedValueT]):
         """Produce a serializeable object record."""
         # Example:
         #   return {self.key: self.value}
-        raise NotImplemented
+        raise NotImplementedError
 
     def __init_subclass__(cls, **kwargs):
         """Register an abstract command base class for dispatched creation."""

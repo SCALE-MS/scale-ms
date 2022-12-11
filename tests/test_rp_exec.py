@@ -26,7 +26,7 @@ try:
 except ImportError:
     rp = None
 else:
-    from scalems.radical.raptor import RaptorWorkerConfig
+    import scalems.radical.raptor
 
 import logging
 
@@ -98,7 +98,8 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
             stop_task = tasks[0]
 
             # Note: Once `stop` is issued, the client will never see the Task complete. I.e. the following would fail:
-            # stop_watcher = asyncio.create_task(to_thread(stop_task.wait, state=rp.FINAL, timeout=180), name='stop-watcher')
+            # stop_watcher = asyncio.create_task(
+            #     to_thread(stop_task.wait, state=rp.FINAL, timeout=180), name='stop-watcher')
             # await asyncio.wait_for(stop_watcher, timeout=120)
             assert stop_task.state not in rp.FINAL
 

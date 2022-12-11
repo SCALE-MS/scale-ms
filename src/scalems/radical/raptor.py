@@ -345,8 +345,7 @@ class CpiCommand(abc.ABC):
     def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
         """Called during Master.result_cb."""
 
-    # @typing.final
-    @functools.singledispatchmethod
+    @typing.final
     @classmethod
     def get(cls, command: Command):
         return CpiCommand._registry[command.__class__.__qualname__]

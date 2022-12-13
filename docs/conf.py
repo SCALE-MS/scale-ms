@@ -67,6 +67,7 @@ intersphinx_mapping = {
     'https://radicalpilot.readthedocs.io/en/stable/': None,
     'https://radicalsaga.readthedocs.io/en/stable/': None,
     'https://msgpack-python.readthedocs.io/en/latest/': None,
+    'https://mpi4py.readthedocs.io/en/stable/': None,
 }
 
 # -- Options for HTML output -------------------------------------------------

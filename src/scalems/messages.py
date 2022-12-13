@@ -70,11 +70,15 @@ class CommandQueueAddItem(QueueItem, typing.MutableMapping[str, bytes]):
 
     The intended payload is an item to be added to the workflow graph:
     e.g. an operation, data reference, subgraph, or something meaningful to an
-    :py:class:`~scalems.execution.AbstractWorkflowUpdater`
+    :py:class:`~scalems.execution.AbstractWorkflowUpdater`.
+
+    In practice, the value may just be a token or identifier. In the initial
+    version of the scalems protocol, the value is passed to the item editor factory
+    that is obtained from :py:func:`scalems.execution.RuntimeManager.get_edit_item()`.
     """
     _allowed: typing.ClassVar = {'add_item'}
 
-    def __setitem__(self, k: str, v: str) -> None:
+    def __setitem__(self, k: str, v: bytes) -> None:
         if k in self._allowed:
             if isinstance(v, bytes):
                 super().__setitem__(k, v)
@@ -95,7 +99,7 @@ class Command(typing.Protocol[SerializedValueT]):
     wire-protocol-friendly, easily serializable, and easily converted between
     structured data types or file formats.
 
-    Commands of different types (represented by subclasses of `Command`)
+    Commands of different types (represented by subclasses of :py:class:`~scalems.messages.Command`)
     are directed to different components of the SCALE-MS workflow management model.
 
     Support for serialization follows the model of the object encoding/decoding
@@ -111,18 +115,26 @@ class Command(typing.Protocol[SerializedValueT]):
     key: typing.ClassVar[str]
     """Key word for mapping a named command to the Command creation function."""
 
+    # TODO(#23): This class hierarchy needs rethinking.
+    # This is a reasonable attribute of an Abstract Base Class,
+    # but should not be part of a Protocol definition since it is not a behavior
+    # that we want to specify for all instances.
     __subtype: typing.ClassVar[
         typing.MutableMapping[str, typing.Callable[..., typing.Callable[[SerializedValueT], typing.Any]]]] = {}
     """Map named command categories to WeakMethod weakrefs to callable decoders."""
 
     @classmethod
     @abstractmethod
-    def create(cls, command: str) -> 'Command':
-        """Creation function will be registered during subclassing."""
+    def create(cls, command: SerializedValueT) -> 'Command':
+        """Creation function will be registered during subclassing.
+
+        The *command* argument will be provided with the *value*
+        of the deserialized Mapping entry during *decode()*.
+        """
         raise NotImplementedError
 
     @staticmethod
-    def decode(obj: typing.Mapping[str, SerializedValueT]):
+    def decode(obj: typing.Mapping[str, SerializedValueT]) -> 'Command':
         """Convert a deserialized object representation to a Command instance.
 
         Abstract Command base classes
@@ -172,6 +184,10 @@ class Control(Command[str], typing.Protocol):
 
     message: typing.ClassVar[str]
 
+    # TODO(#23): This class hierarchy needs rethinking.
+    # This is a reasonable attribute of an Abstract Base Class,
+    # but should not be part of a Protocol definition since it is not a behavior
+    # that we want to specify for all instances.
     __control_type: typing.ClassVar[typing.MutableMapping[str, type]] = weakref.WeakValueDictionary()
     """Map named control commands to their concrete types."""
 
@@ -220,14 +236,36 @@ class HelloCommand(Control):
         ...
 
 
-class AddItem(Command):
+class AddItem(Command[str]):
     """Announce an item to be added to the target workflow.
 
     Direct an update to the workflow record, such as to describe a data source,
     register a resource, or add a task.
+
+    The payload is a json-serialized ScalemsRaptorWorkItem. An instance can
+    be provided as an initializer argument for a backend specific CpiAddItem.
+
+    Design note:
+        WorkflowManager.add_item() and CommandQueueAddItem are not normalized or
+        normative. We can start engineering scalems.messages.AddItem
+        and scalems.radical.raptor.CpiAddItem together from the bottom up and then
+        make another pass at the higher level / entry point interface.
+
     """
     key: typing.ClassVar = 'add_item'
 
-    def __init__(self):
-        # With a Protocol parent, we need an __init__ to establish this as a concrete class.
-        ...
+    def __init__(self, encoded_item: str):
+        # TODO: This should be a public scalems schema, but is currently assumed
+        #  to be scalems.radical.raptor.ScalemsRaptorWorkItem.
+        self._encoded_item = encoded_item
+
+    @classmethod
+    def create(cls, command: str) -> 'Command':
+        return cls(command)
+
+    def encode(self):
+        return {self.key: self._encoded_item}
+
+    @property
+    def encoded_item(self):
+        return self._encoded_item

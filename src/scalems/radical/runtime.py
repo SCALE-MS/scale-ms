@@ -85,7 +85,7 @@ See Also:
 
     client_workflowmanager -> client_workflowmanager #gray: async with dispatcher
 
-    == Raptor workload handling ==
+    ...Raptor workload handling...
 
     return leave dispatcher context
 
@@ -1056,7 +1056,7 @@ class RPDispatchingExecutor(RuntimeManager):
                 # behavior.
                 # See https://github.com/radical-cybertools/radical.pilot/issues/2336
                 runtime.scheduler.wait(state=rp.FINAL)
-                logger.debug(f'Master scheduling task complete: {repr(runtime.scheduler)}.')
+                logger.info(f'Master scheduling task complete: {repr(runtime.scheduler)}.')
                 if runtime.scheduler.stdout:
                     logger.debug(runtime.scheduler.stdout)
                 if runtime.scheduler.stderr:
@@ -1553,7 +1553,8 @@ async def submit(*,
     else:
         raise APIError('Caller must provide the UID of a submitted *scheduler* task.')
 
-    # TODO: Move slow blocking RP calls to a separate RP control thread.
+    # TODO(#249): A utility function to move slow blocking RP calls to a separate thread.
+    #  Compartmentalize TaskDescription -> rp_task_watcher in a separate utility function.
     task = task_manager.submit_tasks(rp_task_description)
 
     rp_task_watcher = await rp_task(rptask=task)

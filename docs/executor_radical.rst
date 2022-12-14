@@ -81,6 +81,8 @@ task handling
 :py:data:`scalems.radical.raptor.CPI_MESSAGE` mode,
 using the :py:attr:`~radical.pilot.TaskDescription.metadata` field for the payload.
 Executable work is re-encoded by `ScaleMSMaster` for `ScaleMSWorker`
+(using a `ScalemsRaptorWorkItem` in the *work_item* field of the *kwargs* of
+a ``TASK_FUNCTION`` mode Task)
 to be dispatched through `scalems` machinery in the Worker process.
 
 .. autodata:: api_name
@@ -89,14 +91,13 @@ to be dispatched through `scalems` machinery in the Worker process.
 .. autodata:: CPI_MESSAGE
     :annotation:
 
+.. autoclass:: ScalemsRaptorWorkItem
+    :members:
+
 ..
     .. autofunction:: object_encoder
 
     .. autofunction:: raptor_work_deserializer
-
-    .. autofunction:: run_in_worker
-
-    .. autofunction:: scalems_task_wrapper
 
 compatibility helpers
 ~~~~~~~~~~~~~~~~~~~~~
@@ -106,7 +107,14 @@ interfaces in :py:mod:`radical.pilot.raptor`.
 
 .. autoclass:: RaptorWorkerConfig
     :members:
+    :exclude-members: __new__
 
 .. autoclass:: WorkerDescriptionDict
     :members:
     :exclude-members: __new__
+
+.. autoclass:: TaskDictionary
+    :members:
+
+.. autoclass::  _RaptorTaskDescription
+    :members:

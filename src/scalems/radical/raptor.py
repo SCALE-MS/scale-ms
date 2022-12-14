@@ -464,7 +464,8 @@ class CpiAddItem(CpiCommand):
         #   * trigger dependent work,
         #   * only appear in the Master report, or
         #   * be available to follow-up LRO status checks.
-        add_item = typing.cast(scalems.messages.AddItem, scalems.messages.Command.decode(task['description']['metadata']))
+        add_item = typing.cast(scalems.messages.AddItem,
+                               scalems.messages.Command.decode(task['description']['metadata']))
         encoded_item = add_item.encoded_item
         # We do not yet use a strongly specified object schema. Just accept a dict.
         item_dict = json.loads(encoded_item)
@@ -1387,7 +1388,8 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
                 kwargs[comm_arg_name] = comm
             else:
                 args.append(comm)
-        logger.debug('Calling {func} with args {args} and kwargs {kwargs}', {'func': func.__qualname__, 'args': repr(args), 'kwargs': repr(kwargs)})
+        logger.debug('Calling {func} with args {args} and kwargs {kwargs}',
+                     {'func': func.__qualname__, 'args': repr(args), 'kwargs': repr(kwargs)})
         return func(*args, **kwargs)
 
 
@@ -1462,7 +1464,7 @@ class ScalemsRaptorWorkItem(typing.TypedDict):
 
     comm_arg_name: typing.Optional[str]
     """Identify how to provide an MPI communicator to *func*, if at all.
-    
+
     If *comm_arg_name* is not None, the callable will be provided with the
     MPI communicator. If *comm_arg_name* is an empty string, the communicator
     is provided as the first positional argument. Otherwise, *comm_arg_name*

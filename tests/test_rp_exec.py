@@ -18,8 +18,6 @@ import pytest
 import scalems
 import scalems.context
 import scalems.messages
-import scalems.radical
-import scalems.radical.runtime
 import scalems.workflow
 
 try:
@@ -27,9 +25,9 @@ try:
 except ImportError:
     rp = None
 else:
-    from scalems.radical.raptor import RaptorWorkerConfig
-    from scalems.radical.raptor import worker_description
-    from scalems.radical.raptor import object_encoder
+    import scalems.radical
+    import scalems.radical.raptor
+    import scalems.radical.runtime
 
 import logging
 
@@ -207,6 +205,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             assert rp_task.return_value is None
 
             work_item_task_id = rp_task.stdout
+            logger.debug(f'Master submitted task {work_item_task_id} to Worker.')
             # TODO(#229): Check an actual data result.
 
 

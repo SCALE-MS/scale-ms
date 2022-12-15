@@ -1552,7 +1552,7 @@ class TaskDictionary(typing.TypedDict):
 
     error: str
     """Stack trace. Deprecated.
-    
+
     To be removed in radical.pilot>=1.19.0, replaced with `exception_detail`.
 
     See https://github.com/SCALE-MS/scale-ms/discussions/259#discussioncomment-4095650

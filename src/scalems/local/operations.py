@@ -89,8 +89,8 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
 
 
 @contextlib.asynccontextmanager
-async def input_resource_scope(
-    context: _ExecutionContext,  # noqa: C901
+async def input_resource_scope(  # noqa: C901
+    context: _ExecutionContext,
     task_input: typing.Union[scalems.subprocess.SubprocessInput, typing.Awaitable[scalems.subprocess.SubprocessInput]],
 ):
     """Manage the actual execution context of the asyncio.subprocess.Process.

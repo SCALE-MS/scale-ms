@@ -4,3 +4,6 @@ max-line-length = 120
 exclude =
     # Ignore third-party sources.
     _version.py
+    # Ignore examples, for now.
+    examples/
+extend-ignore = E203

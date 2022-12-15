@@ -14,13 +14,13 @@ class definitions are released during shutdown.
 """
 
 __all__ = (
-    'ContextError',
-    'StaleFileStore',
-    'describe_file',
-    'filestore_generator',
-    'get_file_reference',
-    'FileStore',
-    'FileStoreManager'
+    "ContextError",
+    "StaleFileStore",
+    "describe_file",
+    "filestore_generator",
+    "get_file_reference",
+    "FileStore",
+    "FileStoreManager",
 )
 
 import abc
@@ -53,12 +53,12 @@ from ..identifiers import Identifier
 from ..utility import get_to_thread
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
-_data_subdirectory = 'scalems_0_0'
+_data_subdirectory = "scalems_0_0"
 """Subdirectory name to use for managed filestore."""
 
-_metadata_filename = 'scalems_context_metadata.json'
+_metadata_filename = "scalems_context_metadata.json"
 """Name to use for Context metadata files (module constant)."""
 
 
@@ -83,6 +83,7 @@ class Metadata:
     extending this class, so let's keep it as a simple container for now:
     Make sure that this dataclass remains easily serialized and deserialized.
     """
+
     instance: int
     files: typing.MutableMapping[str, str] = dataclasses.field(default_factory=dict)
     objects: typing.MutableMapping[str, dict] = dataclasses.field(default_factory=dict)
@@ -96,12 +97,12 @@ class FilesView(typing.Mapping[str, pathlib.Path]):
 
     def __getitem__(self, k: str) -> pathlib.Path:
         if not isinstance(k, str):
-            raise TypeError('Key type must be str.')
+            raise TypeError("Key type must be str.")
         return pathlib.Path(self._files[k])
 
     def __contains__(self, o: object) -> bool:
         if not isinstance(o, str):
-            raise TypeError('Key type must be str.')
+            raise TypeError("Key type must be str.")
         return super().__contains__(o)
 
     def __len__(self) -> int:
@@ -123,6 +124,7 @@ class AbstractFile(typing.Protocol):
 
     See :py:func:`describe_file`.
     """
+
     access: AccessFlags
 
     # _params: dict = None
@@ -140,7 +142,7 @@ class AbstractFile(typing.Protocol):
 
     def fingerprint(self) -> bytes:
         """Get a checksum or other suitable fingerprint for the file data."""
-        with open(os.fspath(self), 'rb') as f:
+        with open(os.fspath(self), "rb") as f:
             with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
                 m = hashlib.sha256(data)
         checksum: bytes = m.digest()
@@ -158,11 +160,10 @@ class AbstractFile(typing.Protocol):
 
 class BaseBinary(AbstractFile):
     """Base class for binary file types."""
+
     _path: pathlib.Path
 
-    def __init__(self,
-                 path: typing.Union[str, pathlib.Path, os.PathLike],
-                 access: AccessFlags = AccessFlags.READ):
+    def __init__(self, path: typing.Union[str, pathlib.Path, os.PathLike], access: AccessFlags = AccessFlags.READ):
         self._path = pathlib.Path(path).resolve()
         self.access = access
 
@@ -175,6 +176,7 @@ class BaseBinary(AbstractFile):
 
 class BaseText(BaseBinary):
     """Base class for text file types."""
+
     encoding = locale.getpreferredencoding(False)
 
     def __init__(self, path, access: AccessFlags = AccessFlags.READ, encoding=None):
@@ -183,31 +185,30 @@ class BaseText(BaseBinary):
         try:
             codecs.getencoder(encoding)
         except LookupError:
-            raise ValueError('Specify a valid character encoding for text files.')
+            raise ValueError("Specify a valid character encoding for text files.")
         self.encoding = encoding
         super().__init__(path=path, access=access)
 
     def fingerprint(self) -> bytes:
         m = hashlib.sha256()
         # Use universal newlines and utf-8 encoding for text file fingerprinting.
-        with open(self._path, 'r', encoding=self.encoding) as f:
+        with open(self._path, "r", encoding=self.encoding) as f:
             # If we knew more about the text file size or line length, or if we already
             # had an open buffer, socket, or mmap, we could  optimize this in subclasses.
             for line in f:
-                m.update(line.encode('utf8'))
+                m.update(line.encode("utf8"))
         checksum: bytes = m.digest()
         return checksum
 
 
-def describe_file(obj: typing.Union[str, pathlib.Path, os.PathLike],
-                  mode='rb',
-                  encoding: str = None,
-                  file_type_hint=None) -> AbstractFile:
+def describe_file(
+    obj: typing.Union[str, pathlib.Path, os.PathLike], mode="rb", encoding: str = None, file_type_hint=None
+) -> AbstractFile:
     """Describe an existing local file."""
     access = AccessFlags.NO_ACCESS
-    if 'r' in mode:
+    if "r" in mode:
         access |= AccessFlags.READ
-        if 'w' in mode:
+        if "w" in mode:
             access |= AccessFlags.WRITE
     else:
         # If neither 'r' nor 'w' is provided, still assume 'w'
@@ -215,18 +216,17 @@ def describe_file(obj: typing.Union[str, pathlib.Path, os.PathLike],
     # TODO: Confirm requested access permissions.
 
     if file_type_hint:
-        raise scalems.exceptions.MissingImplementationError(
-            'Extensible file types not yet supported.')
+        raise scalems.exceptions.MissingImplementationError("Extensible file types not yet supported.")
 
-    if 'b' in mode:
+    if "b" in mode:
         if encoding is not None:
-            raise TypeError('*encoding* argument is not supported for binary files.')
+            raise TypeError("*encoding* argument is not supported for binary files.")
         file = BaseBinary(path=obj, access=access)
     else:
         file = BaseText(path=obj, access=access, encoding=encoding)
 
     if not file.path().exists():
-        raise ValueError('Not an existing file.')
+        raise ValueError("Not an existing file.")
 
     return file
 
@@ -236,6 +236,7 @@ class FileStore:
 
     Not thread safe. User is responsible for serializing access, as necessary.
     """
+
     _fields: typing.ClassVar = set([field.name for field in dataclasses.fields(Metadata)])
     _instances: typing.ClassVar = weakref.WeakValueDictionary()
 
@@ -250,7 +251,7 @@ class FileStore:
 
     @property
     def _tmpfile_prefix(self) -> str:
-        return f'tmp_{self.instance}_'
+        return f"tmp_{self.instance}_"
 
     @property
     def log(self):
@@ -308,8 +309,7 @@ class FileStore:
     def __repr__(self):
         return str(self._repr)
 
-    def __init__(self, *,
-                 directory: pathlib.Path):
+    def __init__(self, *, directory: pathlib.Path):
         """Assemble the data structure.
 
         Users should not create FileStore objects directly, but with
@@ -339,17 +339,16 @@ class FileStore:
             with _scoped_directory_lock(self._directory):
                 existing_filestore = self._instances.get(self._directory, None)
                 if existing_filestore:
-                    raise ContextError(
-                        f'{directory} is already managed by {repr(existing_filestore)}'
-                    )
+                    raise ContextError(f"{directory} is already managed by {repr(existing_filestore)}")
                 # The current interpreter process is not aware of an instance for
                 # *directory*
 
                 for parent in self._directory.parents:
                     if is_locked(parent) or parent.joinpath(_data_subdirectory).exists():
                         raise ContextError(
-                            f'Cannot establish scalems work directory {directory} '
-                            f'because it is nested in work directory {parent}.')
+                            f"Cannot establish scalems work directory {directory} "
+                            f"because it is nested in work directory {parent}."
+                        )
 
                 instance_id = os.getpid()
 
@@ -360,53 +359,45 @@ class FileStore:
                     # shutdown, a previous dirty shutdown, or inappropriate concurrent
                     # access.
                     if not self.filepath.exists():
-                        raise ContextError(
-                            f'{self._directory} contains invalid datastore '
-                            f'{self.datastore}.'
-                        )
-                    logger.debug('Restoring metadata from previous session.')
+                        raise ContextError(f"{self._directory} contains invalid datastore {self.datastore}.")
+                    logger.debug("Restoring metadata from previous session.")
                     with self.filepath.open() as fp:
                         metadata_dict = json.load(fp)
-                    if metadata_dict['instance'] is not None:
+                    if metadata_dict["instance"] is not None:
                         # The metadata file has an owner.
-                        if metadata_dict['instance'] != instance_id:
+                        if metadata_dict["instance"] != instance_id:
                             # This would be a good place to check a heart beat or
                             # otherwise
                             # try to confirm whether the previous owner is still active.
-                            raise ContextError('Context is already in use.')
+                            raise ContextError("Context is already in use.")
                         else:
-                            assert metadata_dict['instance'] == instance_id
+                            assert metadata_dict["instance"] == instance_id
                             raise scalems.exceptions.InternalError(
-                                'This process appears already to be managing '
-                                f'{self.filepath}, but is not '
-                                'registered in FileStore._instances.'
+                                "This process appears already to be managing "
+                                f"{self.filepath}, but is not "
+                                "registered in FileStore._instances."
                             )
                     else:
                         # The metadata file has no owner. Presume clean shutdown
-                        logger.debug(
-                            f'Taking ownership of metadata file for PID {instance_id}')
-                        metadata_dict['instance'] = instance_id
+                        logger.debug(f"Taking ownership of metadata file for PID {instance_id}")
+                        metadata_dict["instance"] = instance_id
                 else:
-                    logger.debug(f'Created new data store {self.datastore}.')
-                    metadata_dict = {'instance': instance_id}
+                    logger.debug(f"Created new data store {self.datastore}.")
+                    metadata_dict = {"instance": instance_id}
 
                 metadata = Metadata(**metadata_dict)
-                with open(self.filepath, 'w') as fp:
+                with open(self.filepath, "w") as fp:
                     json.dump(dataclasses.asdict(metadata), fp)
                 FileStore._instances[self._directory] = self
-                self.__dict__['_data'] = metadata
+                self.__dict__["_data"] = metadata
 
         except LockException as e:
-            raise ContextError(
-                'Could not acquire ownership of working directory {}'.format(
-                    directory)) from e
-        self._repr = '<{cls} pid={pid} dir={dir}>'.format(
-            cls=self.__class__.__qualname__,
-            pid=self.instance,
-            dir=self.directory
+            raise ContextError("Could not acquire ownership of working directory {}".format(directory)) from e
+        self._repr = "<{cls} pid={pid} dir={dir}>".format(
+            cls=self.__class__.__qualname__, pid=self.instance, dir=self.directory
         )
         assert FileStore._instances.get(self.directory) is self
-        logger.debug(f'FileStore {self} open.')
+        logger.debug(f"FileStore {self} open.")
 
     def flush(self):
         """Write the current metadata to the backing store, if there are pending
@@ -429,16 +420,13 @@ class FileStore:
         with self._update_lock:
             if self._dirty.is_set():
                 # Warning: This can throw if, for instance, the parent directory disappears.
-                with tempfile.NamedTemporaryFile(dir=self.datastore,
-                                                 delete=False,
-                                                 mode='w',
-                                                 prefix='flush_',
-                                                 suffix='.json') as fp:
+                with tempfile.NamedTemporaryFile(
+                    dir=self.datastore, delete=False, mode="w", prefix="flush_", suffix=".json"
+                ) as fp:
                     json.dump(dataclasses.asdict(self._data), fp)
                 if self.closed:
-                    logger.error(f'Leaving temporary metadata file {fp.name} from '
-                                 f'attempt to flush stale {self}.')
-                    raise StaleFileStore('Cannot flush stale FileStore.')
+                    logger.error(f"Leaving temporary metadata file {fp.name} from attempt to flush stale {self}.")
+                    raise StaleFileStore("Cannot flush stale FileStore.")
                 pathlib.Path(fp.name).rename(self.filepath)
                 self._dirty.clear()
 
@@ -454,18 +442,17 @@ class FileStore:
         if actual_manager is None:
             # Since FileStore._instances is a WeakValueDict, the entry may already be
             # gone if this call to `close` is happening during garbage collection.
-            logger.debug(f'FileStore._instances[{self.directory}] is already empty')
+            logger.debug(f"FileStore._instances[{self.directory}] is already empty")
         else:
             if actual_manager is not self:
-                raise StaleFileStore(
-                    f'{self.directory} is currently managed by {actual_manager}')
+                raise StaleFileStore(f"{self.directory} is currently managed by {actual_manager}")
 
         try:
             self.flush()
         except Exception as e:
-            raise StaleFileStore(f'Could not flush {repr(self)}.') from e
+            raise StaleFileStore(f"Could not flush {repr(self)}.") from e
 
-        current_instance = getattr(self, 'instance', None)
+        current_instance = getattr(self, "instance", None)
         self._data.instance = None
 
         try:
@@ -473,44 +460,40 @@ class FileStore:
                 if FileStore._instances.get(self._directory, None) is self:
                     del FileStore._instances[self._directory]
                 if current_instance is None:
-                    raise StaleFileStore(f'{self} is already closed.')
+                    raise StaleFileStore(f"{self} is already closed.")
                 elif current_instance != os.getpid():
                     raise scalems.exceptions.ScopeError(
-                        'Calling close() on a FileStore from another process is not '
-                        'allowed.')
-                with open(self.filepath, 'r') as fp:
+                        "Calling close() on a FileStore from another process is not allowed."
+                    )
+                with open(self.filepath, "r") as fp:
                     context = json.load(fp)
-                stored_instance = context.get('instance', None)
+                stored_instance = context.get("instance", None)
                 if stored_instance != current_instance:
                     # Note that the StaleFileStore check will be more intricate as
                     # metadata becomes more sophisticated.
                     raise StaleFileStore(
-                        'Expected ownership by {}, but found {}'.format(
-                            current_instance,
-                            stored_instance))
+                        "Expected ownership by {}, but found {}".format(current_instance, stored_instance)
+                    )
                 else:
-                    context['instance'] = None
-                    with open(self.filepath, 'w') as fp:
+                    context["instance"] = None
+                    with open(self.filepath, "w") as fp:
                         json.dump(context, fp)
         except OSError as e:
-            raise ContextError(
-                'Trouble with workflow directory access during shutdown.') from e
+            raise ContextError("Trouble with workflow directory access during shutdown.") from e
 
-        logger.debug(f'FileStore {self} closed.')
+        logger.debug(f"FileStore {self} closed.")
 
     @property
     def closed(self) -> bool:
         if self._data.instance is None:
             actual_manager = FileStore._instances.get(self.directory, None)
             if actual_manager is self:
-                raise ContextError(f'{self} is in an invalid state.')
+                raise ContextError(f"{self} is in an invalid state.")
             else:
                 return True
         return False
 
-    async def add_file(self,
-                       obj: typing.Union[AbstractFile, FileReference],
-                       _name: str = None) -> FileReference:
+    async def add_file(self, obj: typing.Union[AbstractFile, FileReference], _name: str = None) -> FileReference:
         """Add a file to the file store.
 
         We require file paths to be wrapped in a special type so that we can enforce
@@ -543,24 +526,19 @@ class FileStore:
         # confidence. However, we may prefer to convert FileReference to an abc.ABC so
         # that we can actually functools.singledispatchmethod on the provided object.
         if isinstance(obj, FileReference):
-            raise scalems.exceptions.MissingImplementationError(
-                'FileReference input not yet supported.')
+            raise scalems.exceptions.MissingImplementationError("FileReference input not yet supported.")
         if self.closed:
-            raise StaleFileStore('Cannot add file to a closed FileStore.')
+            raise StaleFileStore("Cannot add file to a closed FileStore.")
         path: pathlib.Path = obj.path()
         to_thread = get_to_thread()
 
         filename = None
         key = None
-        tmpfile_target = self.datastore.joinpath(
-            self._tmpfile_prefix + str(scalems.utility.next_monotonic_integer()))
+        tmpfile_target = self.datastore.joinpath(self._tmpfile_prefix + str(scalems.utility.next_monotonic_integer()))
         try:
             # 1. Copy the file.
-            kwargs = dict(
-                src=path, dst=tmpfile_target, follow_symlinks=False
-            )
-            _path = await to_thread(
-                shutil.copyfile, **kwargs)
+            kwargs = dict(src=path, dst=tmpfile_target, follow_symlinks=False)
+            _path = await to_thread(shutil.copyfile, **kwargs)
             assert tmpfile_target == _path
             assert tmpfile_target.exists()
             # We have now secured a copy of the file. We could just schedule the remaining
@@ -582,16 +560,14 @@ class FileStore:
             with self._update_lock:
                 if key in self._data.files:
                     # TODO: Support caching. Use existing file if checksums match.
-                    raise scalems.exceptions.DuplicateKeyError(
-                        f'FileStore is already managing a file with key {key}.')
+                    raise scalems.exceptions.DuplicateKeyError(f"FileStore is already managing a file with key {key}.")
                 if str(filename) in self._data.files.values():
-                    raise scalems.exceptions.DuplicateKeyError(
-                        f'FileStore already has {filename}.')
+                    raise scalems.exceptions.DuplicateKeyError(f"FileStore already has {filename}.")
                 else:
                     if filename.exists():
-                        raise StaleFileStore(f'Unexpected file in filestore: {filename}.')
+                        raise StaleFileStore(f"Unexpected file in filestore: {filename}.")
                 os.rename(tmpfile_target, filename)
-                logger.debug(f'Placed {filename}')
+                logger.debug(f"Placed {filename}")
                 # TODO: Enforce the setting of the "dirty" flag.
                 # We can create a stronger separation between the metadata manager and
                 # the backing data store and/or restrict assignment to use a general
@@ -605,14 +581,14 @@ class FileStore:
                 tmpfile_target.unlink(missing_ok=True)
             else:
                 # Something went particularly wrong. Let's try to clean up as best we can.
-                logger.exception(f'Unhandled exception while trying to store {obj}')
+                logger.exception(f"Unhandled exception while trying to store {obj}")
                 if key and key in self._data.files:
                     pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
                     del self._data.files[key]
                 if isinstance(filename, pathlib.Path):
                     filename.unlink(missing_ok=True)
             if tmpfile_target.exists():
-                logger.warning(f'Temporary file left at {tmpfile_target}')
+                logger.warning(f"Temporary file left at {tmpfile_target}")
             raise e
 
     @property
@@ -625,7 +601,7 @@ class FileStore:
         SCALE-MS notions of scoped access.
         """
         if self.closed:
-            raise StaleFileStore('FileStore is closed.')
+            raise StaleFileStore("FileStore is closed.")
         return FilesView(self._data.files)
 
     def add_task(self, identity: Identifier, **kwargs):
@@ -642,9 +618,7 @@ class FileStore:
             # TODO: It is not an error to add an item with the same key if it
             #  represents the same workflow object (potentially in a more or less
             #  advanced state).
-            raise scalems.exceptions.DuplicateKeyError(
-                f'Task {identity} is already in the metadata store.'
-            )
+            raise scalems.exceptions.DuplicateKeyError(f"Task {identity} is already in the metadata store.")
         else:
             # Note: we don't attempt to be thread-safe, and this is not (yet) an async
             # coroutine, so we don't bother with a lock at this point.
@@ -658,10 +632,9 @@ class _FileReference(FileReference):
     def __init__(self, filestore: FileStore, key: str):
         self._filestore: FileStore = filestore
         if key not in self._filestore.files:
-            raise scalems.exceptions.ProtocolError(
-                'Cannot create reference to unmanaged file.')
+            raise scalems.exceptions.ProtocolError("Cannot create reference to unmanaged file.")
         self._key = key
-        self._repr = f'<FileReference key:{key} path:{self._filestore.files[key]}>'
+        self._repr = f"<FileReference key:{key} path:{self._filestore.files[key]}>"
 
     def __fspath__(self) -> str:
         return str(self._filestore.files[self._key])
@@ -675,9 +648,7 @@ class _FileReference(FileReference):
         if context is None:
             context = self._filestore
         if context is not self._filestore:
-            raise scalems.exceptions.MissingImplementationError(
-                'Push subscription not yet implemented.'
-            )
+            raise scalems.exceptions.MissingImplementationError("Push subscription not yet implemented.")
         assert self._key in context.files
         return self
 
@@ -685,9 +656,7 @@ class _FileReference(FileReference):
         if context is None:
             context = self._filestore
         if context is not self._filestore:
-            raise scalems.exceptions.MissingImplementationError(
-                'Path resolution dispatching is not yet implemented.'
-            )
+            raise scalems.exceptions.MissingImplementationError("Path resolution dispatching is not yet implemented.")
         return context.files[self._key]
 
     def filestore(self):
@@ -700,9 +669,7 @@ class _FileReference(FileReference):
         if context is None:
             context = self._filestore
         if context is not self._filestore:
-            raise scalems.exceptions.MissingImplementationError(
-                'Path resolution dispatching is not yet implemented.'
-            )
+            raise scalems.exceptions.MissingImplementationError("Path resolution dispatching is not yet implemented.")
         return context.files[self._key].as_uri()
 
     def __repr__(self):
@@ -728,7 +695,7 @@ def filestore_generator(directory=None):
     _closed = filestore.closed
     try:
         while not filestore.closed:
-            message = (yield weakref.ref(filestore))
+            message = yield weakref.ref(filestore)
             # We do not yet have any protocols requiring us to send messages to the
             # filestore when getting it.
             assert message is None
@@ -744,12 +711,12 @@ def filestore_generator(directory=None):
         # just need to clean up when the filestore is no longer in use.
         try:
             if not _closed:
-                logger.debug(f'filestore_generator is closing {filestore}.')
+                logger.debug(f"filestore_generator is closing {filestore}.")
                 filestore.close()
         except Exception:
             # Note that this exception will probably be in the context of handling the
             # GeneratorExit exception from the `try` block.
-            logger.exception(f'Exception while trying to close {filestore}.')
+            logger.exception(f"Exception while trying to close {filestore}.")
         else:
             assert filestore.closed
 
@@ -765,7 +732,7 @@ class FileStoreManager:
             ref = next(self.filestore_generator)
             return ref()
         except StopIteration:
-            logger.error('Managed FileStore is no longer available.')
+            logger.error("Managed FileStore is no longer available.")
             return None
 
     def close(self):
@@ -778,14 +745,13 @@ class FileStoreManager:
             try:
                 next(self.filestore_generator)
             except StopIteration:
-                logger.debug(f'{self} has been closed.')
+                logger.debug(f"{self} has been closed.")
             self.filestore_generator = None
             return True
 
 
 @functools.singledispatch
-def get_file_reference(obj, filestore=None, mode='rb') \
-        -> typing.Awaitable[FileReference]:
+def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
     """Get a FileReference for the provided object.
 
     If *filestore* is provided, use the given FileStore to manage the FileReference.
@@ -808,11 +774,11 @@ def get_file_reference(obj, filestore=None, mode='rb') \
     # unable to handle the dispatch. This would not be an error in itself, except that
     # we do not have any other fall-back dispatching for types that have not been
     # registered.
-    raise TypeError(f'Cannot convert {obj.__class__.__qualname__} to FileReference.')
+    raise TypeError(f"Cannot convert {obj.__class__.__qualname__} to FileReference.")
 
 
 @get_file_reference.register(pathlib.Path)
-def _(obj, filestore=None, mode='rb') -> typing.Awaitable[FileReference]:
+def _(obj, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
     """Add a file to the file store.
 
     This involves placing (copying) the file, reading the file to fingerprint it,
@@ -835,10 +801,9 @@ def _(obj, filestore=None, mode='rb') -> typing.Awaitable[FileReference]:
     # Should we assume that a Path object is intended to refer to a local file? We don't
     # want to  be ambiguous if the same path exists locally and remotely.
     if not path.exists() or not path.is_file():
-        raise ValueError(f'Path {obj} is not a valid file.')
+        raise ValueError(f"Path {obj} is not a valid file.")
 
-    task = asyncio.create_task(
-        filestore.add_file(describe_file(path, mode=mode)))
+    task = asyncio.create_task(filestore.add_file(describe_file(path, mode=mode)))
     return task
 
 

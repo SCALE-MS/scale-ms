@@ -11,5 +11,5 @@ import scalems.invocation
 
 # Can we attach to the rp Logger here?
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(scalems.invocation.run(scalems.radical.workflow_manager))

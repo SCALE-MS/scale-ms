@@ -16,7 +16,7 @@ JSON, such as the CWL schema.
 """
 from __future__ import annotations
 
-__all__ = ['BasicSerializable', 'decode', 'encode', 'Shape']
+__all__ = ["BasicSerializable", "decode", "encode", "Shape"]
 
 import abc
 import collections.abc
@@ -38,7 +38,7 @@ from scalems.identifiers import TypeDataDescriptor
 from scalems.identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 
 class Shape(tuple):
@@ -57,11 +57,12 @@ class Shape(tuple):
         except TypeError as e:
             raise e
         if len(es) < 1 or any(not isinstance(e, int) for e in es):
-            raise TypeError('Shape is a sequence of 1 or more integers.')
+            raise TypeError("Shape is a sequence of 1 or more integers.")
 
 
 # It could make sense to split the codec for native-Python encoding from the
 # (de)serialization code in the future...
+
 
 class SchemaDict(typing.TypedDict):
     """Schema for the member that labels an object's schema.
@@ -79,6 +80,7 @@ class SchemaDict(typing.TypedDict):
     TODO: Allow equality check
     TODO: Actually integrate with object support metaprogramming in the package.
     """
+
     spec: str
     name: str
 
@@ -92,6 +94,7 @@ ShapeElement = typing.Union[int, SymbolicDimensionSize]
 
 class FieldDict(typing.TypedDict):
     """Members of the *fields* member of a ResourceType."""
+
     schema: SchemaDict
     type: typing.List[str]
     shape: typing.List[ShapeElement]
@@ -102,6 +105,7 @@ FieldsType = typing.Mapping[str, FieldDict]
 
 class TypeDict(typing.TypedDict):
     """Express the expected contents of a dictionary-based type description."""
+
     schema: SchemaDict
     implementation: typing.List[str]
     fields: FieldsType
@@ -121,12 +125,13 @@ class Encoded(typing.Protocol):
             bool,
             type(None)]]
     """
+
     # TODO: How should we implement this?
 
 
-DispatchT = typing.TypeVar('DispatchT')
-ResultT = typing.TypeVar('ResultT')
-S = typing.TypeVar('S')
+DispatchT = typing.TypeVar("DispatchT")
+ResultT = typing.TypeVar("ResultT")
+S = typing.TypeVar("S")
 
 
 class Serializable(abc.ABC):
@@ -171,6 +176,7 @@ class PythonEncoder:
 
     Alternatively, encode object(s) first, and pass the resulting Python object to a regular call to json.dumps.
     """
+
     # Note that the following are equivalent.
     #     json.loads(s, *, cls=None, **kw)
     #     json.JSONDecoder(**kw).decode(s)
@@ -180,17 +186,18 @@ class PythonEncoder:
 
     # We use WeakKeyDictionary because the keys are likely to be classes,
     # and we don't intend to extend the life of the type objects (which might be temporary).
-    _dispatchers: typing.ClassVar[typing.MutableMapping[
-        type, typing.Callable[[DispatchT], BaseEncodable]]] = weakref.WeakKeyDictionary()
+    _dispatchers: typing.ClassVar[
+        typing.MutableMapping[type, typing.Callable[[DispatchT], BaseEncodable]]
+    ] = weakref.WeakKeyDictionary()
 
     @classmethod
     def register(cls, dtype: typing.Type[DispatchT], handler: typing.Callable[[DispatchT], BaseEncodable]):
         # Note that we don't expect references to bound methods to extend the life of the type.
         # TODO: confirm this assumption in a unit test.
         if not isinstance(dtype, type):
-            raise TypeError('We use `isinstance(obj, dtype)` for dispatching, so *dtype* must be a `type` object.')
+            raise TypeError("We use `isinstance(obj, dtype)` for dispatching, so *dtype* must be a `type` object.")
         if dtype in cls._dispatchers:
-            raise ProtocolError(f'Encodable type {dtype} appears to be registered already.')
+            raise ProtocolError(f"Encodable type {dtype} appears to be registered already.")
         cls._dispatchers[dtype] = handler
 
     @classmethod
@@ -209,7 +216,7 @@ class PythonEncoder:
         for dtype, dispatch in cls._dispatchers.items():
             if isinstance(obj, typing.cast(type, dtype)):
                 return dispatch(obj)
-        raise TypeError(f'No registered dispatching for {repr(obj)}')
+        raise TypeError(f"No registered dispatching for {repr(obj)}")
 
     def __call__(self, obj) -> BaseEncodable:
         return self.encode(obj)
@@ -252,9 +259,8 @@ class PythonDecoder:
      * https://packaging.python.org/guides/creating-and-discovering-plugins/
      * https://setuptools.readthedocs.io/en/latest/userguide/entry_point.html#dynamic-discovery-of-services-and-plugins
     """
-    _dispatchers: typing.MutableMapping[
-        TypeIdentifier,
-        typing.Callable] = dict()
+
+    _dispatchers: typing.MutableMapping[TypeIdentifier, typing.Callable] = dict()
 
     # Depending on what the callables are, we may want a weakref.WeakValueDictionary() or we may not!
 
@@ -263,7 +269,7 @@ class PythonDecoder:
         # Normalize typeid
         typeid = TypeIdentifier.copy_from(typeid)
         if typeid in cls._dispatchers:
-            raise ProtocolError('Type appears to be registered already.')
+            raise ProtocolError("Type appears to be registered already.")
         cls._dispatchers[typeid] = handler
 
     @classmethod
@@ -285,7 +291,7 @@ class PythonDecoder:
             identifier = None
         # Use the (hashable) normalized form to look up a decoder for dispatching.
         if identifier is None or identifier not in cls._dispatchers:
-            raise TypeError('No decoder registered for {}'.format(typename))
+            raise TypeError("No decoder registered for {}".format(typename))
         return cls._dispatchers[identifier]
 
     @classmethod
@@ -306,30 +312,31 @@ class PythonDecoder:
             ...
         else:
             assert isinstance(obj, dict)
-            if 'schema' in obj:
+            if "schema" in obj:
                 # We currently have very limited schema processing.
                 try:
-                    spec = obj['schema']['spec']
+                    spec = obj["schema"]["spec"]
                 except KeyError:
                     spec = None
-                if not isinstance(spec, str) or spec != 'scalems.v0':
+                if not isinstance(spec, str) or spec != "scalems.v0":
                     # That's fine...
-                    logger.info('Unrecognized *schema* when decoding object.')
+                    logger.info("Unrecognized *schema* when decoding object.")
                     return obj
-                if 'name' not in obj['schema'] or not isinstance(obj['schema']['name'], str):
-                    raise InternalError('Invalid schema.')
+                if "name" not in obj["schema"] or not isinstance(obj["schema"]["name"], str):
+                    raise InternalError("Invalid schema.")
                 else:
                     # schema = obj['schema']['name']
                     ...
                 # Dispatch the object...
                 ...
                 raise MissingImplementationError(
-                    'We do not yet support dynamic type registration through the work record.')
+                    "We do not yet support dynamic type registration through the work record."
+                )
 
-            if 'type' in obj:
+            if "type" in obj:
                 # Dispatch the decoding according to the type.
                 try:
-                    dispatch = cls.get_decoder(obj['type'])
+                    dispatch = cls.get_decoder(obj["type"])
                 except TypeError:
                     dispatch = BasicSerializable.decode
                 if dispatch is not None:
@@ -359,7 +366,7 @@ encode.register(dtype=os.PathLike, handler=os.fsdecode)
 
 # A SCALE-MS "Serializable Type".
 # TODO: use a Protocol or other constraint.
-ST = typing.TypeVar('ST', bound='BasicSerializable')
+ST = typing.TypeVar("ST", bound="BasicSerializable")
 
 
 class BasicSerializable(UnboundObject):
@@ -371,7 +378,7 @@ class BasicSerializable(UnboundObject):
     _data_encoder: typing.Callable
     _data_decoder: typing.Callable
 
-    _dtype = TypeDataDescriptor(base_type=TypeIdentifier(('scalems', 'BasicSerializable')))
+    _dtype = TypeDataDescriptor(base_type=TypeIdentifier(("scalems", "BasicSerializable")))
 
     def dtype(self) -> TypeIdentifier:
         # Part of the decision of whether to use a property or a method
@@ -409,55 +416,50 @@ class BasicSerializable(UnboundObject):
 
     def encode(self) -> dict:
         representation = {
-            'label': self.label(),
-            'identity': str(self.identity()),
-            'type': self.dtype().encode(),
-            'shape': tuple(self.shape()),
-            'data': self.data  # TODO: use self._data_encoder()
+            "label": self.label(),
+            "identity": str(self.identity()),
+            "type": self.dtype().encode(),
+            "shape": tuple(self.shape()),
+            "data": self.data,  # TODO: use self._data_encoder()
         }
         return representation
 
     @classmethod
     def decode(cls: typing.Type[ST], encoded: dict) -> ST:
-        if not isinstance(encoded, collections.abc.Mapping) or 'type' not in encoded:
-            raise TypeError('Expected a dictionary with a *type* specification for decoding.')
-        dtype = TypeIdentifier.copy_from(encoded['type'])
-        label = encoded.get('label', None)
-        identity = encoded.get('identity')  # TODO: verify and use type schema to decode.
-        shape = Shape(encoded['shape'])
-        data = encoded['data']  # TODO: use type schema / self._data_decoder to decode.
-        logger.debug(f'Decoding {identity} as BasicSerializable.')
-        return cls(label=label,
-                   identity=identity,
-                   dtype=dtype,
-                   shape=shape,
-                   data=data
-                   )
+        if not isinstance(encoded, collections.abc.Mapping) or "type" not in encoded:
+            raise TypeError("Expected a dictionary with a *type* specification for decoding.")
+        dtype = TypeIdentifier.copy_from(encoded["type"])
+        label = encoded.get("label", None)
+        identity = encoded.get("identity")  # TODO: verify and use type schema to decode.
+        shape = Shape(encoded["shape"])
+        data = encoded["data"]  # TODO: use type schema / self._data_decoder to decode.
+        logger.debug(f"Decoding {identity} as BasicSerializable.")
+        return cls(label=label, identity=identity, dtype=dtype, shape=shape, data=data)
 
     def __init_subclass__(cls, **kwargs):
         assert cls is not BasicSerializable
 
         # Handle SCALE-MS Type registration.
-        base = kwargs.pop('base_type', None)
+        base = kwargs.pop("base_type", None)
         if base is not None:
             typeid = TypeIdentifier.copy_from(base)
         else:
-            typeid = [str(cls.__module__)] + cls.__qualname__.split('.')
+            typeid = [str(cls.__module__)] + cls.__qualname__.split(".")
         registry = BasicSerializable._dtype.base
         if cls in registry and registry[cls] is not None:
             # This may be a customization or extension point in the future, but not today...
-            raise ProtocolError('Subclassing BasicSerializable for a Type that is already registered.')
+            raise ProtocolError("Subclassing BasicSerializable for a Type that is already registered.")
         BasicSerializable._dtype.base[cls] = typeid
 
         # Register encoder for all subclasses. Register the default encoder if not overridden.
         # Note: This does not allow us to retain the identity of *cls* for when we call the helpers.
         # We may require such information for encoder functions to know why they are being called.
-        encoder = getattr(cls, 'encode', BasicSerializable.encode)
+        encoder = getattr(cls, "encode", BasicSerializable.encode)
         PythonEncoder.register(cls, encoder)
 
         # Optionally, register a new decoder.
         # If no decoder is provided, use the basic decoder.
-        if hasattr(cls, 'decode') and callable(cls.decode):
+        if hasattr(cls, "decode") and callable(cls.decode):
             _decoder = weakref.WeakMethod(cls.decode)
 
             # Note that we do not require that the decoded object is actually
@@ -466,7 +468,7 @@ class BasicSerializable(UnboundObject):
             def _decode(encoded: dict):
                 decoder = _decoder()
                 if decoder is None:
-                    raise ProtocolError('Decoding a type that has already been de-registered.')
+                    raise ProtocolError("Decoding a type that has already been de-registered.")
                 return decoder(encoded)
 
             PythonDecoder.register(cls._dtype, _decode)
@@ -494,12 +496,7 @@ class BasicSerializable(UnboundObject):
 def compact_json(obj) -> str:
     """Produce the compact JSON string for the encodable object."""
     # Use the extensible Encoder from the serialization module, but apply some output formatting.
-    string = json.dumps(obj,
-                        default=encode,
-                        ensure_ascii=True,
-                        separators=(',', ':'),
-                        sort_keys=True
-                        )
+    string = json.dumps(obj, default=encode, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
     return string
 
 

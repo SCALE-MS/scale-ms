@@ -28,7 +28,7 @@ Refer to the Python :py:mod:`logging` module for information on connecting to an
 logger output.
 """
 
-__all__ = ['logger']
+__all__ = ["logger"]
 
 # Import system facilities
 from logging import DEBUG
@@ -36,7 +36,7 @@ from logging import getLogger
 from logging import NullHandler
 
 # Define `logger` attribute that is used by submodules to create sub-loggers.
-logger = getLogger('scalems')
+logger = getLogger("scalems")
 # By default, prevent scalems logs from propagating to the root logger (and to sys.stderr)
 # if the user does not take action to handle logging.
 logger.addHandler(NullHandler(level=DEBUG))

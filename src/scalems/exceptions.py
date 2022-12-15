@@ -8,7 +8,7 @@ from exceptions specified in scalems.exceptions.
 import logging as _logging
 
 logger = _logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 
 class ScaleMSError(Exception):

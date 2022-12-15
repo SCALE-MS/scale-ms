@@ -2,14 +2,14 @@
 """
 
 __all__ = (
-    'describe_file',
-    'get_file_reference',
-    'scoped_chdir',
-    'ContextError',
-    'StaleFileStore',
-    'FileReference',
-    'FileStore',
-    'FileStoreManager',
+    "describe_file",
+    "get_file_reference",
+    "scoped_chdir",
+    "ContextError",
+    "StaleFileStore",
+    "FileReference",
+    "FileStore",
+    "FileStoreManager",
 )
 
 import contextlib
@@ -29,7 +29,7 @@ from ._datastore import FileStoreManager
 from ._file import FileReference
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 cwd_lock = threading.Lock()
 
@@ -49,13 +49,13 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         directory = os.fsdecode(directory)
     path = pathlib.Path(directory)
     if not path.exists() or not path.is_dir():
-        raise ValueError(f'Not a valid directory: {str(directory)}')
+        raise ValueError(f"Not a valid directory: {str(directory)}")
     if cwd_lock.locked():
-        warnings.warn('Another call has already used scoped_chdir. Waiting for lock...')
+        warnings.warn("Another call has already used scoped_chdir. Waiting for lock...")
     with cwd_lock:
         oldpath = os.getcwd()
         os.chdir(path)
-        logger.debug(f'Changed current working directory to {path}')
+        logger.debug(f"Changed current working directory to {path}")
         try:
             yield path
             # If the `with` block using scoped_chdir produces an exception, it will
@@ -63,6 +63,6 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
             # propagate out of the `with` block, but first we want to restore the
             # original working directory, so we skip `except` but provide a `finally`.
         finally:
-            logger.debug(f'Changing working directory back to {oldpath}')
+            logger.debug(f"Changing working directory back to {oldpath}")
             os.chdir(oldpath)
-    logger.info('scoped_chdir exited.')
+    logger.info("scoped_chdir exited.")

@@ -3,13 +3,7 @@
 Message types and protocol support for control signals,
 queue management, and work dispatching.
 """
-__all__ = (
-    'Command',
-    'QueueItem',
-    'CommandQueueControlItem',
-    'CommandQueueAddItem',
-    'StopCommand'
-)
+__all__ = ("Command", "QueueItem", "CommandQueueControlItem", "CommandQueueAddItem", "StopCommand")
 
 import logging
 import typing
@@ -19,7 +13,7 @@ from abc import abstractmethod
 from scalems.exceptions import APIError
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 
 class QueueItem(dict, typing.MutableMapping[str, typing.Union[str, bytes]]):
@@ -53,16 +47,17 @@ class CommandQueueControlItem(QueueItem, typing.MutableMapping[str, str]):
 
     Supported commands may grow to comprise a Compute Provide Interface.
     """
-    _allowed: typing.ClassVar = {'command': {'hello', 'stop', 'version'}}
+
+    _allowed: typing.ClassVar = {"command": {"hello", "stop", "version"}}
 
     def __setitem__(self, k: str, v: str) -> None:
         if k in self._allowed:
             if v in self._allowed[k]:
                 super().__setitem__(k, v)
             else:
-                raise APIError(f'Unsupported command value: {repr(v)}')
+                raise APIError(f"Unsupported command value: {repr(v)}")
         else:
-            raise APIError(f'Unsupported command key: {repr(k)}')
+            raise APIError(f"Unsupported command key: {repr(k)}")
 
 
 class CommandQueueAddItem(QueueItem, typing.MutableMapping[str, bytes]):
@@ -76,19 +71,20 @@ class CommandQueueAddItem(QueueItem, typing.MutableMapping[str, bytes]):
     version of the scalems protocol, the value is passed to the item editor factory
     that is obtained from :py:func:`scalems.execution.RuntimeManager.get_edit_item()`.
     """
-    _allowed: typing.ClassVar = {'add_item'}
+
+    _allowed: typing.ClassVar = {"add_item"}
 
     def __setitem__(self, k: str, v: bytes) -> None:
         if k in self._allowed:
             if isinstance(v, bytes):
                 super().__setitem__(k, v)
             else:
-                raise APIError(f'Unsupported add_item key: {repr(v)}')
+                raise APIError(f"Unsupported add_item key: {repr(v)}")
         else:
-            raise APIError(f'Unsupported command: {repr(k)}')
+            raise APIError(f"Unsupported command: {repr(k)}")
 
 
-SerializedValueT = typing.TypeVar('SerializedValueT', bound=typing.Union[str, bytes])
+SerializedValueT = typing.TypeVar("SerializedValueT", bound=typing.Union[str, bytes])
 
 
 class Command(typing.Protocol[SerializedValueT]):
@@ -112,6 +108,7 @@ class Command(typing.Protocol[SerializedValueT]):
     The Abstract Base Classes are responsible for translating the serialized
     object value into a Command subclass instance.
     """
+
     key: typing.ClassVar[str]
     """Key word for mapping a named command to the Command creation function."""
 
@@ -120,12 +117,13 @@ class Command(typing.Protocol[SerializedValueT]):
     # but should not be part of a Protocol definition since it is not a behavior
     # that we want to specify for all instances.
     __subtype: typing.ClassVar[
-        typing.MutableMapping[str, typing.Callable[..., typing.Callable[[SerializedValueT], typing.Any]]]] = {}
+        typing.MutableMapping[str, typing.Callable[..., typing.Callable[[SerializedValueT], typing.Any]]]
+    ] = {}
     """Map named command categories to WeakMethod weakrefs to callable decoders."""
 
     @classmethod
     @abstractmethod
-    def create(cls, command: SerializedValueT) -> 'Command':
+    def create(cls, command: SerializedValueT) -> "Command":
         """Creation function will be registered during subclassing.
 
         The *command* argument will be provided with the *value*
@@ -134,14 +132,14 @@ class Command(typing.Protocol[SerializedValueT]):
         raise NotImplementedError
 
     @staticmethod
-    def decode(obj: typing.Mapping[str, SerializedValueT]) -> 'Command':
+    def decode(obj: typing.Mapping[str, SerializedValueT]) -> "Command":
         """Convert a deserialized object representation to a Command instance.
 
         Abstract Command base classes
         """
         items = tuple(obj.items())
         if len(items) != 1 or len(items[0]) != 2:
-            raise ValueError('Not a key-value pair. decode() expects a (single-element) Mapping.')
+            raise ValueError("Not a key-value pair. decode() expects a (single-element) Mapping.")
         key, value = items[0]
         creation_function = Command.__subtype[key]()
         return creation_function(value)
@@ -157,7 +155,7 @@ class Command(typing.Protocol[SerializedValueT]):
         """Register an abstract command base class for dispatched creation."""
         # Check the protocol.
         if cls is not Command:
-            assert hasattr(cls, 'key')
+            assert hasattr(cls, "key")
             assert cls.key not in Command.__subtype
             Command.__subtype[cls.key] = weakref.WeakMethod(cls.create)
             super().__init_subclass__(**kwargs)
@@ -180,7 +178,8 @@ class Control(Command[str], typing.Protocol):
     take arguments, or more complete functionality like dispatchable tasks. At that
     point, though, I expect a decorator pattern will make more sense.
     """
-    key: typing.ClassVar = 'control'
+
+    key: typing.ClassVar = "control"
 
     message: typing.ClassVar[str]
 
@@ -192,7 +191,7 @@ class Control(Command[str], typing.Protocol):
     """Map named control commands to their concrete types."""
 
     def __init_subclass__(cls, **kwargs):
-        assert hasattr(cls, 'message')
+        assert hasattr(cls, "message")
         assert cls.message not in Control.__control_type
         Control.__control_type[cls.message] = cls
         # The Control abstract base class has separate semi-private relationships
@@ -202,7 +201,7 @@ class Control(Command[str], typing.Protocol):
         # Do not call super().__init_subclass__(**kwargs)
 
     @classmethod
-    def create(cls, command: str) -> 'Command':
+    def create(cls, command: str) -> "Command":
         assert cls is Control
         return cls.__control_type[command]()
 
@@ -211,7 +210,7 @@ class Control(Command[str], typing.Protocol):
 
 
 class StopCommand(Control):
-    message: typing.ClassVar[str] = 'stop'
+    message: typing.ClassVar[str] = "stop"
     """Announce the end of the session, directing components to shut down cleanly.
 
     No further commands will be processed after receiving this signal.
@@ -223,7 +222,7 @@ class StopCommand(Control):
 
 
 class HelloCommand(Control):
-    message: typing.ClassVar[str] = 'hello'
+    message: typing.ClassVar[str] = "hello"
     """Elicit a response.
 
     The structure of the response is a detail of the backend, but probably
@@ -252,7 +251,8 @@ class AddItem(Command[str]):
         make another pass at the higher level / entry point interface.
 
     """
-    key: typing.ClassVar = 'add_item'
+
+    key: typing.ClassVar = "add_item"
 
     def __init__(self, encoded_item: str):
         # TODO: This should be a public scalems schema, but is currently assumed
@@ -260,7 +260,7 @@ class AddItem(Command[str]):
         self._encoded_item = encoded_item
 
     @classmethod
-    def create(cls, command: str) -> 'Command':
+    def create(cls, command: str) -> "Command":
         return cls(command)
 
     def encode(self):

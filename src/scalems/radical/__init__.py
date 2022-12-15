@@ -34,11 +34,7 @@ See Also:
 # TODO: Consider converting to a namespace package to improve modularity of
 #  implementation.
 
-__all__ = [
-    'configuration',
-    'parser',
-    'workflow_manager'
-]
+__all__ = ["configuration", "parser", "workflow_manager"]
 
 import asyncio
 import functools
@@ -52,7 +48,7 @@ from .runtime import configuration
 from .runtime import parser as _runtime_parser
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 try:
     cache = functools.cache
@@ -82,8 +78,5 @@ def workflow_manager(loop: asyncio.AbstractEventLoop, directory=None):
         before importing the built-in logging module to avoid spurious warnings.
     """
     from .runtime import executor_factory
-    return scalems.workflow.WorkflowManager(
-        loop=loop,
-        executor_factory=executor_factory,
-        directory=directory
-    )
+
+    return scalems.workflow.WorkflowManager(loop=loop, executor_factory=executor_factory, directory=directory)

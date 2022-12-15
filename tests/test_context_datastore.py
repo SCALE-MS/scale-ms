@@ -22,14 +22,14 @@ def test_normal_lifecycle(tmp_path, caplog):
     datastore = FileStore(directory=tmp_path)
     assert not datastore.closed
     assert datastore.instance == os.getpid()
-    with open(datastore.filepath, 'r') as fh:
-        assert json.load(fh)['instance'] == os.getpid()
+    with open(datastore.filepath, "r") as fh:
+        assert json.load(fh)["instance"] == os.getpid()
     datastore.close()
     assert datastore.closed
-    with open(datastore.filepath, 'r') as fh:
+    with open(datastore.filepath, "r") as fh:
         data = json.load(fh)
-    assert 'instance' in data
-    assert data['instance'] is None
+    assert "instance" in data
+    assert data["instance"] is None
 
     generator = filestore_generator(directory=tmp_path)
     datastore = next(generator)()
@@ -46,8 +46,9 @@ def test_normal_lifecycle(tmp_path, caplog):
     del generator
 
     # Confirm some assumptions about implementation details.
-    filepath = tmp_path.joinpath(scalems.context._datastore._data_subdirectory,
-                                 scalems.context._datastore._metadata_filename)
+    filepath = tmp_path.joinpath(
+        scalems.context._datastore._data_subdirectory, scalems.context._datastore._metadata_filename
+    )
 
     manager = FileStoreManager(tmp_path)
     datastore: scalems.context.FileStore = manager.filestore()
@@ -57,14 +58,14 @@ def test_normal_lifecycle(tmp_path, caplog):
         datastore.log = list()
     # TODO: log interface.
     # datastore.log.append('Testing')
-    with caplog.at_level(logging.CRITICAL, logger='scalems.context._datastore'):
+    with caplog.at_level(logging.CRITICAL, logger="scalems.context._datastore"):
         assert not datastore.closed
         del manager
         assert datastore.closed
-    with open(filepath, 'r') as fh:
+    with open(filepath, "r") as fh:
         metadata: dict = json.load(fh)
         # A finalized record should not have an owning *instance*.
-        assert metadata['instance'] is None
+        assert metadata["instance"] is None
 
 
 def test_nonfinalized(tmp_path, caplog):
@@ -75,8 +76,8 @@ def test_nonfinalized(tmp_path, caplog):
         metadata_path = datastore.filepath
 
         # Fake a bad shutdown.
-        with open(metadata_path, 'w') as fp:
-            json.dump({'instance': 0}, fp)
+        with open(metadata_path, "w") as fp:
+            json.dump({"instance": 0}, fp)
         # In the future, more sophisticated tests might check that Singleton behavior or scoping
         # protections aren't violated.
         # Right now, we have to manipulate the filesystem with knowledge of the implementation
@@ -91,10 +92,12 @@ def test_nonfinalized(tmp_path, caplog):
             FileStoreManager()
         scalems.context._lock._unlock_directory()
 
-        logger = logging.getLogger('scalems.context._datastore')
-        logger.debug('Suppressing an error that would normally occur when we fail to '
-                     'close the FileStore (that we intentionally broke in this test).')
-        with caplog.at_level(logging.CRITICAL, logger='scalems.context._datastore'):
+        logger = logging.getLogger("scalems.context._datastore")
+        logger.debug(
+            "Suppressing an error that would normally occur when we fail to "
+            "close the FileStore (that we intentionally broke in this test)."
+        )
+        with caplog.at_level(logging.CRITICAL, logger="scalems.context._datastore"):
             del manager
 
 
@@ -115,15 +118,15 @@ def test_contention(tmp_path, caplog):
             assert not datastore.closed
 
         scalems.context._lock._unlock_directory()
-        with caplog.at_level(logging.CRITICAL, logger='scalems.context._datastore'):
+        with caplog.at_level(logging.CRITICAL, logger="scalems.context._datastore"):
             # The above failed `close` left the manager in an invalid state.
             del manager
 
         metadata_path = datastore.filepath
         expected_instance = os.getpid()
         unexpected_instance = expected_instance + 1
-        with open(metadata_path, 'w') as fp:
-            json.dump({'instance': unexpected_instance}, fp)
+        with open(metadata_path, "w") as fp:
+            json.dump({"instance": unexpected_instance}, fp)
         with pytest.raises(scalems.context.ContextError):
             FileStoreManager()
 
@@ -172,16 +175,14 @@ def test_recovery(tmp_path):
     metadata_path = datastore.filepath
     del manager
 
-    with open(metadata_path,
-              'r') as fh:
+    with open(metadata_path, "r") as fh:
         metadata: dict = json.load(fh)
-        assert metadata['instance'] is None
+        assert metadata["instance"] is None
 
     manager = FileStoreManager(directory=tmp_path)
     assert datastore is not manager.filestore()
     assert datastore.closed
     assert not manager.filestore().closed
-    with open(metadata_path,
-              'r') as fh:
+    with open(metadata_path, "r") as fh:
         metadata: dict = json.load(fh)
-        assert metadata['instance'] == os.getpid()
+        assert metadata["instance"] == os.getpid()

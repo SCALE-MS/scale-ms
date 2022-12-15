@@ -37,8 +37,7 @@ logger.setLevel(logging.DEBUG)
 
 # TODO: Catch sigint from RP and apply our own timeout.
 
-pytestmark = pytest.mark.skipif(condition=rp is None,
-                                reason='These tests require RADICAL Pilot.')
+pytestmark = pytest.mark.skipif(condition=rp is None, reason="These tests require RADICAL Pilot.")
 
 client_scalems_version = packaging.version.Version(scalems.__version__)
 if client_scalems_version.is_prerelease:
@@ -57,7 +56,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
 
     # Hopefully, this requirement is temporary.
     if rp_venv is None:
-        pytest.skip('This test requires a user-provided static RP venv.')
+        pytest.skip("This test requires a user-provided static RP venv.")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
@@ -67,9 +66,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
-        rp_resource_params={
-            'PilotDescription': pilot_description.as_dict()
-        }
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
     to_thread = scalems.utility.get_to_thread()
@@ -78,7 +75,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
     with scalems.workflow.scope(manager, close_on_exit=True):
         async with manager.dispatch(params=params) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
-            logger.debug(f'test_raptor_master Session is {repr(dispatcher.runtime.session)}')
+            logger.debug(f"test_raptor_master Session is {repr(dispatcher.runtime.session)}")
 
             # Bypass the scalems machinery and submit an instruction directly to the master task.
             scheduler: rp.Task = dispatcher.runtime.scheduler
@@ -97,15 +94,15 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
             #             'metadata': scalems.messages.HelloCommand().encode()
             #         }
             #     )
-            logger.debug(f'Submitting {str(td.as_dict())}')
+            logger.debug(f"Submitting {str(td.as_dict())}")
             tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             hello_task = tasks[0]
-            logger.debug(f'Submitted {str(hello_task.as_dict())}. Waiting...')
+            logger.debug(f"Submitted {str(hello_task.as_dict())}. Waiting...")
             state = await to_thread(hello_task.wait, state=rp.FINAL, timeout=180)
             logger.debug(str(hello_task.as_dict()))
 
             td.metadata = scalems.messages.StopCommand().encode()
-            logger.debug(f'Submitting {str(td.as_dict())}')
+            logger.debug(f"Submitting {str(td.as_dict())}")
             tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             stop_task = tasks[0]
 
@@ -128,15 +125,14 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
     #     assert state in rp.states.FINAL
 
 
-@pytest.mark.filterwarnings('ignore::DeprecationWarning')
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_worker(pilot_description, rp_venv, cleandir):
-    """Launch the master script and execute a trivial workflow.
-    """
+    """Launch the master script and execute a trivial workflow."""
 
     if rp_venv is None:
         # Be sure to provision the venv.
-        pytest.skip('This test requires a user-provided static RP venv.')
+        pytest.skip("This test requires a user-provided static RP venv.")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
@@ -145,19 +141,13 @@ async def test_worker(pilot_description, rp_venv, cleandir):
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
-        rp_resource_params={
-            'PilotDescription': pilot_description.as_dict()
-        }
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
     # TODO: Make the work representation non-Raptor-specific or decouple
     #  the Raptor oriented representation of Work from the client-side representation.
     work_item = scalems.radical.raptor.ScalemsRaptorWorkItem(
-        func=print.__name__,
-        module=print.__module__,
-        args=['hello world'],
-        kwargs={},
-        comm_arg_name=None
+        func=print.__name__, module=print.__module__, args=["hello world"], kwargs={}, comm_arg_name=None
     )
 
     manager = scalems.radical.workflow_manager(loop)
@@ -167,9 +157,9 @@ async def test_worker(pilot_description, rp_venv, cleandir):
         async with manager.dispatch(params=params) as dispatcher:
             # We have now been through RPDispatchingExecutor.runtime_startup().
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
-            logger.debug(f'Session is {repr(dispatcher.runtime.session)}')
+            logger.debug(f"Session is {repr(dispatcher.runtime.session)}")
 
-            task_uid = 'task.scalems-test-worker'
+            task_uid = "task.scalems-test-worker"
             # Bypass the scalems machinery and submit an instruction directly to the master task.
             scheduler: rp.Task = dispatcher.runtime.scheduler
 
@@ -177,7 +167,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             task_description.scheduler = scheduler.uid
             task_description.uid = task_uid
             task_description.cpu_processes = 1
-            task_description.cpu_process_type = rp.SERIAL,
+            task_description.cpu_process_type = (rp.SERIAL,)
             task_description.mode = scalems.radical.raptor.CPI_MESSAGE
             task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
 
@@ -186,11 +176,11 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             timeout = 120
             # Submit a raptor task
             # TODO: Use scalems.radical.runtime.submit()
-            watcher = asyncio.create_task(to_thread(task_manager.submit_tasks, task_description), name='rp_submit')
+            watcher = asyncio.create_task(to_thread(task_manager.submit_tasks, task_description), name="rp_submit")
             try:
                 rp_task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
             except asyncio.TimeoutError as e:
-                logger.exception(f'Waited more than {timeout} to submit {task_description}.')
+                logger.exception(f"Waited more than {timeout} to submit {task_description}.")
                 watcher.cancel()
                 raise e
 
@@ -198,8 +188,8 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             try:
                 rp_task: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
             except asyncio.TimeoutError as e:
-                logger.debug(f'Waited more than {timeout} for {rp_future}: {e}')
-                rp_future.cancel('Canceled after waiting too long.')
+                logger.debug(f"Waited more than {timeout} for {rp_future}: {e}")
+                rp_future.cancel("Canceled after waiting too long.")
                 raise e
             assert rp_task.exit_code == 0
 
@@ -207,7 +197,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             assert rp_task.return_value is None
 
             work_item_task_id = rp_task.stdout
-            logger.debug(f'Master submitted task {work_item_task_id} to Worker.')
+            logger.debug(f"Master submitted task {work_item_task_id} to Worker.")
             # TODO(#229): Check an actual data result.
 
 
@@ -284,16 +274,15 @@ async def test_worker(pilot_description, rp_venv, cleandir):
 #         assert t.exit_code == 0
 
 
-@pytest.mark.filterwarnings('ignore::DeprecationWarning')
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_exec_rp(pilot_description, rp_venv, cleandir):
-    """Test that we are able to launch and shut down a RP dispatched execution session.
-    """
+    """Test that we are able to launch and shut down a RP dispatched execution session."""
     import radical.pilot as rp
 
     # Hopefully, this requirement is temporary.
     if rp_venv is None:
-        pytest.skip('This test requires a user-provided static RP venv.')
+        pytest.skip("This test requires a user-provided static RP venv.")
 
     original_context = scalems.workflow.get_scope()
     loop = asyncio.get_event_loop()
@@ -304,9 +293,7 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
-        rp_resource_params={
-            'PilotDescription': pilot_description.as_dict()
-        }
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
     # Test RPDispatcher context
@@ -320,11 +307,11 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
-        cmd1 = scalems.executable(('/bin/echo',))
+        cmd1 = scalems.executable(("/bin/echo",))
         async with manager.dispatch(params=params) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
-            logger.debug(f'exec_rp Session is {repr(dispatcher.runtime.session)}')
-            cmd2 = scalems.executable(('/bin/echo', 'hello', 'world'))
+            logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
+            cmd2 = scalems.executable(("/bin/echo", "hello", "world"))
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
         assert cmd1.done()
@@ -334,22 +321,22 @@ async def test_exec_rp(pilot_description, rp_venv, cleandir):
 
     # TODO: Output typing.
     out1: rp.Task = cmd1.result()
-    for output in out1.description['output_staging']:
-        assert os.path.exists(output['target'])
+    for output in out1.description["output_staging"]:
+        assert os.path.exists(output["target"])
     out2: rp.Task = cmd2.result()
-    for output in out2.description['output_staging']:
-        assert os.path.exists(output['target'])
-        if output['target'].endswith('stdout'):
-            with open(output['target'], 'r') as fh:
+    for output in out2.description["output_staging"]:
+        assert os.path.exists(output["target"])
+        if output["target"].endswith("stdout"):
+            with open(output["target"], "r") as fh:
                 line = fh.readline()
-                assert line.rstrip() == 'hello world'
+                assert line.rstrip() == "hello world"
 
     # Test active context scoping.
     assert scalems.workflow.get_scope() is original_context
     assert not loop.is_closed()
 
 
-@pytest.mark.skip(reason='Unimplemented.')
+@pytest.mark.skip(reason="Unimplemented.")
 @pytest.mark.asyncio
 async def test_batch():
     """Run a batch of uncoupled tasks, dispatched through RP."""

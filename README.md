@@ -3,6 +3,7 @@
 [![Test Status](https://github.com/SCALE-MS/scale-ms/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/SCALE-MS/scale-ms/actions/workflows/tests.yml)
 [![Documentation Status](https://readthedocs.org/projects/scale-ms/badge/?version=latest)](https://scale-ms.readthedocs.io/en/latest/?badge=latest)
 [![codecov](https://codecov.io/gh/SCALE-MS/scale-ms/branch/master/graph/badge.svg)](https://codecov.io/gh/SCALE-MS/scale-ms)
+[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [[DockerHub]](https://hub.docker.com/r/scalems/ci)
 
 NSF Awards

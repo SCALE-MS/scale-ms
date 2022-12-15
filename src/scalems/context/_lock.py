@@ -1,8 +1,6 @@
 """Provide locking protocol for scalems.context data stores."""
 
-__all__ = ['LockException',
-           'is_locked',
-           'scoped_directory_lock']
+__all__ = ["LockException", "is_locked", "scoped_directory_lock"]
 
 import contextlib
 import logging
@@ -12,9 +10,9 @@ import typing
 import warnings
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
-_lock_directory_name = '.scalems_lock'
+_lock_directory_name = ".scalems_lock"
 """Name to use for lock directories (module constant)"""
 
 
@@ -57,7 +55,7 @@ def _lock_directory(path=None):
         token_path.mkdir()
     except FileExistsError as e:
         # Directory lock already exists.
-        raise LockException('{} already exists'.format(token_path)) from e
+        raise LockException("{} already exists".format(token_path)) from e
     return token_path
 
 
@@ -83,6 +81,7 @@ class _Lock:
     If the caller has not explicitly released the Lock before it is destroyed,
     a warning is issued and the __del__ method attempts to remove the object.
     """
+
     @property
     def name(self):
         """The name of the filesystem object provided when the lock was established."""
@@ -90,7 +89,7 @@ class _Lock:
 
     def __init__(self, filesystem_object=None):
         if not os.path.exists(filesystem_object):
-            raise ValueError('Provided object is not a usable filesystem token.')
+            raise ValueError("Provided object is not a usable filesystem token.")
         self._filesystem_object = filesystem_object
 
     def is_active(self):
@@ -98,7 +97,7 @@ class _Lock:
 
     def release(self):
         if self._filesystem_object is None:
-            raise ValueError('Attempting to release an inactive lock.')
+            raise ValueError("Attempting to release an inactive lock.")
         _Lock._remove(self._filesystem_object)
         self._filesystem_object = None
 
@@ -110,13 +109,11 @@ class _Lock:
         elif os.path.isdir(path):
             os.rmdir(path)
         else:
-            warnings.warn('Cannot remove unknown filesystem object type: {}'.format(path))
+            warnings.warn("Cannot remove unknown filesystem object type: {}".format(path))
 
     def __del__(self):
         if self._filesystem_object is not None:
-            warnings.warn(
-                'Lock object was not explicitly released! '
-                f'Token: {self._filesystem_object}')
+            warnings.warn(f"Lock object was not explicitly released! Token: {self._filesystem_object}")
             obj = self._filesystem_object
             self._filesystem_object = None
             if os.path.exists(obj):
@@ -152,7 +149,7 @@ def scoped_directory_lock(path: typing.Union[str, bytes, os.PathLike] = None):
     try:
         lock = _Lock(token_path)
     except ValueError as e:
-        raise LockException('Could not create lock object.') from e
+        raise LockException("Could not create lock object.") from e
     try:
         yield lock
         # Control returns to the last line of the `try` block if the the `with`
@@ -163,6 +160,6 @@ def scoped_directory_lock(path: typing.Union[str, bytes, os.PathLike] = None):
         # careful about automatically removing non-empty directories on behalf
         # of users.
         if not lock.is_active():
-            warnings.warn(f'Lock object {lock.name} does not exist!')
+            warnings.warn(f"Lock object {lock.name} does not exist!")
         else:
             lock.release()

@@ -32,17 +32,17 @@ Invocation:
 # https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html#directive-automodule
 __all__ = [
     # core UI
-    'app',
-    'FileReference',
+    "app",
+    "FileReference",
     # tools / commands
-    'executable',
+    "executable",
     # utilities and helpers
-    'get_scope',
+    "get_scope",
     # 'run',
     # 'wait',
-    '__version__',
+    "__version__",
     # core API
-    'ScriptEntryPoint',
+    "ScriptEntryPoint",
 ]
 
 import logging
@@ -55,4 +55,4 @@ from .utility import ScriptEntryPoint
 from .context import FileReference
 
 logger = logging.getLogger(__name__)
-logger.debug('Imported {}'.format(__name__))
+logger.debug("Imported {}".format(__name__))

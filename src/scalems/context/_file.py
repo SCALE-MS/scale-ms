@@ -1,6 +1,6 @@
 """Provide an interface for managing filesystem objects in a workflow."""
 
-__all__ = ['FileReference', 'DataLocalizationError']
+__all__ = ["FileReference", "DataLocalizationError"]
 
 import abc
 import pathlib
@@ -57,7 +57,7 @@ class FileReference(typing.Protocol):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def localize(self, context=None) -> 'FileReference':
+    async def localize(self, context=None) -> "FileReference":
         """Make sure that the referenced file is available locally for a given context.
 
         With no arguments, *localize()* affects the currently active FileStore.

@@ -286,7 +286,7 @@ import packaging.version
 try:
     import radical.pilot as rp
 except (ImportError,):
-    warnings.warn('RADICAL Pilot installation not found.')
+    warnings.warn("RADICAL Pilot installation not found.")
 
 import scalems.exceptions
 import scalems.radical
@@ -321,6 +321,7 @@ except AttributeError:
 @dataclasses.dataclass
 class BackendVersion:
     """Identifying information for the computing backend."""
+
     name: str
     """Identifying name (presumably a module name)."""
 
@@ -328,17 +329,17 @@ class BackendVersion:
     """Implementation revision identifier as a PEP 440 compatible version string."""
 
 
-backend_version = BackendVersion(name='scalems.radical.raptor', version='0.0.0')
+backend_version = BackendVersion(name="scalems.radical.raptor", version="0.0.0")
 
 # TODO: Where does this identifier belong?
-api_name = 'scalems_v0'
+api_name = "scalems_v0"
 """Key for dispatching raptor Requests.
 
 We can use this to identify the schema used for SCALE-MS tasks encoded in
 arguments to raptor :py:data:`~radical.pilot.TASK_FUNCTION` mode executor.
 """
 
-CPI_MESSAGE = 'scalems.cpi'
+CPI_MESSAGE = "scalems.cpi"
 """Flag for scalems messages to be treated as CPI calls.
 
 Used in the :py:attr:`rp.TaskDescription.mode` field to indicate that the
@@ -347,7 +348,7 @@ object should be handled through the SCALEMS Compute Provider Interface machiner
 
 
 class CpiCommand(abc.ABC):
-    _registry: typing.MutableMapping[str, typing.Type['CpiCommand']] = weakref.WeakValueDictionary()
+    _registry: typing.MutableMapping[str, typing.Type["CpiCommand"]] = weakref.WeakValueDictionary()
 
     @classmethod
     @abc.abstractmethod
@@ -389,16 +390,16 @@ class CpiStop(CpiCommand):
 
     @classmethod
     def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
-        logger.debug('CPI STOP issued.')
-        task['stderr'] = ''
-        task['stdout'] = ''
-        task['exit_code'] = 0
+        logger.debug("CPI STOP issued.")
+        task["stderr"] = ""
+        task["stdout"] = ""
+        task["exit_code"] = 0
         manager.cpi_finalize(task)
 
     @classmethod
     def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
         manager.stop()
-        logger.debug(f'Finalized {str(task)}.')
+        logger.debug(f"Finalized {str(task)}.")
 
 
 class CpiHello(CpiCommand):
@@ -406,17 +407,17 @@ class CpiHello(CpiCommand):
 
     @classmethod
     def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
-        logger.debug('CPI HELLO in progress.')
-        task['stderr'] = ''
-        task['exit_code'] = 0
-        task['stdout'] = repr(backend_version)
-        task['return_value'] = dataclasses.asdict(backend_version)
-        logger.debug('Finalizing...')
+        logger.debug("CPI HELLO in progress.")
+        task["stderr"] = ""
+        task["exit_code"] = 0
+        task["stdout"] = repr(backend_version)
+        task["return_value"] = dataclasses.asdict(backend_version)
+        logger.debug("Finalizing...")
         manager.cpi_finalize(task)
 
     @classmethod
     def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
-        logger.debug(f'Finalized {str(task)}.')
+        logger.debug(f"Finalized {str(task)}.")
 
     @classmethod
     def command_class(cls) -> str:
@@ -431,15 +432,16 @@ class CpiAddItem(CpiCommand):
 
     TBD: Data objects, references to existing data, completed tasks.
     """
+
     def __init__(self, add_item: scalems.messages.AddItem):
         encoded_item = add_item.encoded_item
         item_dict = json.loads(encoded_item)
         self.work_item = ScalemsRaptorWorkItem(
-            func=item_dict['func'],
-            module=item_dict['module'],
-            args=item_dict['args'],
-            kwargs=item_dict['kwargs'],
-            comm_arg_name=item_dict.get('comm_arg_name', None)
+            func=item_dict["func"],
+            module=item_dict["module"],
+            args=item_dict["args"],
+            kwargs=item_dict["kwargs"],
+            comm_arg_name=item_dict.get("comm_arg_name", None),
         )
 
     @classmethod
@@ -464,62 +466,63 @@ class CpiAddItem(CpiCommand):
         #   * trigger dependent work,
         #   * only appear in the Master report, or
         #   * be available to follow-up LRO status checks.
-        add_item = typing.cast(scalems.messages.AddItem,
-                               scalems.messages.Command.decode(task['description']['metadata']))
+        add_item = typing.cast(
+            scalems.messages.AddItem, scalems.messages.Command.decode(task["description"]["metadata"])
+        )
         encoded_item = add_item.encoded_item
         # We do not yet use a strongly specified object schema. Just accept a dict.
         item_dict = json.loads(encoded_item)
         # Decouple the serialization schema since it is not strongly specified or robust.
         work_item = ScalemsRaptorWorkItem(
-            func=item_dict['func'],
-            module=item_dict['module'],
-            args=item_dict['args'],
-            kwargs=item_dict['kwargs'],
-            comm_arg_name=item_dict.get('comm_arg_name', None)
+            func=item_dict["func"],
+            module=item_dict["module"],
+            args=item_dict["args"],
+            kwargs=item_dict["kwargs"],
+            comm_arg_name=item_dict.get("comm_arg_name", None),
         )
         # TODO(#277): Convert abstract inputs to concrete values. (More management interface.)
         # TODO(#277): Check dependencies and runnability before submitting.
 
-        fingerprint = zlib.crc32(json.dumps(work_item, sort_keys=True).encode('utf8'))
+        fingerprint = zlib.crc32(json.dumps(work_item, sort_keys=True).encode("utf8"))
         # TODO: More robust fingerprint. Ref scalems.serialization and scalems.context._datastore
         # TODO: Check for duplicates.
-        scalems_task_id = f'scalems-task-{fingerprint}'
+        scalems_task_id = f"scalems-task-{fingerprint}"
 
         scalems_task_description = rp.TaskDescription(
             _RaptorTaskDescription(
                 uid=scalems_task_id,
                 # Note that (as of this writing) *executable* is required but unused for Raptor tasks.
-                executable='scalems',
+                executable="scalems",
                 scheduler=manager.uid,
                 # Note we could use metadata to encode additional info for ScaleMSMaster.request_cb,
                 # but it is not useful for execution of the rp.TASK_FUNCTION.
                 metadata=None,
                 mode=rp.TASK_FUNCTION,
-                function='run_in_worker',
+                function="run_in_worker",
                 args=[],
-                kwargs={'work_item': work_item}
+                kwargs={"work_item": work_item},
             )
         )
         scalems_task = manager.submit_tasks(scalems_task_description)
-        logger.debug(f'Submitted {str(scalems_task)} in support of {str(task)}.')
+        logger.debug(f"Submitted {str(scalems_task)} in support of {str(task)}.")
 
         # Record task metadata and track.
-        task['return_value'] = scalems_task_id
-        task['stdout'] = scalems_task_id
-        task['exit_code'] = 0
+        task["return_value"] = scalems_task_id
+        task["stdout"] = scalems_task_id
+        task["exit_code"] = 0
         manager.cpi_finalize(task)
 
     @classmethod
     def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
-        logger.debug(f'Finalized {str(task)}.')
+        logger.debug(f"Finalized {str(task)}.")
 
     @classmethod
     def command_class(cls) -> str:
         return scalems.messages.AddItem.__qualname__
 
 
-EncodableAsDict = typing.Mapping[str, 'Encodable']
-EncodableAsList = typing.List['Encodable']
+EncodableAsDict = typing.Mapping[str, "Encodable"]
+EncodableAsList = typing.List["Encodable"]
 Encodable = typing.Union[str, int, float, bool, None, EncodableAsDict, EncodableAsList]
 
 
@@ -530,7 +533,7 @@ Encodable = typing.Union[str, int, float, bool, None, EncodableAsDict, Encodable
 @functools.singledispatch
 def object_encoder(obj) -> Encodable:
     """Provide the *default* callback for JSONEncoder."""
-    raise TypeError(f'No decoder for {obj.__class__.__qualname__}.')
+    raise TypeError(f"No decoder for {obj.__class__.__qualname__}.")
 
 
 # def get_decoder() -> json.JSONDecoder:
@@ -558,6 +561,7 @@ class ClientWorkerRequirements:
     provided to the master script. The master script uses this information
     when calling `worker_description()`.
     """
+
     named_env: str
     pre_exec: typing.Iterable[str] = ()
     cpu_processes: int = None
@@ -566,6 +570,7 @@ class ClientWorkerRequirements:
 
 class _MasterTaskConfigurationDict(typing.TypedDict):
     """A `MasterTaskConfiguration` encoded as a `dict`."""
+
     worker: dict  # dict-encoded ClientWorkerRequirements.
     versioned_modules: typing.List[typing.Tuple[str, str]]
 
@@ -580,6 +585,7 @@ class MasterTaskConfiguration:
     Produced on the client side with `master_input`. Deserialized in the
     master task (`master`) to get a `RaptorWorkerConfig`.
     """
+
     worker: ClientWorkerRequirements
     """Client-side details to inform worker provisioning.
 
@@ -596,8 +602,7 @@ class MasterTaskConfiguration:
 
         Support deserialization, such as from a JSON file in the master task.
         """
-        return cls(worker=ClientWorkerRequirements(**obj['worker']),
-                   versioned_modules=list(obj['versioned_modules']))
+        return cls(worker=ClientWorkerRequirements(**obj["worker"]), versioned_modules=list(obj["versioned_modules"]))
 
 
 @object_encoder.register
@@ -628,15 +633,13 @@ def master_script() -> str:
         import pkg_resources
     except ImportError:
         pkg_resources = None
-    _master_script = 'scalems_rp_master'
+    _master_script = "scalems_rp_master"
     if pkg_resources is not None:
         # It is not hugely important if we cannot perform this test.
         # In reality, this should be performed at the execution site, and we can/should
         # remove the check here once we have effective API compatibility checking.
         # See https://github.com/SCALE-MS/scale-ms/issues/100
-        assert pkg_resources.get_entry_info('scalems',
-                                            'console_scripts',
-                                            'scalems_rp_master').name == _master_script
+        assert pkg_resources.get_entry_info("scalems", "console_scripts", "scalems_rp_master").name == _master_script
     return _master_script
 
 
@@ -648,7 +651,7 @@ async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str
 
     """
     if not isinstance(filestore, FileStore) or filestore.closed or not filestore.directory.exists():
-        raise ValueError(f'{filestore} is not a usable FileStore.')
+        raise ValueError(f"{filestore} is not a usable FileStore.")
 
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
@@ -659,7 +662,7 @@ async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str
     # filestore.add_task(worker_identity, **task_metadata)
 
     # TODO(#141): Add additional dependencies that we can infer from the workflow.
-    versioned_modules = (('mpi4py', '3.0.0'), ('scalems', scalems.__version__), ('radical.pilot', rp.version))
+    versioned_modules = (("mpi4py", "3.0.0"), ("scalems", scalems.__version__), ("radical.pilot", rp.version))
 
     configuration = MasterTaskConfiguration(worker=task_metadata, versioned_modules=list(versioned_modules))
 
@@ -670,17 +673,16 @@ async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str
     with tmpdir_manager as tmpdir:
         # Serialize the configuration to a temporary file, then add it to the
         # FileStore to get a fingerprinted, tracked file.
-        config_file_name = 'raptor_scheduler_config.json'
+        config_file_name = "raptor_scheduler_config.json"
         config_file_path = os.path.join(tmpdir, config_file_name)
-        with open(config_file_path, 'w') as fh:
+        with open(config_file_path, "w") as fh:
             json.dump(configuration, fh, default=object_encoder, indent=2)
-        file_description = describe_file(config_file_path, mode='r')
-        handle: FileReference = await asyncio.create_task(filestore.add_file(file_description),
-                                                          name='add-file')
+        file_description = describe_file(config_file_path, mode="r")
+        handle: FileReference = await asyncio.create_task(filestore.add_file(file_description), name="add-file")
         try:
             tmpdir_manager.cleanup()
         except OSError:
-            logger.exception(f'Errors occurred while cleaning up {tmpdir}.')
+            logger.exception(f"Errors occurred while cleaning up {tmpdir}.")
 
     return handle
 
@@ -694,16 +696,15 @@ def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequ
     cores_per_worker = 1
     gpus_per_worker = 0
 
-    workload_metadata = ClientWorkerRequirements(named_env=worker_venv,
-                                                 pre_exec=pre_exec,
-                                                 cpu_processes=cores_per_worker,
-                                                 gpus_per_process=gpus_per_worker)
+    workload_metadata = ClientWorkerRequirements(
+        named_env=worker_venv, pre_exec=pre_exec, cpu_processes=cores_per_worker, gpus_per_process=gpus_per_worker
+    )
 
     return workload_metadata
 
 
-parser = argparse.ArgumentParser(description='Command line entry point for RP Raptor master task.')
-parser.add_argument('file', type=str, help='Input file (JSON) for configuring ScaleMSMaster instance.')
+parser = argparse.ArgumentParser(description="Command line entry point for RP Raptor master task.")
+parser.add_argument("file", type=str, help="Input file (JSON) for configuring ScaleMSMaster instance.")
 
 
 def master():
@@ -790,37 +791,37 @@ def master():
     logger.setLevel(logging.DEBUG)
     character_stream = logging.StreamHandler()
     character_stream.setLevel(logging.DEBUG)
-    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     character_stream.setFormatter(formatter)
     logger.addHandler(character_stream)
 
-    if not os.environ['RP_TASK_ID']:
-        warnings.warn('Attempting to start a Raptor Master without RP execution environment.')
+    if not os.environ["RP_TASK_ID"]:
+        warnings.warn("Attempting to start a Raptor Master without RP execution environment.")
 
     args = parser.parse_args()
     if not os.path.exists(args.file):
-        raise RuntimeError(f'File not found: {args.file}')
-    with open(args.file, 'r') as fh:
+        raise RuntimeError(f"File not found: {args.file}")
+    with open(args.file, "r") as fh:
         configuration = MasterTaskConfiguration.from_dict(json.load(fh))
 
-    logger.info(f'Launching ScaleMSMaster task with {repr(dataclasses.asdict(configuration))}.')
+    logger.info(f"Launching ScaleMSMaster task with {repr(dataclasses.asdict(configuration))}.")
 
     _master = ScaleMSMaster(configuration)
-    logger.debug(f'Created {repr(_master)}.')
+    logger.debug(f"Created {repr(_master)}.")
 
     requirements = configuration.worker
 
     with _master.configure_worker(requirements=requirements) as worker_submission:
-        assert os.path.isabs(worker_submission['descr']['worker_file'])
-        assert os.path.exists(worker_submission['descr']['worker_file'])
+        assert os.path.isabs(worker_submission["descr"]["worker_file"])
+        assert os.path.exists(worker_submission["descr"]["worker_file"])
         logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
         _master.submit_workers(**worker_submission)
-        message = 'Submitted workers: '
-        message += ', '.join(_master.workers.keys())
+        message = "Submitted workers: "
+        message += ", ".join(_master.workers.keys())
         logger.info(message)
 
         _master.start()
-        logger.debug('Master started.')
+        logger.debug("Master started.")
 
         # Make sure at least one worker comes online.
         # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
@@ -833,7 +834,7 @@ def master():
         # * 'NEW' -> 'ACTIVE' -> 'DONE'
 
         _master.join()
-        logger.debug('Master joined.')
+        logger.debug("Master joined.")
 
 
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:
@@ -848,12 +849,14 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
     num_workers = 1
     config: RaptorWorkerConfig = {
-        'count': num_workers,
-        'descr': worker_description(named_env=requirements.named_env,
-                                    worker_file=filename,
-                                    pre_exec=requirements.pre_exec,
-                                    cpu_processes=requirements.cpu_processes,
-                                    gpus_per_process=requirements.gpus_per_process),
+        "count": num_workers,
+        "descr": worker_description(
+            named_env=requirements.named_env,
+            worker_file=filename,
+            pre_exec=requirements.pre_exec,
+            cpu_processes=requirements.cpu_processes,
+            gpus_per_process=requirements.gpus_per_process,
+        ),
     }
     return config
 
@@ -871,10 +874,10 @@ def _get_module_version(module: str):
     if found_version is None:
         try:
             spec: ModuleSpec = find_spec(module)
-            if spec and hasattr(spec, 'parent'):
+            if spec and hasattr(spec, "parent"):
                 found_version = importlib.metadata.version(spec.parent)
         except Exception as e:
-            logger.debug(f'Exception when trying to find {module}: ', exc_info=e)
+            logger.debug(f"Exception when trying to find {module}: ", exc_info=e)
     if found_version is not None:
         found_version = packaging.version.Version(found_version)
     return found_version
@@ -1008,31 +1011,29 @@ class ScaleMSMaster(rp.raptor.Master):
         """
         # Verify environment.
         for module, version in configuration.versioned_modules:
-            logger.debug(f'Looking for {module} version {version}.')
+            logger.debug(f"Looking for {module} version {version}.")
             found_version = _get_module_version(module)
             if found_version is None:
-                raise SoftwareCompatibilityError(f'{module} not found.')
+                raise SoftwareCompatibilityError(f"{module} not found.")
             minimum_version = packaging.version.Version(version)
             if found_version >= minimum_version:
-                logger.debug(f'Found {module} version {found_version}: Okay.')
+                logger.debug(f"Found {module} version {found_version}: Okay.")
             else:
-                raise SoftwareCompatibilityError(f'{module} version {found_version} not compatible with '
-                                                 f'{version}.')
+                raise SoftwareCompatibilityError(f"{module} version {found_version} not compatible with {version}.")
         # The rp.raptor base class will fail to initialize without the environment
         # expected for a RP task launched by an RP agent. However, we may still
         # want to acquire a partially-initialized instance for testing.
         try:
             super(ScaleMSMaster, self).__init__()
         except KeyError:
-            warnings.warn('Master incomplete. Could not initialize raptor.Master base class.')
+            warnings.warn("Master incomplete. Could not initialize raptor.Master base class.")
 
         # Initialize internal state.
         # TODO: Use a scalems RuntimeManager.
         self.__worker_files = {}
 
     @contextlib.contextmanager
-    def configure_worker(self, requirements: ClientWorkerRequirements) \
-            -> Generator[RaptorWorkerConfig, None, None]:
+    def configure_worker(self, requirements: ClientWorkerRequirements) -> Generator[RaptorWorkerConfig, None, None]:
         """Scoped temporary module file for raptor worker.
 
         Write and return the path to a temporary Python module. The module imports
@@ -1063,24 +1064,21 @@ class ScaleMSMaster(rp.raptor.Master):
         # (through `globals()` or `locals()`, at least) to the rp.TASK_FUNCTION
         # implementation in rp.raptor.worker_mpi._Worker._dispatch_function.
         text = [
-            f'from {worker.__module__} import {worker.__name__}\n',
+            f"from {worker.__module__} import {worker.__name__}\n",
             # f'from {run_in_worker.__module__} import {run_in_worker.__name__}\n'
         ]
         # TODO: Use the Master's FileStore to get an appropriate fast shared filesystem.
         with tempfile.TemporaryDirectory() as tmp_dir:
             filename = self.__worker_files.get(worker, None)
             if filename is None:
-                filename = next_numbered_file(dir=tmp_dir, name='scalems_worker', suffix='.py')
-                with open(filename, 'w') as fh:
+                filename = next_numbered_file(dir=tmp_dir, name="scalems_worker", suffix=".py")
+                with open(filename, "w") as fh:
                     fh.writelines(text)
                 self.__worker_files[worker] = filename
             yield filename
         del self.__worker_files[worker]
 
-    def request_cb(
-            self,
-            tasks: typing.Sequence[TaskDictionary]
-    ) -> typing.Sequence[TaskDictionary]:
+    def request_cb(self, tasks: typing.Sequence[TaskDictionary]) -> typing.Sequence[TaskDictionary]:
         """Allows all incoming requests to be processed by the Master.
 
         RADICAL guarantees that :py:func:`~radical.pilot.raptor.Master.request_cb()`
@@ -1111,7 +1109,7 @@ class ScaleMSMaster(rp.raptor.Master):
             # Let non-scalems tasks percolate to the default machinery.
             return list(remaining_tasks)
         except Exception as e:
-            logger.exception('scalems request filter propagated an exception.')
+            logger.exception("scalems request filter propagated an exception.")
             # TODO: Submit a clean-up task.
             #  Use a thread or asyncio event loop controlled by the main master task thread
             #  to issue a cancel to all outstanding tasks and stop the workers.
@@ -1141,14 +1139,14 @@ class ScaleMSMaster(rp.raptor.Master):
         for task in tasks:
             _finalized = False
             try:
-                mode = task['description']['mode']
+                mode = task["description"]["mode"]
                 # Allow non-scalems work to be handled normally.
                 if mode != CPI_MESSAGE:
                     yield task
                     continue
                 else:
-                    command = scalems.messages.Command.decode(task['description']['metadata'])
-                    logger.debug(f'Received message {command} in {str(task)}')
+                    command = scalems.messages.Command.decode(task["description"]["metadata"])
+                    logger.debug(f"Received message {command} in {str(task)}")
 
                     impl: typing.Type[CpiCommand] = CpiCommand.get(command)
 
@@ -1187,11 +1185,11 @@ class ScaleMSMaster(rp.raptor.Master):
         """
         # Note: At least as of RP 1.18, exceptions from result_cb() are suppressed.
         for task in tasks:
-            mode = task['description']['mode']
+            mode = task["description"]["mode"]
             # Allow non-scalems work to be handled normally.
             if mode == CPI_MESSAGE:
-                command = scalems.messages.Command.decode(task['description']['metadata'])
-                logger.debug(f'Finalizing {command} in {str(task)}')
+                command = scalems.messages.Command.decode(task["description"]["metadata"])
+                logger.debug(f"Finalizing {command} in {str(task)}")
 
                 impl: typing.Type[CpiCommand] = CpiCommand.get(command)
                 impl.result_hook(self, task)
@@ -1241,6 +1239,7 @@ class WorkerDescriptionDict(typing.TypedDict):
         * https://github.com/radical-cybertools/radical.pilot/issues/2731
 
     """
+
     cores_per_rank: typing.Optional[int]
     environment: typing.Optional[dict]
     gpus_per_rank: typing.Optional[int]
@@ -1263,6 +1262,7 @@ class RaptorWorkerConfig(typing.TypedDict):
 
     Create with `worker_description()`.
     """
+
     descr: WorkerDescriptionDict
     """Client-specified Worker requirements.
 
@@ -1276,13 +1276,15 @@ class RaptorWorkerConfig(typing.TypedDict):
     """Number of workers to launch."""
 
 
-def worker_description(*,
-                       named_env: str,
-                       worker_file: str,
-                       cores_per_process: int = None,
-                       cpu_processes: int = None,
-                       gpus_per_process: int = None,
-                       pre_exec: typing.Iterable[str] = (), ) -> WorkerDescriptionDict:
+def worker_description(
+    *,
+    named_env: str,
+    worker_file: str,
+    cores_per_process: int = None,
+    cpu_processes: int = None,
+    gpus_per_process: int = None,
+    pre_exec: typing.Iterable[str] = (),
+) -> WorkerDescriptionDict:
     """Get a worker description for Master.submit_workers().
 
     Parameters:
@@ -1299,14 +1301,16 @@ def worker_description(*,
 
     The *uid* for the Worker task is defined by the Master.submit_workers().
     """
-    kwargs = dict(cores_per_rank=cores_per_process,
-                  environment=None,
-                  gpus_per_rank=gpus_per_process,
-                  named_env=None,
-                  pre_exec=list(pre_exec),
-                  ranks=cpu_processes,
-                  worker_class='ScaleMSWorker',
-                  worker_file=worker_file, )
+    kwargs = dict(
+        cores_per_rank=cores_per_process,
+        environment=None,
+        gpus_per_rank=gpus_per_process,
+        named_env=None,
+        pre_exec=list(pre_exec),
+        ranks=cpu_processes,
+        worker_class="ScaleMSWorker",
+        worker_file=worker_file,
+    )
     # Avoid assumption about how default values in TaskDescription are checked or applied.
     kwargs = {key: value for key, value in kwargs.items() if value is not None}
     descr = WorkerDescriptionDict(**kwargs)
@@ -1315,6 +1319,7 @@ def worker_description(*,
 
 class RaptorTaskExecutor(typing.Protocol):
     """Represent the signature of executor functions for rp.raptor.MPIWorker."""
+
     def __call__(self, *args, comm: Comm, **kwargs) -> Encodable:
         ...
 
@@ -1376,6 +1381,7 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
         deactivate rpt.Worker
 
     """
+
     def run_in_worker(self, *, work_item: ScalemsRaptorWorkItem, comm=None):
         """Unpack and run a task requested through RP Raptor.
 
@@ -1392,18 +1398,20 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
         See Also:
             :py:func:`CpiAddItem.launch()`
         """
-        module = importlib.import_module(work_item['module'])
-        func = getattr(module, work_item['func'])
-        args = list(work_item['args'])
-        kwargs = work_item['kwargs'].copy()
-        comm_arg_name = work_item.get('comm_arg_name', None)
+        module = importlib.import_module(work_item["module"])
+        func = getattr(module, work_item["func"])
+        args = list(work_item["args"])
+        kwargs = work_item["kwargs"].copy()
+        comm_arg_name = work_item.get("comm_arg_name", None)
         if comm_arg_name is not None:
             if comm_arg_name:
                 kwargs[comm_arg_name] = comm
             else:
                 args.append(comm)
-        logger.debug('Calling {func} with args {args} and kwargs {kwargs}',
-                     {'func': func.__qualname__, 'args': repr(args), 'kwargs': repr(kwargs)})
+        logger.debug(
+            "Calling {func} with args {args} and kwargs {kwargs}",
+            {"func": func.__qualname__, "args": repr(args), "kwargs": repr(kwargs)},
+        )
         return func(*args, **kwargs)
 
 
@@ -1441,6 +1449,7 @@ class ScalemsRaptorWorkItem(typing.TypedDict):
     TODO: Record extra details like implicit filesystem interactions,
      environment variables, etc. TBD whether they belong in a separate object.
     """
+
     func: str
     """A callable to be retrieved as an attribute in *module*."""
 
@@ -1477,6 +1486,7 @@ class _RaptorTaskDescription(typing.TypedDict):
      sufficiently strong and well-documented that we can remove this hinting type?
      (Check again at RP >= 1.19)
     """
+
     uid: str
     """Unique identifier for the Task across the Session."""
 
@@ -1541,6 +1551,7 @@ class TaskDictionary(typing.TypedDict):
     :py:meth:`~radical.pilot.Task.as_dict()`:
     https://radicalpilot.readthedocs.io/en/stable/_modules/radical/pilot/task.html#Task.as_dict
     """
+
     uid: str
     """Canonical identifier for the Task.
 
@@ -1598,7 +1609,7 @@ def next_numbered_file(*, dir, name, suffix):
     if not os.path.exists(dir):
         raise ValueError(f'Directory "{dir}" does not exist.')
     filelist = os.listdir(dir)
-    template = str(name) + '{i}' + str(suffix)
+    template = str(name) + "{i}" + str(suffix)
     i = 1
     filename = template.format(i=i)
     while filename in filelist:

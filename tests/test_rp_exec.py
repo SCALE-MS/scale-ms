@@ -86,7 +86,9 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
             td.scheduler = scheduler.uid
             td.mode = scalems.radical.raptor.CPI_MESSAGE
             td.metadata = scalems.messages.HelloCommand().encode()
-            # TODO: The dictionary-based initialization doesn't seem to work right.
+            # TODO: The dictionary-based initialization should be working again
+            # with radical.utils > 1.18.1.
+            # See https://github.com/radical-cybertools/radical.utils/pull/367.
             # Ref https://github.com/radical-cybertools/radical.pilot/issues/2797
             #     td = rp.TaskDescription(
             #         from_dict={

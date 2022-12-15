@@ -25,6 +25,7 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y --no-install-suggests --no-install-recommends \
           build-essential \
+          ccache \
           libfftw3-dev \
           libopenmpi-dev \
           make \
@@ -39,6 +40,16 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip' # caching pip dependencies
+    - name: Prepare ccache timestamp
+      id: ccache_cache_timestamp
+      run: |
+        echo "timestamp=$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_OUTPUT
+    - uses: actions/cache@v3
+      id: cache-ccache
+      with:
+        path: ~/.ccache
+        key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-ccache-${{ steps.ccache_cache_timestamp.outputs.timestamp }}
+        restore-keys: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-ccache-
     - name: Set up venv
       run: |
         echo `which python`
@@ -61,6 +72,8 @@ jobs:
         mkdir build
         cd build
         cmake ../cmake -G Ninja \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DPKG_KSPACE=yes \
             -DPKG_MOLECULE=yes \
             -DPKG_MPIIO=yes \

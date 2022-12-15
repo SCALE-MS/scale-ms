@@ -15,14 +15,14 @@ in terms of standard types. In a follow-up, we can use a scalems metaclass to de
 in terms of Data Descriptors that support mixed scalems.Future and native constant data types.
 """
 
-__all__ = ['executable', 'Subprocess', 'SubprocessInput', 'SubprocessResult']
+__all__ = ["executable", "Subprocess", "SubprocessInput", "SubprocessResult"]
 
 import logging
 
 from . import _subprocess
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 Subprocess = _subprocess.Subprocess
 SubprocessInput = _subprocess.SubprocessInput

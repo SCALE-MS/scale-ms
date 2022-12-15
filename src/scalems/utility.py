@@ -1,15 +1,15 @@
 """Decorators and helper functions."""
 
 __all__ = [
-    'app',
-    'command',
-    'function_wrapper',
-    'get_to_thread',
-    'make_parser',
-    'next_monotonic_integer',
-    'parser',
-    'poll',
-    'ScriptEntryPoint'
+    "app",
+    "command",
+    "function_wrapper",
+    "get_to_thread",
+    "make_parser",
+    "next_monotonic_integer",
+    "parser",
+    "poll",
+    "ScriptEntryPoint",
 ]
 
 import abc
@@ -24,10 +24,10 @@ from typing import Protocol
 from scalems import exceptions as _exceptions
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 # TODO(Python 3.9): Use functools.cache instead of lru_cache when Py 3.9 is required.
-cache = getattr(functools, 'cache', functools.lru_cache(maxsize=None))
+cache = getattr(functools, "cache", functools.lru_cache(maxsize=None))
 
 
 @cache
@@ -48,35 +48,27 @@ def parser(add_help=False):
 
     _parser = argparse.ArgumentParser(add_help=add_help)
 
-    _parser.add_argument(
-        '--version',
-        action='version',
-        version=f'scalems version {_scalems_version}'
-    )
+    _parser.add_argument("--version", action="version", version=f"scalems version {_scalems_version}")
 
     _parser.add_argument(
-        '--log-level',
+        "--log-level",
         type=str.upper,
-        choices=['CRITICAL',
-                 'ERROR',
-                 'WARNING',
-                 'INFO',
-                 'DEBUG'],
-        help='Optionally configure console logging to the indicated level.'
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        help="Optionally configure console logging to the indicated level.",
     )
 
     _parser.add_argument(
-        '--pycharm',
-        action='store_true',
+        "--pycharm",
+        action="store_true",
         default=False,
-        help='Attempt to connect to PyCharm remote debugging system, where appropriate.'
+        help="Attempt to connect to PyCharm remote debugging system, where appropriate.",
     )
 
     _parser.add_argument(
-        'script',
-        metavar='script-to-run.py',
+        "script",
+        metavar="script-to-run.py",
         type=str,
-        help='The workflow script. Must contain a function decorated with `scalems.app`'
+        help="The workflow script. Must contain a function decorated with `scalems.app`",
     )
 
     return _parser
@@ -102,10 +94,9 @@ def make_parser(module: str, parents: typing.Iterable[argparse.ArgumentParser] =
         parents = [parser()]
     _parser = argparse.ArgumentParser(
         prog=module,
-        description=f'Command line interface for `{module}` workflow execution module.',
-        usage=f'python -m {module} <{module} args> script-to-run.py.py '
-              '<script args>',
-        parents=parents
+        description=f"Command line interface for `{module}` workflow execution module.",
+        usage=f"python -m {module} <{module} args> script-to-run.py.py " "<script args>",
+        parents=parents,
     )
     return _parser
 
@@ -120,6 +111,7 @@ class ScriptEntryPoint(abc.ABC):
 
     See :py:func:`scalems.app`
     """
+
     name: typing.Optional[str]
 
     @abc.abstractmethod
@@ -128,15 +120,12 @@ class ScriptEntryPoint(abc.ABC):
 
 
 def app(func: typing.Callable) -> typing.Callable:
-    """Annotate a callable for execution by SCALEMS.
-
-
-    """
+    """Annotate a callable for execution by SCALEMS."""
 
     class App(ScriptEntryPoint):
         def __init__(self, func: typing.Callable):
             if not callable(func):
-                raise ValueError('Needs a function or function object.')
+                raise ValueError("Needs a function or function object.")
             self._callable = func
             self.name = None
 
@@ -236,13 +225,14 @@ def deprecated(explanation: str):
         _message = str(explanation)
         assert len(_message) > 0
     except Exception as e:
-        raise ValueError('`deprecated` decorator needs a *explanation*.') from e
+        raise ValueError("`deprecated` decorator needs a *explanation*.") from e
 
     def decorator(func: typing.Callable):
         import functools
 
         def deprecation(message):
             import warnings
+
             warnings.warn(message, DeprecationWarning, stacklevel=2)
 
         @functools.wraps(func)
@@ -272,8 +262,8 @@ def next_monotonic_integer() -> int:
     return value
 
 
-_monotonic_integer = contextvars.ContextVar('_monotonic_integer', default=0)
-_T = typing.TypeVar('_T')
+_monotonic_integer = contextvars.ContextVar("_monotonic_integer", default=0)
+_T = typing.TypeVar("_T")
 
 
 class _Func_to_thread(typing.Protocol[_T]):
@@ -283,10 +273,9 @@ class _Func_to_thread(typing.Protocol[_T]):
     especially with respect to ``*args`` and ``**kwargs``.
     """
 
-    def __call__(self, __func: typing.Callable[..., _T],
-                 *args: typing.Any,
-                 **kwargs: typing.Any) \
-            -> typing.Coroutine[typing.Any, typing.Any, _T]:
+    def __call__(
+        self, __func: typing.Callable[..., _T], *args: typing.Any, **kwargs: typing.Any
+    ) -> typing.Coroutine[typing.Any, typing.Any, _T]:
         ...
 
 
@@ -299,16 +288,14 @@ def get_to_thread() -> _Func_to_thread:
     try:
         from asyncio import to_thread as _to_thread
     except ImportError:
-        async def _to_thread(__func: typing.Callable[..., _T],
-                             *args: typing.Any,
-                             **kwargs: typing.Any) -> _T:
+
+        async def _to_thread(__func: typing.Callable[..., _T], *args: typing.Any, **kwargs: typing.Any) -> _T:
             """Mock Python to_thread for Py 3.8."""
-            wrapped_function: typing.Callable[[], _T] = functools.partial(__func,
-                                                                          *args,
-                                                                          **kwargs)
+            wrapped_function: typing.Callable[[], _T] = functools.partial(__func, *args, **kwargs)
             assert callable(wrapped_function)
             loop = asyncio.get_event_loop()
             coro: typing.Awaitable[_T] = loop.run_in_executor(None, wrapped_function)
             result = await coro
             return result
+
     return _to_thread

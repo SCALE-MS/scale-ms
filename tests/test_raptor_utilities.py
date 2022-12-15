@@ -32,8 +32,7 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-pytestmark = pytest.mark.skipif(condition=rp is None,
-                                reason='These tests require RADICAL Pilot.')
+pytestmark = pytest.mark.skipif(condition=rp is None, reason="These tests require RADICAL Pilot.")
 
 client_scalems_version = packaging.version.Version(scalems.__version__)
 if client_scalems_version.is_prerelease:
@@ -56,43 +55,35 @@ def test_master_configuration_details(rp_venv):
     gpus_per_process = 0
 
     # TODO: Add additional dependencies that we can infer from the workflow.
-    versioned_modules = (
-        ('scalems', minimum_scalems_version),
-        ('radical.pilot', rp.version_short)
-    )
+    versioned_modules = (("scalems", minimum_scalems_version), ("radical.pilot", rp.version_short))
 
     # Note that the Worker launch has unspecified results if the `named_env`
     # does not exist and is not scheduled to be created with `prepare_env`.
     # However, we are not currently using `named_env`. See #90.
     configuration = MasterTaskConfiguration(
         worker=ClientWorkerRequirements(
-            named_env='scalems_test_ve',
-            pre_exec=[],
-            cpu_processes=worker_processes,
-            gpus_per_process=gpus_per_process
+            named_env="scalems_test_ve", pre_exec=[], cpu_processes=worker_processes, gpus_per_process=gpus_per_process
         ),
-        versioned_modules=list(versioned_modules)
+        versioned_modules=list(versioned_modules),
     )
     # Note: *named_env* is unused, pending work on #90 and others.
 
     conf_dict: scalems.radical.raptor._MasterTaskConfigurationDict = dataclasses.asdict(configuration)
     configuration = MasterTaskConfiguration.from_dict(conf_dict)
     assert configuration.versioned_modules == list(versioned_modules)
-    assert configuration.worker.named_env == 'scalems_test_ve'
+    assert configuration.worker.named_env == "scalems_test_ve"
 
     encoded = json.dumps(configuration, default=object_encoder, indent=2)
-    configuration = scalems.radical.raptor.MasterTaskConfiguration.from_dict(
-        json.loads(encoded)
-    )
+    configuration = scalems.radical.raptor.MasterTaskConfiguration.from_dict(json.loads(encoded))
     assert configuration.versioned_modules == [list(module_spec) for module_spec in versioned_modules]
-    assert configuration.worker.named_env == 'scalems_test_ve'
+    assert configuration.worker.named_env == "scalems_test_ve"
 
-    with pytest.warns(match='raptor.Master base class'):
+    with pytest.warns(match="raptor.Master base class"):
         master = ScaleMSMaster(configuration)
     with master.configure_worker(configuration.worker) as worker_config:
-        assert worker_config['count'] == num_workers
-        descr: WorkerDescriptionDict = worker_config['descr']
-        assert descr['ranks'] == worker_processes
-        assert descr['worker_class'] == ScaleMSWorker.__name__
-        assert os.path.exists(descr['worker_file'])
-    assert not os.path.exists(descr['worker_file'])
+        assert worker_config["count"] == num_workers
+        descr: WorkerDescriptionDict = worker_config["descr"]
+        assert descr["ranks"] == worker_processes
+        assert descr["worker_class"] == ScaleMSWorker.__name__
+        assert os.path.exists(descr["worker_file"])
+    assert not os.path.exists(descr["worker_file"])

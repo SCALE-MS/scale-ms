@@ -86,7 +86,7 @@ from scalems.exceptions import ProtocolError
 from scalems.workflow import Task
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 
 class AbstractWorkflowUpdater(abc.ABC):
@@ -128,8 +128,10 @@ class RuntimeDescriptor:
     def __set_name__(self, owner, name):
         # Called by type.__new__ during class creation to allow customization.
         if getattr(owner, self.private_name, None) is not None:
-            raise ProtocolError(f'Cannot assign {repr(self)} to {owner.__qualname__} '
-                                f'with an existing non-None {self.private_name} member.')
+            raise ProtocolError(
+                f"Cannot assign {repr(self)} to {owner.__qualname__} "
+                f"with an existing non-None {self.private_name} member."
+            )
 
     def __get__(self, instance, owner):
         # Note that instance==None when called through the *owner* (as a class attribute).
@@ -140,7 +142,7 @@ class RuntimeDescriptor:
 
     def __set__(self, instance, value):
         if getattr(instance, self.private_name, None) is not None:
-            raise APIError('Cannot overwrite an existing runtime state.')
+            raise APIError("Cannot overwrite an existing runtime state.")
         setattr(instance, self.private_name, value)
 
     def __delete__(self, instance):
@@ -150,10 +152,10 @@ class RuntimeDescriptor:
             pass
 
     def __init__(self):
-        self.private_name = '_runtime_state'
+        self.private_name = "_runtime_state"
 
 
-_BackendT = typing.TypeVar('_BackendT')
+_BackendT = typing.TypeVar("_BackendT")
 
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
@@ -163,6 +165,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     `scalems.workflow.WorkflowManager.dispatch` context manager using the
     :py:meth:`scalems.workflow.WorkflowManager._executor_factory`.
     """
+
     get_edit_item: typing.Callable[[], typing.Callable]
     datastore: FileStore
     submitted_tasks: typing.MutableSet[asyncio.Task]
@@ -198,13 +201,15 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     """
 
-    def __init__(self,
-                 *,
-                 editor_factory: typing.Callable[[], typing.Callable] = None,
-                 datastore: FileStore = None,
-                 loop: asyncio.AbstractEventLoop,
-                 configuration: _BackendT,
-                 dispatcher_lock=None):
+    def __init__(
+        self,
+        *,
+        editor_factory: typing.Callable[[], typing.Callable] = None,
+        datastore: FileStore = None,
+        loop: asyncio.AbstractEventLoop,
+        configuration: _BackendT,
+        dispatcher_lock=None,
+    ):
         self.submitted_tasks = set()
 
         # TODO: Only hold a queue in an active context manager.
@@ -213,19 +218,18 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         self._loop: asyncio.AbstractEventLoop = loop
 
         if editor_factory is None or not callable(editor_factory):
-            raise TypeError('Provide a callable that produces an edit_item '
-                            'interface.')
+            raise TypeError("Provide a callable that produces an edit_item " "interface.")
         self.get_edit_item = editor_factory
 
         if datastore is None:
-            raise TypeError('Provide a datastore.')
+            raise TypeError("Provide a datastore.")
         self.datastore = datastore
 
         # TODO: Consider relying on module ContextVars and contextvars.Context scope.
         self._runtime_configuration = configuration
 
         if not isinstance(dispatcher_lock, asyncio.Lock):
-            raise TypeError('An asyncio.Lock is required to control dispatcher state.')
+            raise TypeError("An asyncio.Lock is required to control dispatcher state.")
         self._dispatcher_lock = dispatcher_lock
 
     def configuration(self) -> _BackendT:
@@ -309,18 +313,14 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                     runner_task: asyncio.Task = await self.runtime_startup()
                     if runner_task.done():
                         if runner_task.cancelled():
-                            raise DispatchError('Runner unexpectedly canceled while '
-                                                'starting dispatching.')
+                            raise DispatchError("Runner unexpectedly canceled while starting dispatching.")
                         else:
                             e = runner_task.exception()
                             if e:
-                                logger.exception('Runner task failed with an exception.',
-                                                 exc_info=e)
+                                logger.exception("Runner task failed with an exception.", exc_info=e)
                                 raise e
                             else:
-                                logger.warning(
-                                    'Runner task stopped unusually early, but did not '
-                                    'raise an exception.')
+                                logger.warning("Runner task stopped unusually early, but did not raise an exception.")
                     self._queue_runner_task = runner_task
 
                 # Note: it would probably be most useful to return something with a
@@ -358,12 +358,12 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
             try:
                 # Stop the executor.
-                logger.debug('Stopping workflow execution.')
+                logger.debug("Stopping workflow execution.")
                 # TODO: Make sure that nothing else will be adding items to the
                 #  queue from this point.
                 # We should establish some assurance that the next line represents
                 # the last thing that we will put in the queue.
-                self._command_queue.put_nowait({'control': 'stop'})
+                self._command_queue.put_nowait({"control": "stop"})
                 # TODO: Consider what to do differently when we want to cancel work
                 #  rather than just finalize it.
 
@@ -376,17 +376,16 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 except asyncio.CancelledError as e:
                     raise e
                 except Exception as queue_runner_exception:
-                    logger.exception('Unhandled exception when stopping queue handler.',
-                                     exc_info=True)
+                    logger.exception("Unhandled exception when stopping queue handler.", exc_info=True)
                     self._exception = queue_runner_exception
                 else:
-                    logger.debug('Queue runner task completed.')
+                    logger.debug("Queue runner task completed.")
                 finally:
                     if not self._command_queue.empty():
-                        logger.error('Command queue never emptied.')
+                        logger.error("Command queue never emptied.")
 
                     if len(self.submitted_tasks) == 0:
-                        logger.debug('No tasks to wait for. Continuing to shut down.')
+                        logger.debug("No tasks to wait for. Continuing to shut down.")
                     else:
                         # Wait for the tasks.
                         # For scalems.radical, the returned values are the rp.Task
@@ -397,13 +396,12 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                         # TODO: Log something useful about the results.
                         assert len(results) == len(self.submitted_tasks)
             except asyncio.CancelledError as e:
-                logger.debug(f'{self.__class__.__qualname__} context manager received '
-                             f'cancellation while exiting.')
+                logger.debug(f"{self.__class__.__qualname__} context manager received cancellation while exiting.")
                 cancelled_error = e
             except Exception as e:
-                logger.exception('Exception while stopping dispatcher.', exc_info=True)
+                logger.exception("Exception while stopping dispatcher.", exc_info=True)
                 if self._exception:
-                    logger.error('Queuer is already holding an exception.')
+                    logger.error("Queuer is already holding an exception.")
                 else:
                     self._exception = e
             finally:
@@ -412,11 +410,9 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 except asyncio.CancelledError as e:
                     cancelled_error = e
                 except Exception as e:
-                    logger.exception(
-                        f'Exception while shutting down {repr(runtime)}.',
-                        exc_info=e)
+                    logger.exception(f"Exception while shutting down {repr(runtime)}.", exc_info=e)
                 else:
-                    logger.debug('Runtime resources closed.')
+                    logger.debug("Runtime resources closed.")
         if cancelled_error:
             raise cancelled_error
 
@@ -426,9 +422,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
             return False
 
 
-async def manage_execution(executor: RuntimeManager,
-                           *,
-                           processing_state: asyncio.Event):
+async def manage_execution(executor: RuntimeManager, *, processing_state: asyncio.Event):
     """Process workflow messages until a stop message is received.
 
     Initial implementation processes commands serially without regard for possible
@@ -520,21 +514,21 @@ async def manage_execution(executor: RuntimeManager,
 
         try:
             if not len(command.items()) == 1:
-                raise ProtocolError('Expected a single key-value pair.')
-            logger.debug(f'Processing command {repr(command)}')
+                raise ProtocolError("Expected a single key-value pair.")
+            logger.debug(f"Processing command {repr(command)}")
 
             # TODO: Use formal RPC protocol.
-            if 'control' in command:
-                if command['control'] == 'stop':
-                    logger.debug('Execution manager received stop command.')
+            if "control" in command:
+                if command["control"] == "stop":
+                    logger.debug("Execution manager received stop command.")
                     # This effectively breaks the `while True` loop, but may not be
                     # obvious.
                     # Consider explicit `break` to clarify that we want to run off the end
                     # of the function.
                     return
                 else:
-                    raise ProtocolError('Unknown command: {}'.format(command['control']))
-            if 'add_item' not in command:
+                    raise ProtocolError("Unknown command: {}".format(command["control"]))
+            if "add_item" not in command:
                 # This will end queue processing. Tasks already submitted may still
                 # complete. Tasks subsequently added will update the static part of
                 # the workflow (WorkflowManager) and be eligible for dispatching in
@@ -543,15 +537,13 @@ async def manage_execution(executor: RuntimeManager,
                 # this (the queue processor) task is awaited, we could insert a
                 # Condition here to alert some sort of previously scheduled special
                 # tear-down task.
-                raise MissingImplementationError(
-                    f'Executor has no implementation for {str(command)}.')
+                raise MissingImplementationError(f"Executor has no implementation for {str(command)}.")
 
-            key = command['add_item']
+            key = command["add_item"]
             edit_item = executor.get_edit_item()
             with edit_item(key) as item:
                 if not isinstance(item, Task):
-                    raise InternalError(
-                        f'Bug: Expected {edit_item} to return a _context.Task')
+                    raise InternalError(f"Bug: Expected {edit_item} to return a _context.Task")
 
                 # TODO: Check task dependencies.
                 ##
@@ -567,22 +559,20 @@ async def manage_execution(executor: RuntimeManager,
                     # Stop processing the queue if task was cancelled or errored.
                     # TODO: Test this logical branch.
                     if task.cancelled():
-                        logger.info('Stopping queue processing after unexpected '
-                                    f'cancellation of task {task}')
+                        logger.info(f"Stopping queue processing after unexpected cancellation of task {task}")
                         return
                     else:
                         exc = task.exception()
                         if exc:
-                            logger.error(
-                                f'Task {task} failed much to fast. Stopping execution.')
+                            logger.error(f"Task {task} failed much to fast. Stopping execution.")
                             raise exc
                         else:
-                            logger.debug(f'Task {task} already done. Continuing.')
+                            logger.debug(f"Task {task} already done. Continuing.")
                 else:
                     executor.submitted_tasks.add(task)
 
         except Exception as e:
-            logger.debug('Leaving queue runner due to exception.')
+            logger.debug("Leaving queue runner due to exception.")
             raise e
         finally:
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))

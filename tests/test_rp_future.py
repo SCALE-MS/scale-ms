@@ -32,11 +32,9 @@ async def test_rp_future(rp_task_manager):
 
     tmgr = rp_task_manager
 
-    td = rp.TaskDescription({
-                                'executable': '/bin/bash',
-                                'arguments': ['-c', '/bin/sleep 5 && /bin/echo success'],
-                                'cpu_processes': 1
-                            })
+    td = rp.TaskDescription(
+        {"executable": "/bin/bash", "arguments": ["-c", "/bin/sleep 5 && /bin/echo success"], "cpu_processes": 1}
+    )
 
     # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(td)
@@ -73,12 +71,12 @@ async def test_rp_future(rp_task_manager):
 
     # WARNING: rp.Task.wait blocks, and may never complete. Don't do it in the event loop thread.
     to_thread = scalems.utility.get_to_thread()
-    watcher = asyncio.create_task(to_thread(task.wait), name=f'watch_{task.uid}')
+    watcher = asyncio.create_task(to_thread(task.wait), name=f"watch_{task.uid}")
     try:
         state = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:
-        logger.exception(f'Waited more than {timeout} for {watcher}')
-        watcher.cancel('Canceled after waiting too long.')
+        logger.exception(f"Waited more than {timeout} for {watcher}")
+        watcher.cancel("Canceled after waiting too long.")
         raise e
     else:
         assert state in rp.states.FINAL
@@ -89,11 +87,11 @@ async def test_rp_future(rp_task_manager):
     assert task.state in (rp.states.CANCELED,)
 
     # Test run to completion
-    watcher = asyncio.create_task(to_thread(tmgr.submit_tasks, td), name='rp_submit')
+    watcher = asyncio.create_task(to_thread(tmgr.submit_tasks, td), name="rp_submit")
     try:
         task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:
-        logger.exception(f'Waited more than {timeout} to submit {td}.')
+        logger.exception(f"Waited more than {timeout} to submit {td}.")
         watcher.cancel()
         raise e
 
@@ -101,21 +99,21 @@ async def test_rp_future(rp_task_manager):
     try:
         result: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:
-        logger.debug(f'Waited more than {timeout} for {rp_future}: {e}')
-        rp_future.cancel('Canceled after waiting too long.')
+        logger.debug(f"Waited more than {timeout} for {rp_future}: {e}")
+        rp_future.cancel("Canceled after waiting too long.")
         raise e
     assert task.exit_code == 0
-    assert 'success' in task.stdout
+    assert "success" in task.stdout
 
-    assert hasattr(result, 'stdout')
-    assert 'success' in result.stdout
+    assert hasattr(result, "stdout")
+    assert "success" in result.stdout
     assert rp_future.done()
 
     # Test failure handling
     # TODO: Use a separate test for results and error handling.
 
 
-@pytest.mark.skip(reason='Unimplemented.')
+@pytest.mark.skip(reason="Unimplemented.")
 @pytest.mark.asyncio
 async def test_chained_commands():
     """Run a sequence of two tasks with a data flow dependency."""

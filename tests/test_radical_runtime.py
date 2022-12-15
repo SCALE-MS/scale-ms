@@ -12,12 +12,9 @@ from scalems.radical.runtime import Runtime
 def test_runtime_normal_instance(rp_task_manager, pilot_description):
     """Set the Runtime.pilot from an rp.Pilot instance."""
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.task_manager')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.db.database')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.session')
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
         session: rp.Session = rp_task_manager.session
 
@@ -30,8 +27,8 @@ def test_runtime_normal_instance(rp_task_manager, pilot_description):
         # We get a dictionary...
         # assert isinstance(pilot, rp.Pilot)
         # But it looks like it has the pilot id in it.
-        pilot_uid = typing.cast(dict, pilot)['uid']
-        pmgr_uid = typing.cast(dict, pilot)['pmgr']
+        pilot_uid = typing.cast(dict, pilot)["uid"]
+        pmgr_uid = typing.cast(dict, pilot)["pmgr"]
         pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
         assert isinstance(pmgr, rp.PilotManager)
 
@@ -45,12 +42,9 @@ def test_runtime_normal_instance(rp_task_manager, pilot_description):
 def test_runtime_normal_uid(rp_task_manager, pilot_description):
     """Set the Runtime.pilot from the UID obtained from the task_manager."""
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.task_manager')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.db.database')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.session')
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
         session: rp.Session = rp_task_manager.session
 
@@ -63,13 +57,13 @@ def test_runtime_normal_uid(rp_task_manager, pilot_description):
         # We get a dictionary...
         # assert isinstance(pilot, rp.Pilot)
         # But it looks like it has the pilot id in it.
-        pilot_uid = typing.cast(dict, pilot)['uid']
+        pilot_uid = typing.cast(dict, pilot)["uid"]
 
         # It is an error to set a Pilot before the PilotManager has been set.
         with pytest.raises(APIError):
             state.pilot(pilot_uid)
 
-        pmgr_uid = typing.cast(dict, pilot)['pmgr']
+        pmgr_uid = typing.cast(dict, pilot)["pmgr"]
 
         state.pilot_manager(pmgr_uid)
 
@@ -78,12 +72,9 @@ def test_runtime_normal_uid(rp_task_manager, pilot_description):
 
 def test_runtime_bad_uid(pilot_description):
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.task_manager')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.db.database')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.session')
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
         session = rp.Session()
 
@@ -91,19 +82,19 @@ def test_runtime_bad_uid(pilot_description):
             state = Runtime(session=session)
 
             with pytest.raises(ValueError):
-                state.task_manager('spam')
+                state.task_manager("spam")
 
             tmgr = rp.TaskManager(session=session)
             state.task_manager(tmgr)
 
             with pytest.raises(ValueError):
-                state.pilot_manager('spam')
+                state.pilot_manager("spam")
 
             pmgr = rp.PilotManager(session=session)
             state.pilot_manager(pmgr)
 
             with pytest.raises(ValueError):
-                state.pilot_manager('spam')
+                state.pilot_manager("spam")
 
             tmgr.close()
             pmgr.close()
@@ -113,12 +104,9 @@ def test_runtime_bad_uid(pilot_description):
 
 def test_runtime_mismatch(pilot_description):
     with warnings.catch_warnings():
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.task_manager')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.db.database')
-        warnings.filterwarnings('ignore', category=DeprecationWarning,
-                                module='radical.pilot.session')
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
         session = rp.Session()
 

@@ -22,6 +22,7 @@ from scalems.utility import next_monotonic_integer as _next_int
 @dataclasses.dataclass
 class SubprocessInput:
     """Implementation-specific form of input for scalems.subprocess.Subprocess."""
+
     program: pathlib.Path
     args: typing.Sequence[str]
     stdin: typing.Union[None, typing.TextIO]
@@ -35,6 +36,7 @@ class _ExecutionContext:
 
     Provide local definition of evolving concept from local/__init__.py
     """
+
     workflow_manager: scalems.workflow.WorkflowManager
     identifier: bytes
 
@@ -46,15 +48,9 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
     """
     task_directory = os.path.abspath(context.identifier.hex())
 
-    kwargs = {
-
-        'stdin': signature.stdin,
-        'stdout': signature.stdout,
-        'stderr': signature.stderr,
-        'env': signature.env
-    }
+    kwargs = {"stdin": signature.stdin, "stdout": signature.stdout, "stderr": signature.stderr, "env": signature.env}
     if signature.env is not None:
-        kwargs['env'] = {key: value for key, value in signature.env.items()}
+        kwargs["env"] = {key: value for key, value in signature.env.items()}
 
     # TODO: Institute some checks that the implementation is not using more resources
     #  than it was allocated.
@@ -69,7 +65,7 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
         stdout=signature.stdout,
         stderr=signature.stderr,
         env=signature.env,
-        cwd=task_directory
+        cwd=task_directory,
     )
 
     try:
@@ -89,14 +85,14 @@ async def subprocessCoroutine(context: _ExecutionContext, signature: SubprocessI
             result = scalems.subprocess.SubprocessResult(exitcode=returncode, stdout=stdout, stderr=stderr, file={})
             return result
         else:
-            raise InternalError('No handler for failed tasks.')
+            raise InternalError("No handler for failed tasks.")
 
 
 @contextlib.asynccontextmanager
-async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
-                               task_input: typing.Union[
-                                   scalems.subprocess.SubprocessInput,
-                                   typing.Awaitable[scalems.subprocess.SubprocessInput]]):
+async def input_resource_scope(
+    context: _ExecutionContext,  # noqa: C901
+    task_input: typing.Union[scalems.subprocess.SubprocessInput, typing.Awaitable[scalems.subprocess.SubprocessInput]],
+):
     """Manage the actual execution context of the asyncio.subprocess.Process.
 
     Translate a scalems.subprocess.SubprocessInput to a local SubprocessInput instance.
@@ -114,19 +110,19 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
     # so we don't need to do extra checks and can just await all scalems objects.
     # TODO: What sort of validation or normalization do we want to do for the executable name?
     if not isinstance(task_input, scalems.subprocess.SubprocessInput):
-        raise InternalError('Unexpected input type.')
+        raise InternalError("Unexpected input type.")
     path = shutil.which(task_input.argv[0])
     if path is None or not os.path.exists(path):
-        raise InternalError('Could not find executable. Input should be vetted before this point.')
+        raise InternalError("Could not find executable. Input should be vetted before this point.")
     program = pathlib.Path(shutil.which(task_input.argv[0]))
     args = list(str(arg) for arg in task_input.argv[1:])
 
     task_directory = os.path.abspath(context.identifier.hex())
     if os.path.exists(task_directory):
         # check if done
-        done_file = os.path.join(task_directory, 'done')
+        done_file = os.path.join(task_directory, "done")
         if os.path.exists(done_file):
-            raise InternalError('Refusing to prepare input resource scope for a completed task.')
+            raise InternalError("Refusing to prepare input resource scope for a completed task.")
         # check if clean
         # currently deferred to specific files below.
         ...
@@ -139,9 +135,9 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
         for key, value in task_input.inputs.items():
             try:
                 if not os.path.exists(value):
-                    raise ValueError('File not found: {}'.format(value))
+                    raise ValueError("File not found: {}".format(value))
             except Exception as e:
-                raise TypeError('Invalid input (expected file path): {}'.format(repr(value))) from e
+                raise TypeError("Invalid input (expected file path): {}".format(repr(value))) from e
             args.extend([key, value])
 
     if task_input.outputs is not None and len(task_input.inputs) > 0:
@@ -164,11 +160,11 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
                 # input_hash += hash(i)
                 # basename = hashlib.sha256(bytes(input_hash)).digest().hex()
                 # TODO: Handle working directory.
-                filename = _next_int().to_bytes(32, 'big').hex() + value.suffix
+                filename = _next_int().to_bytes(32, "big").hex() + value.suffix
 
                 path = os.path.join(task_directory, filename)
                 if os.path.exists(path):
-                    raise ProtocolError('Output file already exists but reexecution has not been considered.')
+                    raise ProtocolError("Output file already exists but reexecution has not been considered.")
                 # There is obviously a race condition / security hole between the time
                 # that we check an output file name and execute the command. This is
                 # unavoidable with process that expects to create a file with a user-provided name.
@@ -178,9 +174,9 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
                     if not path.is_absolute():
                         path = os.path.join(task_directory, path)
                     if os.path.exists(path):
-                        raise ValueError('Output file already exists: {}'.format(path))
+                        raise ValueError("Output file already exists: {}".format(path))
                 except Exception as e:
-                    raise TypeError('Invalid input (expected file path): {}'.format(repr(value))) from e
+                    raise TypeError("Invalid input (expected file path): {}".format(repr(value))) from e
             args.extend([key, path])
 
     # Warning: If subprocess.Popen receives *env* argument that is not None, it **replaces** the
@@ -195,46 +191,48 @@ async def input_resource_scope(context: _ExecutionContext,  # noqa: C901
 
     # Get stdin context manager.
     if task_input.stdin is None:
+
         @contextlib.contextmanager
         def get_stdin():
             yield None
+
     else:
         # TODO: Strengthen the typing for stdin parameter.
         if not isinstance(task_input.stdin, (os.PathLike, str, list, tuple)):
             # Note: this is an internal error indicating a bug in SCALEMS.
-            raise InternalError('No handler for stdin argument of this form.' + repr(task_input.stdin))
+            raise InternalError("No handler for stdin argument of this form." + repr(task_input.stdin))
         if isinstance(task_input.stdin, (list, tuple)):
             # TODO: Assign appropriate responsibility for maintaining filesystem artifacts.
-            infile = os.path.join(task_directory, 'stdin')
-            with open(infile, 'w') as fp:
+            infile = os.path.join(task_directory, "stdin")
+            with open(infile, "w") as fp:
                 # Normalize line endings for local environment.
-                fp.writelines([line.rstrip() + '\n' for line in task_input.stdin])
+                fp.writelines([line.rstrip() + "\n" for line in task_input.stdin])
         else:
             infile = os.path.abspath(task_input.stdin)
 
         def get_stdin():
-            return open(os.path.abspath(infile), 'r')
+            return open(os.path.abspath(infile), "r")
 
     def get_output_file_contextmanager(filename):
         if not isinstance(filename, (os.PathLike, str)):
             # Note: this is an internal error indicating a bug in SCALEMS.
-            raise InternalError('No handler for path of this form. ' + repr(filename))
+            raise InternalError("No handler for path of this form. " + repr(filename))
         outfile = pathlib.Path(filename)
         if not outfile.is_absolute():
             outfile = os.path.join(task_directory, outfile)
         if os.path.exists(outfile):
-            raise InternalError('Dirty working directory is not recoverable in current implementation.')
+            raise InternalError("Dirty working directory is not recoverable in current implementation.")
 
         def get_openfile():
-            return open(outfile, 'w')
+            return open(outfile, "w")
 
         return get_openfile
 
     # Get stdout context manager.
-    get_stdout = get_output_file_contextmanager(task_input.stdout or 'stdout')
+    get_stdout = get_output_file_contextmanager(task_input.stdout or "stdout")
 
     # Get stderr context manager.
-    get_stderr = get_output_file_contextmanager(task_input.stderr or 'stderr')
+    get_stderr = get_output_file_contextmanager(task_input.stderr or "stderr")
 
     # Create scoped resources. This depends somewhat on the input.
     # For each non-None stdio stream, we need to provide an open file-like handle.

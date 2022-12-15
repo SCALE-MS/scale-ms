@@ -10,17 +10,17 @@ specification.
 # to be tidy.
 
 __all__ = [
-    'desequence',
-    'extend_sequence',
-    'gather',
-    'logical_and',
-    'logical_not',
-    'map',
-    'reduce',
-    'resequence',
-    'scatter',
-    'subgraph',
-    'while_loop',
+    "desequence",
+    "extend_sequence",
+    "gather",
+    "logical_and",
+    "logical_not",
+    "map",
+    "reduce",
+    "resequence",
+    "scatter",
+    "subgraph",
+    "while_loop",
 ]
 
 from scalems import exceptions

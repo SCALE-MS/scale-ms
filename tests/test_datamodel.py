@@ -17,7 +17,7 @@ from scalems.serialization import Shape
 from scalems.identifiers import TypeIdentifier
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 record = """{
     "version"= "scalems_workflow_1",
@@ -221,10 +221,8 @@ def test_shape():
 
 
 def test_resource_type():
-    scoped_name = ['scalems', 'subprocess', 'SubprocessTask']
-    description = scalems.workflow.Description(
-        resource_type=TypeIdentifier(tuple(scoped_name)),
-        shape=(1,))
+    scoped_name = ["scalems", "subprocess", "SubprocessTask"]
+    description = scalems.workflow.Description(resource_type=TypeIdentifier(tuple(scoped_name)), shape=(1,))
     assert description.type() == TypeIdentifier(tuple(scoped_name))
 
 
@@ -233,7 +231,7 @@ def test_encoding_str():
 
     Note: we may choose not to support bare strings through our serialization module.
     """
-    string = 'asdf'
+    string = "asdf"
     serialized = json.dumps(string, default=encode)
     round_trip = json.loads(serialized)
     assert string == round_trip
@@ -291,7 +289,7 @@ def test_encoding_int():
 
 def test_encoding_bytes():
     length = 8
-    data = (42).to_bytes(length=length, byteorder='big')
+    data = (42).to_bytes(length=length, byteorder="big")
     serialized = json.dumps(data, default=encode)
     round_trip = json.loads(serialized)
     # TODO: decoder
@@ -301,6 +299,7 @@ def test_encoding_bytes():
 
 def test_encoding_fileobject():
     import tempfile
+
     with tempfile.NamedTemporaryFile() as fh:
         filename = fh.name
         assert os.path.exists(filename)
@@ -316,22 +315,22 @@ def test_encoding_fileobject():
 def test_basic_decoding():
     # Let the basic encoder/decoder handle things that look like SCALE-MS objects.
     encoded = {
-        'label': None,
-        'identity': uuid.uuid4().hex,
-        'type': ['test', 'Spam'],
-        'shape': [1],
-        'data': ['spam', 'eggs', 'spam', 'spam']
+        "label": None,
+        "identity": uuid.uuid4().hex,
+        "type": ["test", "Spam"],
+        "shape": [1],
+        "data": ["spam", "eggs", "spam", "spam"],
     }
     instance = decode(encoded)
     assert type(instance) is BasicSerializable
     shape_ref = Shape((1,))
     assert instance.shape() == shape_ref
-    type_ref = TypeIdentifier(('test', 'Spam'))
+    type_ref = TypeIdentifier(("test", "Spam"))
     instance_type = instance.dtype()
     assert instance_type == type_ref
 
     # Test basic encoding, too.
-    assert tuple(instance.encode()['data']) == tuple(encoded['data'])
+    assert tuple(instance.encode()["data"]) == tuple(encoded["data"])
     assert instance.encode() == decode(instance.encode()).encode()
     # TODO: Check non-trivial shape.
 
@@ -342,15 +341,16 @@ def test_encoder_registration():
     ...
 
     # Test framework for type creation and automatic registration.
-    class SpamInstance(BasicSerializable, base_type=('test', 'Spam')):
+    class SpamInstance(BasicSerializable, base_type=("test", "Spam")):
         ...
 
-    instance = SpamInstance(label='my_spam',
-                            identity=uuid.uuid4().hex,
-                            dtype=['test', 'Spam'],
-                            shape=(1,),
-                            data=['spam', 'eggs', 'spam', 'spam']
-                            )
+    instance = SpamInstance(
+        label="my_spam",
+        identity=uuid.uuid4().hex,
+        dtype=["test", "Spam"],
+        shape=(1,),
+        data=["spam", "eggs", "spam", "spam"],
+    )
     assert not type(instance) is BasicSerializable
 
     encoded = encode(instance)
@@ -362,11 +362,12 @@ def test_encoder_registration():
     del decoded
     del SpamInstance
     import gc
+
     gc.collect()
     with pytest.raises(ProtocolError):
         decode(encoded)
 
-    decode.unregister(TypeIdentifier(('test', 'Spam')))
+    decode.unregister(TypeIdentifier(("test", "Spam")))
     decoded = decode(encoded)
     assert type(decoded) is BasicSerializable
 

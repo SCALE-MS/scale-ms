@@ -5,9 +5,17 @@ TODO: Publish some schema to scalems.org for easy reference and verifiable UUID 
 
 from __future__ import annotations
 
-__all__ = ['NAMESPACE_SCALEMS', 'FingerprintHash', 'Identifier', 'NamedIdentifier',
-           'ResourceIdentifier', 'TypeIdentifier', 'OperationIdentifier',
-           'TypeDataDescriptor', 'EphemeralIdentifier']
+__all__ = [
+    "NAMESPACE_SCALEMS",
+    "FingerprintHash",
+    "Identifier",
+    "NamedIdentifier",
+    "ResourceIdentifier",
+    "TypeIdentifier",
+    "OperationIdentifier",
+    "TypeDataDescriptor",
+    "EphemeralIdentifier",
+]
 
 import abc
 import builtins
@@ -22,12 +30,12 @@ from scalems.exceptions import InternalError
 from scalems.exceptions import ProtocolError
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 # TODO: Use a URL to the schema or specification.
-NAMESPACE_SCALEMS: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_DNS, 'scalems.org')
+NAMESPACE_SCALEMS: uuid.UUID = uuid.uuid5(uuid.NAMESPACE_DNS, "scalems.org")
 
-FingerprintHash = typing.NewType('FingerprintHash', bytes)
+FingerprintHash = typing.NewType("FingerprintHash", bytes)
 """The fingerprint hash is a 32-byte sequence containing a SHA256 digest."""
 
 
@@ -114,7 +122,7 @@ class Identifier(typing.Hashable, typing.Protocol):
 
     def __index__(self) -> int:
         """Support integer conversions."""
-        return int.from_bytes(self.bytes(), 'big')
+        return int.from_bytes(self.bytes(), "big")
 
 
 class EphemeralIdentifier(Identifier):
@@ -142,13 +150,12 @@ class NamedIdentifier(Identifier):
     def __init__(self, nested_name: typing.Sequence[str]):
         try:
             if isinstance(nested_name, (str, bytes)):
-                raise TypeError('Wrong kind of iterable.')
+                raise TypeError("Wrong kind of iterable.")
             self._name_tuple = tuple(str(part) for part in nested_name)
         except TypeError as e:
-            raise TypeError(f'Could not construct {self.__class__.__name__} from '
-                            f'{repr(nested_name)}') from e
+            raise TypeError(f"Could not construct {self.__class__.__name__} from {repr(nested_name)}") from e
         else:
-            self._data = uuid.uuid5(NAMESPACE_SCALEMS, '.'.join(self._name_tuple))
+            self._data = uuid.uuid5(NAMESPACE_SCALEMS, ".".join(self._name_tuple))
         # TODO: The instance should track a context in which the uuid can be resolved.
 
     def bytes(self):
@@ -169,8 +176,7 @@ class ResourceIdentifier(Identifier):
         self._data = bytes(fingerprint)
         # Expecting a 256-bit SHA256 hash digest
         if len(self._data) != 32:
-            raise InternalError('Expected a 256-bit hash digest. Got '
-                                f'{repr(fingerprint)}')
+            raise InternalError(f"Expected a 256-bit hash digest. Got {repr(fingerprint)}")
 
     def bytes(self):
         return bytes(self._data)
@@ -178,13 +184,13 @@ class ResourceIdentifier(Identifier):
 
 class TypeIdentifier(NamedIdentifier):
     def name(self):
-        return '.'.join(self._name_tuple)
+        return ".".join(self._name_tuple)
 
     def scoped_name(self) -> typing.Tuple[str, ...]:
         return self._name_tuple
 
     @classmethod
-    def copy_from(cls, typeid) -> 'TypeIdentifier':
+    def copy_from(cls, typeid) -> "TypeIdentifier":
         """Create a new TypeIdentifier instance describing the same type as the source.
 
         .. todo:: We need a generic way to determine the (registered) virtual type
@@ -203,7 +209,7 @@ class TypeIdentifier(NamedIdentifier):
             # (Requires testing and enforcement.)
             # Consider allowing class objects to self-report their type.
             if typeid.__module__ is not None:
-                fully_qualified_name = '.'.join((typeid.__module__, typeid.__qualname__))
+                fully_qualified_name = ".".join((typeid.__module__, typeid.__qualname__))
             else:
                 fully_qualified_name = str(typeid.__qualname__)
             return cls.copy_from(fully_qualified_name)
@@ -212,10 +218,10 @@ class TypeIdentifier(NamedIdentifier):
             # the namespace sequence representation.
             # TODO: First check if the string is a UUID or other reference form
             #  for a registered type.
-            return cls.copy_from(tuple(typeid.split('.')))
+            return cls.copy_from(tuple(typeid.split(".")))
         # TODO: Is there a dictionary form that we should allow?
         else:
-            raise TypeError(f'Cannot create a TypeIdentifier from {repr(typeid)}')
+            raise TypeError(f"Cannot create a TypeIdentifier from {repr(typeid)}")
 
 
 class TypeDataDescriptor:
@@ -255,13 +261,14 @@ class TypeDataDescriptor:
     ``TypeIdentifier(('scalems', 'BasicSerializable'))``.)
     The mapping is updated whenever BasicSerializable is subclassed.
     """
+
     base: typing.MutableMapping[type, TypeIdentifier]
     _original_owner_type: typing.Optional[TypeIdentifier]
 
     @property
     def attr_name(self):
         """Name of the instance data member used by this descriptor for storage."""
-        return '_owner' + self.name
+        return "_owner" + self.name
 
     def __init__(self, name: str = None, base_type: TypeIdentifier = None):
         # Note that the descriptor instance is not fully initialized until it is
@@ -282,23 +289,22 @@ class TypeDataDescriptor:
         # for a class definition in which the descriptor is instantiated.
         # In other words, __set_name__ is called for the base class, only, and
         # __init_subclass__ is called for derived classes, only.
-        if name != '_dtype':
-            raise ProtocolError(
-                'TypeDataDescriptor has a strict naming protocol. Only use for a '
-                '`_dtype` attribute.')
+        if name != "_dtype":
+            raise ProtocolError("TypeDataDescriptor has a strict naming protocol. Only use for a `_dtype` attribute.")
         self.name = name
         if hasattr(owner, self.attr_name):
             raise ProtocolError(
-                f'No storage for data descriptor. {repr(owner)} already has an '
-                f'attribute named {self.attr_name}.')
+                f"No storage for data descriptor. {repr(owner)} already has an attribute named {self.attr_name}."
+            )
 
         assert owner not in self.base
         assert len(self.base) == 0
-        logger.debug(f'Initializing base class {owner} ownership of TypeDataDescriptor.')
+        logger.debug(f"Initializing base class {owner} ownership of TypeDataDescriptor.")
         self._original_owner = weakref.ref(owner)
         if self._original_owner_type is None:
             self._original_owner_type = TypeIdentifier.copy_from(
-                [str(owner.__module__)] + owner.__qualname__.split('.'))
+                [str(owner.__module__)] + owner.__qualname__.split(".")
+            )
         self.base[owner] = TypeIdentifier.copy_from(self._original_owner_type)
 
     def __get__(self, instance, owner):
@@ -328,4 +334,4 @@ class OperationIdentifier(tuple):
         return self[-1]
 
     def __str__(self):
-        return '.'.join(self)
+        return ".".join(self)

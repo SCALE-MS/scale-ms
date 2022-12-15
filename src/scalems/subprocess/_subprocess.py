@@ -15,7 +15,7 @@ in terms of standard types. In a follow-up, we can use a scalems metaclass to de
 in terms of Data Descriptors that support mixed scalems.Future and native constant data types.
 """
 
-__all__ = ['executable', 'Subprocess', 'SubprocessInput', 'SubprocessResult']
+__all__ = ["executable", "Subprocess", "SubprocessInput", "SubprocessResult"]
 
 import dataclasses
 import json
@@ -32,7 +32,7 @@ from ..exceptions import MissingImplementationError
 from ..workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
-logger.debug('Importing {}'.format(__name__))
+logger.debug("Importing {}".format(__name__))
 
 
 class OutputFile(dict):
@@ -51,18 +51,18 @@ class OutputFile(dict):
     into workflow references that are dependent on the task under construction.
     """
 
-    def __init__(self, label=None, suffix=''):
+    def __init__(self, label=None, suffix=""):
         super().__init__()
-        self['label'] = label
-        self['suffix'] = suffix
+        self["label"] = label
+        self["suffix"] = suffix
 
     @property
     def label(self):
-        return self.get('label', None)
+        return self.get("label", None)
 
     @property
     def suffix(self):
-        return self.get('suffix', '')
+        return self.get("suffix", "")
 
 
 # TODO: what is the mechanism for registering a command implementation in a new Context?
@@ -79,8 +79,8 @@ class SubprocessInput:
     stdin: typing.Iterable[str] = ()
     environment: typing.Mapping[str, typing.Union[str, None]] = dataclasses.field(default_factory=dict)
     # For now, let's just always enable stdout/stderr
-    stdout: Path = dataclasses.field(default=Path('stdout'))
-    stderr: Path = dataclasses.field(default=Path('stderr'))
+    stdout: Path = dataclasses.field(default=Path("stdout"))
+    stderr: Path = dataclasses.field(default=Path("stderr"))
     resources: typing.Mapping[str, typing.Any] = dataclasses.field(default_factory=dict)
 
 
@@ -96,9 +96,9 @@ def _(item: SubprocessInput, *, manager: WorkflowManager, label: str = None):
     def director(*args, **kwargs):
         if len(args) > 0:
             # TODO: Reconsider reasonable exceptions.
-            raise TypeError('Unexpected positional arguments.')
+            raise TypeError("Unexpected positional arguments.")
         if len(kwargs) > 0:
-            raise TypeError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
+            raise TypeError("Unexpected key word arguments: {}".format(", ".join(kwargs.keys())))
         uid = hash(item)
         if uid in manager.tasks:
             # TODO: Consider whether this is the correct behavior
@@ -128,11 +128,11 @@ class SubprocessTask:
     def scoped_identifier(cls):
         # TODO: Consider either deriving from the `import` identifier,
         #       or defining a more sophisticated protocol for name resolution.
-        return ('scalems', 'subprocess', 'SubprocessTask')
+        return ("scalems", "subprocess", "SubprocessTask")
 
     @classmethod
     def identifier(cls):
-        return '.'.join(cls.scoped_identifier())
+        return ".".join(cls.scoped_identifier())
 
     @classmethod
     def input_type(cls) -> type:
@@ -163,7 +163,7 @@ class Subprocess:
         self._result = None
         self._uid = uid
         if self._uid is None:
-            self._uid = next_monotonic_integer().to_bytes(32, 'big')
+            self._uid = next_monotonic_integer().to_bytes(32, "big")
 
     def input_collection(self):
         return self._bound_input
@@ -185,16 +185,16 @@ class Subprocess:
         for bound objects, if they exist.
         """
         record = {}
-        record['uid'] = self.uid().hex()
+        record["uid"] = self.uid().hex()
         # "label" not yet supported.
-        record['type'] = self.resource_type().scoped_identifier()
-        record['input'] = dataclasses.asdict(self._bound_input)  # reference
-        record['result'] = dataclasses.asdict(self._result)  # reference
+        record["type"] = self.resource_type().scoped_identifier()
+        record["input"] = dataclasses.asdict(self._bound_input)  # reference
+        record["result"] = dataclasses.asdict(self._result)  # reference
         try:
             serialized = json.dumps(record, default=encode)
         except TypeError as e:
-            logger.critical('Missing encoding logic for scalems data. Encoder says ' + str(e))
-            raise InternalError('Missing serialization support.') from e
+            logger.critical("Missing encoding logic for scalems data. Encoder says " + str(e))
+            raise InternalError("Missing serialization support.") from e
 
         # raise MissingImplementationError('To do...')
         return serialized
@@ -266,14 +266,14 @@ class Subprocess:
 @scalems.workflow.workflow_item_director_factory.register
 def _(item: Subprocess, *, manager: scalems.workflow.WorkflowManager, label: str = None):
     if not isinstance(manager, scalems.workflow.WorkflowManager):
-        raise APIError(f'No director for {repr(manager)}')
+        raise APIError(f"No director for {repr(manager)}")
 
     def director(*args, **kwargs):
         if len(args) > 0:
             # TODO: Reconsider reasonable exceptions.
-            raise TypeError('Unexpected positional arguments.')
+            raise TypeError("Unexpected positional arguments.")
         if len(kwargs) > 0:
-            raise TypeError('Unexpected key word arguments: {}'.format(', '.join(kwargs.keys())))
+            raise TypeError("Unexpected key word arguments: {}".format(", ".join(kwargs.keys())))
 
         # Note regarding registering task implementation functions:
         # scalems.subprocess is a very special kind of task. Each execution
@@ -384,9 +384,8 @@ def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs
     input_type = Subprocess.resource_type().input_type()
     if not isinstance(input_type, type):
         raise InternalError(
-            'Bug: {} is not coded correctly for the {}.input_type() interface.'.format(
-                __name__,
-                str(type(Subprocess.resource_type()))
+            "Bug: {} is not coded correctly for the {}.input_type() interface.".format(
+                __name__, str(type(Subprocess.resource_type()))
             )
         )
 
@@ -410,13 +409,13 @@ def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs
     try:
         task_view: scalems.workflow.ItemView = director(input=bound_input)
     except TypeError as e:
-        logger.error('Invalid input in SubprocessInput: ' + str(e))
+        logger.error("Invalid input in SubprocessInput: " + str(e))
         raise
     except json.JSONDecodeError as e:
-        logger.critical('Malformed data: ' + e.msg)
-        raise InternalError('Bug: internal data is not being conditioned properly') from e
+        logger.critical("Malformed data: " + e.msg)
+        raise InternalError("Bug: internal data is not being conditioned properly") from e
     except Exception as e:
-        logger.critical('Unhandled ' + repr(e))
+        logger.critical("Unhandled " + repr(e))
         raise
 
     # TODO: The returned value should be a TaskView provided by the Context with

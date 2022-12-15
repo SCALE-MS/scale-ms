@@ -12,21 +12,23 @@ logger.setLevel(logging.DEBUG)
 
 
 def seems_local(pilot_description):
-    if (pilot_description.access_schema and pilot_description.access_schema == 'local') \
-            or 'local' in pilot_description.resource \
-            or pilot_description.resource == 'docker.login':
+    if (
+        (pilot_description.access_schema and pilot_description.access_schema == "local")
+        or "local" in pilot_description.resource
+        or pilot_description.resource == "docker.login"
+    ):
         return True
 
 
 def test_rp_basic_task_local(rp_task_manager, pilot_description):
     if not seems_local(pilot_description):
-        pytest.skip('This test is only for local execution.')
+        pytest.skip("This test is only for local execution.")
 
     from radical.pilot import TaskDescription
+
     tmgr = rp_task_manager
 
-    td = TaskDescription({'executable': '/bin/date',
-                          'cpu_processes': 1})
+    td = TaskDescription({"executable": "/bin/date", "cpu_processes": 1})
     task = tmgr.submit_tasks(td)
     tmgr.wait_tasks(uids=[task.uid])
 
@@ -37,14 +39,13 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     import radical.pilot as rp
 
     if seems_local(pilot_description):
-        pytest.skip('This test is only for remote execution.')
+        pytest.skip("This test is only for remote execution.")
 
     tmgr = rp_task_manager
     session = tmgr.session
     assert not session.closed
 
-    td = rp.TaskDescription({'executable': '/usr/bin/hostname',
-                             'cpu_processes': 1})
+    td = rp.TaskDescription({"executable": "/usr/bin/hostname", "cpu_processes": 1})
 
     task = tmgr.submit_tasks(td)
 
@@ -53,7 +54,7 @@ def test_rp_basic_task_remote(rp_task_manager, pilot_description):
     assert task.state == rp.states.DONE
     assert task.exit_code == 0
 
-    localname = subprocess.run(['/usr/bin/hostname'], stdout=subprocess.PIPE, encoding='utf-8').stdout.rstrip()
+    localname = subprocess.run(["/usr/bin/hostname"], stdout=subprocess.PIPE, encoding="utf-8").stdout.rstrip()
     remotename = task.stdout.rstrip()
     assert len(remotename) > 0
     assert remotename != localname

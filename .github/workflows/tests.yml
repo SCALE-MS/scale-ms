@@ -47,7 +47,7 @@ jobs:
     - uses: actions/cache@v3
       id: cache-ccache
       with:
-        path: ~/.ccache
+        path: ~/.cache/ccache
         key: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-ccache-${{ steps.ccache_cache_timestamp.outputs.timestamp }}
         restore-keys: ${{ runner.os }}-${{ matrix.python-version }}-${{ env.LAMMPSHASH }}-ccache-
     - name: Set up venv
@@ -61,6 +61,7 @@ jobs:
         python -m pip install --upgrade coverage pytest-cov mpi4py
     - name: Install LAMMPS
       run: |
+        ccache -sv
         . $HOME/testenv/bin/activate
         mkdir /tmp/lammps
         cd /tmp/lammps
@@ -95,6 +96,7 @@ jobs:
         cmake --build . --target install
         rm -rf /tmp/lammps
         echo 'export LD_LIBRARY_PATH=$VIRTUAL_ENV/lib:$LD_LIBRARY_PATH' >> $VIRTUAL_ENV/bin/activate
+        ccache -sv
     - name: Install scalems and dependencies
       run: |
         . $HOME/testenv/bin/activate

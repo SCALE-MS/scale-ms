@@ -1551,7 +1551,12 @@ class TaskDictionary(typing.TypedDict):
     """Encoding of the original task description."""
 
     error: str
-    """TBD. See https://github.com/SCALE-MS/scale-ms/discussions/259#discussioncomment-4095650"""
+    """Stack trace. Deprecated.
+    
+    To be removed in radical.pilot>=1.19.0, replaced with `exception_detail`.
+
+    See https://github.com/SCALE-MS/scale-ms/discussions/259#discussioncomment-4095650
+    """
 
     stdout: str
     """Task standard output."""
@@ -1571,7 +1576,7 @@ class TaskDictionary(typing.TypedDict):
     exception: typing.Tuple[str, str]
     """Exception type name and message.
 
-    TODO: Is this typing correct?
+    TODO(radical.pilot>=1.19.0): The type of this field is changing to `str`.
 
     Ref https://github.com/SCALE-MS/scale-ms/discussions/267
     """

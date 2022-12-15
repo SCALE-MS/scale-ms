@@ -25,7 +25,7 @@ See Also:
     for the status of `scalems` support for automatic execution environment bootstrapping.
 
 See Also:
-    * `scalems.dispatching`
+    * `scalems.messages`
     * `scalems.execution`
     * `scalems.radical.runtime`
     * https://github.com/SCALE-MS/scale-ms/issues/90

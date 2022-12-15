@@ -35,4 +35,4 @@ ignore_errors = True
 omit =
     */scalems/_version.py
     # We don't currently have a way to get coverage results for these installed scripts.
-    */scalems/radical/scalems_rp*py
+    */scalems/radical/raptor.py

@@ -1,31 +1,214 @@
 """Dispatch scalems.exec through RADICAL Pilot.
 
-In the first draft, we keep the tests simpler by assuming we are invoked in an
-environment where RP is already configured. In a follow-up, we will use a
-dispatching layer to run meaningful tests through an RP Context specialization.
-In turn, the initial RP dispatching will probably use a Docker container to
+For testing purposes, the RP dispatching can use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
 MongoDB instance and RADICAL_PILOT_DBURL environment variable.
+Refer to the repository directories ``docker`` and ``.github/workflows``.
 
-Note: `export RADICAL_LOG_LVL=DEBUG` to enable RP debugging output.
+Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 """
+
 import asyncio
-import logging
+import json
 import os
 
+import packaging.version
 import pytest
 
 import scalems
 import scalems.context
-import scalems.radical
-import scalems.radical.runtime
+import scalems.messages
 import scalems.workflow
+
+try:
+    import radical.pilot as rp
+except ImportError:
+    rp = None
+else:
+    import scalems.radical
+    import scalems.radical.raptor
+    import scalems.radical.runtime
+
+import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 # TODO: Catch sigint from RP and apply our own timeout.
+
+pytestmark = pytest.mark.skipif(condition=rp is None,
+                                reason='These tests require RADICAL Pilot.')
+
+client_scalems_version = packaging.version.Version(scalems.__version__)
+if client_scalems_version.is_prerelease:
+    minimum_scalems_version = client_scalems_version.public
+else:
+    minimum_scalems_version = client_scalems_version.base_version
+
+
+# We either need to mock a RP agent or gather coverage files from remote environments.
+# This test does not add any coverage, and only adds measurable coverage or coverage
+# granularity if we either mock a RP agent or gather coverage files from remote environments.
+@pytest.mark.asyncio
+async def test_raptor_master(pilot_description, rp_venv, cleandir):
+    """Check our ability to launch and interact with a Master task."""
+    import radical.pilot as rp
+
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip('This test requires a user-provided static RP venv.')
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+    # Configure module.
+    params = scalems.radical.runtime.Configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={
+            'PilotDescription': pilot_description.as_dict()
+        }
+    )
+
+    to_thread = scalems.utility.get_to_thread()
+
+    manager = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(manager, close_on_exit=True):
+        async with manager.dispatch(params=params) as dispatcher:
+            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
+            logger.debug(f'test_raptor_master Session is {repr(dispatcher.runtime.session)}')
+
+            # Bypass the scalems machinery and submit an instruction directly to the master task.
+            scheduler: rp.Task = dispatcher.runtime.scheduler
+            td = rp.TaskDescription()
+            td.scheduler = scheduler.uid
+            td.mode = scalems.radical.raptor.CPI_MESSAGE
+            td.metadata = scalems.messages.HelloCommand().encode()
+            # TODO: The dictionary-based initialization should be working again
+            # with radical.utils > 1.18.1.
+            # See https://github.com/radical-cybertools/radical.utils/pull/367.
+            # Ref https://github.com/radical-cybertools/radical.pilot/issues/2797
+            #     td = rp.TaskDescription(
+            #         from_dict={
+            #             'scheduler': scheduler.uid,
+            #             'mode': scalems.radical.raptor.CPI_MESSAGE,
+            #             'metadata': scalems.messages.HelloCommand().encode()
+            #         }
+            #     )
+            logger.debug(f'Submitting {str(td.as_dict())}')
+            tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
+            hello_task = tasks[0]
+            logger.debug(f'Submitted {str(hello_task.as_dict())}. Waiting...')
+            state = await to_thread(hello_task.wait, state=rp.FINAL, timeout=180)
+            logger.debug(str(hello_task.as_dict()))
+
+            td.metadata = scalems.messages.StopCommand().encode()
+            logger.debug(f'Submitting {str(td.as_dict())}')
+            tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
+            stop_task = tasks[0]
+
+            # Note: Once `stop` is issued, the client will never see the Task complete. I.e. the following would fail:
+            # stop_watcher = asyncio.create_task(
+            #     to_thread(stop_task.wait, state=rp.FINAL, timeout=180), name='stop-watcher')
+            # await asyncio.wait_for(stop_watcher, timeout=120)
+            assert stop_task.state not in rp.FINAL
+
+            # Note: We don't actually have anything to keep us from canceling the Master task
+            # before the work has been handled.
+
+    assert state == rp.DONE
+    assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)
+    # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
+    # assert task.return_value == scalems.__version__
+
+    # Note: As we refine the dispatching protocol, make sure we don't wait for STOP controls to finish.
+    #     state = await asyncio.wait_for(stop_watcher, timeout=120)
+    #     assert state in rp.states.FINAL
+
+
+@pytest.mark.filterwarnings('ignore::DeprecationWarning')
+@pytest.mark.asyncio
+async def test_worker(pilot_description, rp_venv, cleandir):
+    """Launch the master script and execute a trivial workflow.
+    """
+
+    if rp_venv is None:
+        # Be sure to provision the venv.
+        pytest.skip('This test requires a user-provided static RP venv.')
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+    params = scalems.radical.runtime.Configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={
+            'PilotDescription': pilot_description.as_dict()
+        }
+    )
+
+    # TODO: Make the work representation non-Raptor-specific or decouple
+    #  the Raptor oriented representation of Work from the client-side representation.
+    work_item = scalems.radical.raptor.ScalemsRaptorWorkItem(
+        func=print.__name__,
+        module=print.__module__,
+        args=['hello world'],
+        kwargs={},
+        comm_arg_name=None
+    )
+
+    manager = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(manager):
+        assert not loop.is_closed()
+        # Enter the async context manager for the default dispatcher
+        async with manager.dispatch(params=params) as dispatcher:
+            # We have now been through RPDispatchingExecutor.runtime_startup().
+            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
+            logger.debug(f'Session is {repr(dispatcher.runtime.session)}')
+
+            task_uid = 'task.scalems-test-worker'
+            # Bypass the scalems machinery and submit an instruction directly to the master task.
+            scheduler: rp.Task = dispatcher.runtime.scheduler
+
+            task_description = rp.TaskDescription()
+            task_description.scheduler = scheduler.uid
+            task_description.uid = task_uid
+            task_description.cpu_processes = 1
+            task_description.cpu_process_type = rp.SERIAL,
+            task_description.mode = scalems.radical.raptor.CPI_MESSAGE
+            task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
+
+            task_manager = dispatcher.runtime.task_manager()
+            to_thread = scalems.utility.get_to_thread()
+            timeout = 120
+            # Submit a raptor task
+            # TODO: Use scalems.radical.runtime.submit()
+            watcher = asyncio.create_task(to_thread(task_manager.submit_tasks, task_description), name='rp_submit')
+            try:
+                rp_task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
+            except asyncio.TimeoutError as e:
+                logger.exception(f'Waited more than {timeout} to submit {task_description}.')
+                watcher.cancel()
+                raise e
+
+            rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(rp_task)
+            try:
+                rp_task: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
+            except asyncio.TimeoutError as e:
+                logger.debug(f'Waited more than {timeout} for {rp_future}: {e}')
+                rp_future.cancel('Canceled after waiting too long.')
+                raise e
+            assert rp_task.exit_code == 0
+
+            # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
+            assert rp_task.return_value is None
+
+            work_item_task_id = rp_task.stdout
+            logger.debug(f'Master submitted task {work_item_task_id} to Worker.')
+            # TODO(#229): Check an actual data result.
 
 
 # def test_rp_raptor_remote_docker(sdist, rp_task_manager):

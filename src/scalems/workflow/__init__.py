@@ -36,9 +36,9 @@ import weakref
 from scalems import exceptions as _exceptions
 
 from scalems.context import FileStoreManager
-from scalems.dispatching import _CommandQueueAddItem
-from scalems.dispatching import _CommandQueueControlItem
-from scalems.dispatching import QueueItem
+from scalems.messages import CommandQueueAddItem
+from scalems.messages import CommandQueueControlItem
+from scalems.messages import QueueItem
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import DuplicateKeyError
@@ -802,7 +802,7 @@ class WorkflowManager:
             # TODO: Do we need to provide a contextvars.Context object to the callback?
             logger.debug(f'Running dispatching hook for add_item subscriber '
                          f'{repr(callback)}.')
-            callback(_CommandQueueAddItem({'add_item': uid}))
+            callback(CommandQueueAddItem({'add_item': uid}))
 
         return task_view
 
@@ -927,7 +927,7 @@ class Queuer:
     def queue(self):
         return self._dispatcher_queue
 
-    def put(self, item: typing.Union[_CommandQueueAddItem, _CommandQueueControlItem]):
+    def put(self, item: typing.Union[CommandQueueAddItem, CommandQueueControlItem]):
         assert len(item) == 1
         key = list(item.keys())[0]
         if key not in {'command', 'add_item'}:

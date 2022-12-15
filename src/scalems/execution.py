@@ -1,7 +1,9 @@
 """Runtime management for the scalems client.
 
-The following diagram illustrates the :py:mod:`scalems.radical`
-SCALE-MS connector for execution on :py:mod:`radical.pilot`.
+Provide the framework for the SCALE-MS execution middleware layer.
+
+The following diagram uses the :py:mod:`scalems.radical` execution module
+to illustrate the workflow execution.
 
 .. uml::
 
@@ -46,7 +48,7 @@ SCALE-MS connector for execution on :py:mod:`radical.pilot`.
     client_workflowmanager -> client_executor: async with executor
     activate client_workflowmanager #lightgray
 
-    == Dispatch work ==
+    ...Dispatch work. See `manage_execution`...
 
     client_workflowmanager <-- client_executor: leave executor context
     deactivate client_workflowmanager
@@ -56,6 +58,13 @@ SCALE-MS connector for execution on :py:mod:`radical.pilot`.
     scalems.Runtime --> scalems.radical: SystemExit.code
     deactivate scalems.Runtime
     <-- scalems.radical: sys.exit
+
+The interface available to ``@scalems.app`` is under development.
+See :py:mod:`scalems.workflow`.
+
+The details of work dispatching are not yet strongly specified or fully encapsulated.
+`manage_execution` mediates a collaboration between a `RuntimeManager` and a
+`WorkflowManager` (via `AbstractWorkflowUpdater`).
 
 """
 
@@ -68,7 +77,7 @@ import logging
 import typing
 
 from scalems.context import FileStore
-from scalems.dispatching import QueueItem
+from scalems.messages import QueueItem
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError

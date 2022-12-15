@@ -104,10 +104,10 @@ Upshot:
 Python package details
 ======================
 
-scalems.dispatching
--------------------
+scalems.messages
+----------------
 
-.. automodule:: scalems.dispatching
+.. automodule:: scalems.messages
     :members:
 
 .. _scalems-execution:

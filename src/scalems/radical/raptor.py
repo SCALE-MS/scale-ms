@@ -1561,14 +1561,6 @@ class TaskDictionary(typing.TypedDict):
     description: _RaptorTaskDescription
     """Encoding of the original task description."""
 
-    error: str
-    """Stack trace. Deprecated.
-
-    To be removed in radical.pilot>=1.19.0, replaced with `exception_detail`.
-
-    See https://github.com/SCALE-MS/scale-ms/discussions/259#discussioncomment-4095650
-    """
-
     stdout: str
     """Task standard output."""
 
@@ -1584,13 +1576,11 @@ class TaskDictionary(typing.TypedDict):
     Refer to the :py:class:`RaptorTaskExecutor` Protocol.
     """
 
-    exception: typing.Tuple[str, str]
-    """Exception type name and message.
+    exception: str
+    """Exception type name and message."""
 
-    TODO(radical.pilot>=1.19.0): The type of this field is changing to `str`.
-
-    Ref https://github.com/SCALE-MS/scale-ms/discussions/267
-    """
+    exception_detail: str
+    """Full exception details with stack trace."""
 
     state: str
     """RADICAL Pilot Task state."""

@@ -342,7 +342,7 @@ arguments to raptor :py:data:`~radical.pilot.TASK_FUNCTION` mode executor.
 CPI_MESSAGE = "scalems.cpi"
 """Flag for scalems messages to be treated as CPI calls.
 
-Used in the :py:attr:`rp.TaskDescription.mode` field to indicate that the
+Used in the :py:attr:`~radical.pilot.TaskDescription.mode` field to indicate that the
 object should be handled through the SCALEMS Compute Provider Interface machinery.
 """
 

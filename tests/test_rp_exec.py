@@ -9,6 +9,7 @@ Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 """
 
 import asyncio
+import dataclasses
 import json
 import os
 
@@ -110,7 +111,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
     assert state == rp.DONE
     assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)
     # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
-    # assert task.return_value == scalems.__version__
+    assert hello_task.return_value == dataclasses.asdict(scalems.radical.raptor.backend_version)
 
     # Note: As we refine the dispatching protocol, make sure we don't wait for STOP controls to finish.
     #     state = await asyncio.wait_for(stop_watcher, timeout=120)

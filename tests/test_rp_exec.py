@@ -79,21 +79,13 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
 
             # Bypass the scalems machinery and submit an instruction directly to the master task.
             scheduler: rp.Task = dispatcher.runtime.scheduler
-            td = rp.TaskDescription()
-            td.scheduler = scheduler.uid
-            td.mode = scalems.radical.raptor.CPI_MESSAGE
-            td.metadata = scalems.messages.HelloCommand().encode()
-            # TODO: The dictionary-based initialization should be working again
-            # with radical.utils > 1.18.1.
-            # See https://github.com/radical-cybertools/radical.utils/pull/367.
-            # Ref https://github.com/radical-cybertools/radical.pilot/issues/2797
-            #     td = rp.TaskDescription(
-            #         from_dict={
-            #             'scheduler': scheduler.uid,
-            #             'mode': scalems.radical.raptor.CPI_MESSAGE,
-            #             'metadata': scalems.messages.HelloCommand().encode()
-            #         }
-            #     )
+            td = rp.TaskDescription(
+                from_dict={
+                    'scheduler': scheduler.uid,
+                    'mode': scalems.radical.raptor.CPI_MESSAGE,
+                    'metadata': scalems.messages.HelloCommand().encode()
+                }
+            )
             logger.debug(f"Submitting {str(td.as_dict())}")
             tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             hello_task = tasks[0]

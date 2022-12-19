@@ -76,7 +76,11 @@ async def test_rp_future(rp_task_manager):
         state = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:
         logger.exception(f"Waited more than {timeout} for {watcher}")
-        watcher.cancel("Canceled after waiting too long.")
+        try:
+            watcher.cancel("Canceled after waiting too long.")
+        except TypeError:
+            # the *msg* argument was added to Task.cancel in Py 3.9.
+            watcher.cancel()
         raise e
     else:
         assert state in rp.states.FINAL

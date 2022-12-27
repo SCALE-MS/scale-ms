@@ -795,6 +795,11 @@ def master():
     character_stream.setFormatter(formatter)
     logger.addHandler(character_stream)
 
+    file_logger = logging.FileHandler('scalems.radical.raptor.log')
+    file_logger.setLevel(logging.DEBUG)
+    file_logger.setFormatter(formatter)
+    logging.getLogger('scalems').addHandler(file_logger)
+
     if not os.environ["RP_TASK_ID"]:
         warnings.warn("Attempting to start a Raptor Master without RP execution environment.")
 
@@ -811,30 +816,35 @@ def master():
 
     requirements = configuration.worker
 
-    with _master.configure_worker(requirements=requirements) as worker_submission:
-        assert os.path.isabs(worker_submission["descr"]["worker_file"])
-        assert os.path.exists(worker_submission["descr"]["worker_file"])
-        logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
-        _master.submit_workers(**worker_submission)
-        message = "Submitted workers: "
-        message += ", ".join(_master.workers.keys())
-        logger.info(message)
+    try:
+        with _master.configure_worker(requirements=requirements) as worker_submission:
+            assert os.path.isabs(worker_submission["descr"]["worker_file"])
+            assert os.path.exists(worker_submission["descr"]["worker_file"])
+            logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
+            _master.submit_workers(**worker_submission)
+            message = "Submitted workers: "
+            message += ", ".join(_master.workers.keys())
+            logger.info(message)
 
-        _master.start()
-        logger.debug("Master started.")
+            _master.start()
+            logger.debug("Master started.")
 
-        # Make sure at least one worker comes online.
-        # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
-        # _master.wait(count=1)
-        # logger.debug('Ready to submit raptor tasks.')
-        # TODO: Confirm workers start successfully or produce useful error
-        #  (then release temporary file).
-        # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
-        # relevant worker states _master.workers['uid']['state']
-        # * 'NEW' -> 'ACTIVE' -> 'DONE'
+            # Make sure at least one worker comes online.
+            # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
+            # _master.wait(count=1)
+            # logger.debug('Ready to submit raptor tasks.')
+            # TODO: Confirm workers start successfully or produce useful error
+            #  (then release temporary file).
+            # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
+            # relevant worker states _master.workers['uid']['state']
+            # * 'NEW' -> 'ACTIVE' -> 'DONE'
 
-        _master.join()
-        logger.debug("Master joined.")
+            _master.join()
+            logger.debug("Master joined.")
+    finally:
+        if sys.exc_info():
+            logger.exception('Master task encountered exception.')
+        logger.debug('Completed master task.')
 
 
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:

@@ -1103,7 +1103,7 @@ class RPDispatchingExecutor(RuntimeManager):
             # The RP convention seems to be to use the component uid as the name
             # of the underlying logging.Logger node, so we could presumably attach
             # a log handler to the logger for a component of interest.
-            session.close()
+            session.close(download=True)
 
             if session.closed:
                 logger.debug(f"Session {session.uid} closed.")

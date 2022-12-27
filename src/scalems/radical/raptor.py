@@ -643,7 +643,7 @@ def master_script() -> str:
     return _master_script
 
 
-async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str) -> FileReference:
+async def master_input(*, filestore: FileStore, worker_pre_exec: list, worker_venv: str) -> FileReference:
     """Provide the input file for a SCALE-MS Raptor Master script.
 
     Args:
@@ -655,7 +655,7 @@ async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str
 
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
-    task_metadata = worker_requirements(pre_exec=pre_exec, worker_venv=worker_venv)
+    task_metadata = worker_requirements(pre_exec=worker_pre_exec, worker_venv=worker_venv)
 
     # TODO(#248): Decide on how to identify the workers from the client side.
     # We can't know the worker identity until the master task has called submit_workers()
@@ -697,7 +697,7 @@ def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequ
     gpus_per_worker = 0
 
     workload_metadata = ClientWorkerRequirements(
-        named_env=worker_venv, pre_exec=pre_exec, cpu_processes=cores_per_worker, gpus_per_process=gpus_per_worker
+        named_env=worker_venv, pre_exec=pre_exec, cpu_processes=cores_per_worker, gpus_per_process=gpus_per_worker,
     )
 
     return workload_metadata
@@ -1260,7 +1260,7 @@ class RaptorWorkerConfig(typing.TypedDict):
     :py:meth:`~radical.pilot.raptor.Master.submit_workers()`,
     pending further documentation.
 
-    Create with `worker_description()`.
+    Create with `_configure_worker()`.
     """
 
     descr: WorkerDescriptionDict

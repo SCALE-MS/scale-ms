@@ -478,10 +478,28 @@ async def _get_scheduler(
     """
     # define a raptor.scalems master and launch it within the pilot
     td = rp.TaskDescription()
+
+    # The master uid is used as the `scheduler` value for raptor task routing.
+    # TODO(#108): Use caller-provided *name* for master_identity.
+    # Master tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    master_identity = EphemeralIdentifier()
+    td.uid = "scalems-rp-master." + str(master_identity)
+
     td.mode = rp.RAPTOR_MASTER
 
-    td.pre_exec = pre_exec
+    # scalems_rp_master will write output before it begins handling requests. The
+    # script may crash even before it can write anything, but if it does write
+    # anything, we _will_ have the output file locally.
+    # TODO: Why don't we have the output files? Can we ensure output files for CANCEL?
+    td.output_staging = [
+        # TODO(#229) Write and stage output from master task.
+    ]
     td.stage_on_error = True
+
+    td.pre_exec = list(pre_exec)
+
     # We are not using prepare_env at this point. We use the `venv` configured by the
     # caller.
     # td.named_env = 'scalems_env'
@@ -491,13 +509,6 @@ async def _get_scheduler(
     td.executable = master_script()
 
     logger.debug(f"Using {filestore}.")
-
-    # scalems_rp_master will write output before it begins handling requests. The
-    # script may crash even before it can write anything, but if it does write
-    # anything, we _will_ have the output file locally
-    td.output_staging = [
-        # TODO(#229) Write and stage output from master task.
-    ]
 
     # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
     # asyncio.get_running_loop().slow_callback_duration = 0.5
@@ -509,19 +520,17 @@ async def _get_scheduler(
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
 
-    # The master uid is used as the `scheduler` value for raptor task routing.
-    # TODO(#108): Use caller-provided *name* for master_identity.
-    # Master tasks may not appear unique, but must be uniquely identified within the
-    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
-    # information at this time, we can generate a random ID and track it in our metadata.
-    master_identity = EphemeralIdentifier()
-    td.uid = "scalems-rp-master." + str(master_identity)
-
     # TODO(#75): Automate handling of file staging directives for scalems.FileReference
     # e.g. _add_file_dependency(td, config_file)
     config_file_name = str(td.uid) + "-config.json"
-    td.input_staging = [{"source": config_file.as_uri(), "target": f"{config_file_name}", "action": rp.TRANSFER}]
-    td.arguments = [config_file_name]
+    td.input_staging = [
+        {
+            "source": config_file.as_uri(),
+            "target": f"{config_file_name}",
+            "action": rp.TRANSFER,
+        }
+    ]
+    td.arguments.append(config_file_name)
 
     task_metadata = {"uid": td.uid, "task_manager": task_manager.uid}
 

@@ -267,6 +267,7 @@ import zlib
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
+
 try:
     from mpi4py.MPI import Comm
 except ImportError:
@@ -1297,12 +1298,14 @@ def worker_description(
     cpu_processes: int = None,
     gpus_per_process: int = None,
     pre_exec: typing.Iterable[str] = (),
+    environment: typing.Optional[typing.Mapping[str, str]] = None,
 ) -> WorkerDescriptionDict:
     """Get a worker description for Master.submit_workers().
 
     Parameters:
         cores_per_process (int, optional): See `radical.pilot.TaskDescription.cores_per_rank`
         cpu_processes (int, optional): See `radical.pilot.TaskDescription.ranks`
+        environment (dict, optional): Environment variables to set in the Worker task.
         gpus_per_process (int, optional): See `radical.pilot.TaskDescription.gpus_per_rank`
         named_env (str): Python virtual environment registered with `radical.pilot.Pilot.prepare_env`
             (currently ignored. see #90).
@@ -1316,7 +1319,7 @@ def worker_description(
     """
     kwargs = dict(
         cores_per_rank=cores_per_process,
-        environment=None,
+        environment=environment,
         gpus_per_rank=gpus_per_process,
         named_env=None,
         pre_exec=list(pre_exec),

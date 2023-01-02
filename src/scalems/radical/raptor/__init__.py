@@ -291,9 +291,9 @@ except (ImportError,):
 import scalems.exceptions
 import scalems.radical
 import scalems.messages
-from .. import FileReference
-from ..context import describe_file
-from ..context import FileStore
+from scalems.context import FileReference
+from scalems.context import describe_file
+from scalems.context import FileStore
 
 # QUESTION: How should we approach logging? To what degree can/should we integrate
 # with rp logging?
@@ -858,16 +858,19 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     assert os.path.exists(filename)
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
     num_workers = 1
-    config: RaptorWorkerConfig = {
-        "count": num_workers,
-        "descr": worker_description(
-            named_env=requirements.named_env,
-            worker_file=filename,
-            pre_exec=requirements.pre_exec,
-            cpu_processes=requirements.cpu_processes,
-            gpus_per_process=requirements.gpus_per_process,
-        ),
-    }
+    kwargs = dict(
+        named_env=requirements.named_env,
+        worker_file=filename,
+        pre_exec=requirements.pre_exec,
+        cpu_processes=requirements.cpu_processes,
+        gpus_per_process=requirements.gpus_per_process,
+    )
+    descr = worker_description(**kwargs)
+
+    config = RaptorWorkerConfig(
+        count=num_workers,
+        descr=descr
+    )
     return config
 
 

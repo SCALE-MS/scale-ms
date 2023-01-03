@@ -1,5 +1,14 @@
 """WorkflowManager and Item interfaces.
 
+Information and resources supporting a defined workflow are managed in the scope
+of a :py:class:`~scalems.workflow.WorkflowManager`.
+All ScaleMS API calls and references occur in or between the scopes of `WorkflowManager` instances.
+When the ScaleMS API is active, there is a notion of a "current" WorkflowContext.
+
+When the scalems module is simply imported, the default context is able to
+discover local workflow state from the working directory and manage a workflow
+representation, but it is not able to dispatch the work directly for execution.
+
 SCALE-MS optimizes data flow and data locality in part by attributing all
 workflow references to well-defined scopes. Stateful API facilities, workflow
 state, and scoped references are managed as WorkflowManager instances.

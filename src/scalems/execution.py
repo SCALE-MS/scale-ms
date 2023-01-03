@@ -2,6 +2,21 @@
 
 Provide the framework for the SCALE-MS execution middleware layer.
 
+Execution dispatching implementations can be chosen from the command line when
+the interpreter is launched with Python's ``-m`` command line option.
+
+Alternatively, the script can use a Python Context Manager (a ``with`` block) to
+activate a WorkflowContext with an execution dispatcher implementation.
+
+It is inadvisable to activate an execution dispatching environment with
+procedural calls because it is more difficult to make sure that acquired resources
+are properly released, in case the interpreter has to terminate prematurely.
+
+Execution dispatching generally uses some sort of concurrency model,
+but there is not a consistent concurrency model for all dispatchers.
+ScaleMS provides abstractions to insulate scripting from particular implementations
+or concurrency primitives (such as the need to call :py:func:`asyncio.run`).
+
 The following diagram uses the :py:mod:`scalems.radical` execution module
 to illustrate the workflow execution.
 

@@ -64,6 +64,65 @@ In the simplest abstraction, an operation input is expressed in terms of another
 operation. Demonstrate how this is translated to a concrete executable task,
 with implications for checkpointing and resumption.
 
+Design notes
+------------
+
+Callable and arguments
+~~~~~~~~~~~~~~~~~~~~~~
+
+Arguments will be supplied to the callable when the task is launched.
+Launching a task requires a callable, arguments for the callable, an active
+executor.
+For a concurrent.futures.Executor, the callable and arguments are passed to
+Executor.submit() to get a Task (Future interface).
+For asyncio, it is possible to hold a coroutine object that is not yet executing
+(awaitable, but no Future interface), and then pass it to asyncio.create_task to get a Task (Future interface).
+Alternatively, callable and args can be passed with an executor to asyncio.Loop.run_in_executor()
+to get a asyncio.Future.
+In RP, A ComputeUnit can be created without immediate scheduling, then a Task is
+acquired by "submit"ing.
+The Callable and Arguments distinction, then, is not general. It seems reasonable
+to have an encapsulated task factory that can operate in conjunction with an
+active execution facility to produce a Future. The details of task description ->
+task submission / Future handle -> awaiting on the future can be absorbed into the
+NodeBuilder and proxy Future protocols, but we probably need two states in the
+command handle to indicate whether a Task has been created yet, and a third state
+to indicate its completion (note Future.done() is commonly available.).
+
+Upshot:
+
+1. Handles returned by command helpers may not (yet) be bound to real tasks.
+2. Context implementations need to support an add_task protocol that proxies the
+   details of converting a task description into a Task instance.
+3. A Context<->Context protocol needs to manage Futures that proxy to tasks in
+   other Contexts. Only the simple and unified ScaleMS.Future should be exposed
+   to ordinary users.
+4. We can require Session.run() to be used in the near term to force completion of
+   the task protocol, and absorb that behavior into scalems.wait() and scalems.run()
+   in the long term.
+
+::
+
+    async def canonical_syntax():
+        context = sms_context.get_scope()
+        # For testing purposes, we will explicitly create each of the implemented Contexts.
+        # Simple use case:
+        # Use context manager protocol to initialize and finalize connections and resources.
+        with context as session:
+            cmd = executable(('/bin/echo', 'hello', 'world'), stdout='filename')
+            await session.run(cmd) # Near-term solution to resolve all awaitables explicitly.
+            # Alternative not yet implemented:
+            #    scalems.wait(cmd.exitcode) # Minimally resolve cmd.exitcode
+            assert cmd.exitcode.done()
+            # In user-facing Contexts, we can make sure that Future.result() does not require explicit waiting.
+            assert cmd.exitcode.result() == 0
+            # No `wait cmd` is necessary because the awaitable will be managed by session clean-up, if necessary.
+        # Higher-level use cases:
+        # * Pass the target context to the command factory to get a command object that is
+        #   already bound to a particular execution framework.
+        # * Set the Context and then call scalems.run(workflow) to get behavior like
+        #   asyncio.run().
+
 Simple work
 ===========
 

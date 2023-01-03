@@ -759,7 +759,7 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileR
 
     This is a dispatching function. Handlers for particular object types must are
     registered by decorating with ``@get_file_reference.register``. See
-    :py:decorator:`functools.singledispatch`.
+    :py:func:`functools.singledispatch`.
 
     Set *text* to ``True`` for text files.
 

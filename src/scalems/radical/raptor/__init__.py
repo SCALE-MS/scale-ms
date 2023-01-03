@@ -698,7 +698,10 @@ def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequ
     gpus_per_worker = 0
 
     workload_metadata = ClientWorkerRequirements(
-        named_env=worker_venv, pre_exec=pre_exec, cpu_processes=cores_per_worker, gpus_per_process=gpus_per_worker,
+        named_env=worker_venv,
+        pre_exec=pre_exec,
+        cpu_processes=cores_per_worker,
+        gpus_per_process=gpus_per_worker,
     )
 
     return workload_metadata
@@ -796,10 +799,10 @@ def master():
     character_stream.setFormatter(formatter)
     logger.addHandler(character_stream)
 
-    file_logger = logging.FileHandler('scalems.radical.raptor.log')
+    file_logger = logging.FileHandler("scalems.radical.raptor.log")
     file_logger.setLevel(logging.DEBUG)
     file_logger.setFormatter(formatter)
-    logging.getLogger('scalems').addHandler(file_logger)
+    logging.getLogger("scalems").addHandler(file_logger)
 
     if not os.environ["RP_TASK_ID"]:
         warnings.warn("Attempting to start a Raptor Master without RP execution environment.")
@@ -844,8 +847,8 @@ def master():
             logger.debug("Master joined.")
     finally:
         if sys.exc_info():
-            logger.exception('Master task encountered exception.')
-        logger.debug('Completed master task.')
+            logger.exception("Master task encountered exception.")
+        logger.debug("Completed master task.")
 
 
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:
@@ -868,10 +871,7 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     )
     descr = worker_description(**kwargs)
 
-    config = RaptorWorkerConfig(
-        count=num_workers,
-        descr=descr
-    )
+    config = RaptorWorkerConfig(count=num_workers, descr=descr)
     return config
 
 

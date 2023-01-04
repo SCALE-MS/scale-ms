@@ -32,12 +32,16 @@ async def test_rp_future(rp_task_manager):
 
     tmgr = rp_task_manager
 
-    td = rp.TaskDescription(
-        {"executable": "/bin/bash", "arguments": ["-c", "/bin/sleep 5 && /bin/echo success"], "cpu_processes": 1}
+    task_description_dict = dict(
+        executable="/bin/bash",
+        arguments=["-c", "/bin/sleep 5 && /bin/echo success"],
+        cpu_processes=1,
     )
+    task_description = rp.TaskDescription(from_dict=task_description_dict)
+    task_description.uid = "test-rp-future-1"
 
     # Test propagation of RP cancellation behavior
-    task: rp.Task = tmgr.submit_tasks(td)
+    task: rp.Task = tmgr.submit_tasks(task_description)
 
     rp_future: asyncio.Future = await scalems.radical.runtime.rp_task(task)
 
@@ -55,7 +59,8 @@ async def test_rp_future(rp_task_manager):
     assert task.state == rp.states.CANCELED
 
     # Test propagation of asyncio watcher task cancellation.
-    task: rp.Task = tmgr.submit_tasks(td)
+    task_description.uid = "test-rp-future-2"
+    task: rp.Task = tmgr.submit_tasks(task_description)
 
     rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
 
@@ -71,7 +76,7 @@ async def test_rp_future(rp_task_manager):
 
     # WARNING: rp.Task.wait blocks, and may never complete. Don't do it in the event loop thread.
     to_thread = scalems.utility.get_to_thread()
-    watcher = asyncio.create_task(to_thread(task.wait), name=f"watch_{task.uid}")
+    watcher = asyncio.create_task(to_thread(task.wait, timeout=timeout), name=f"watch_{task.uid}")
     try:
         state = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:
@@ -91,11 +96,12 @@ async def test_rp_future(rp_task_manager):
     assert task.state in (rp.states.CANCELED,)
 
     # Test run to completion
-    watcher = asyncio.create_task(to_thread(tmgr.submit_tasks, td), name="rp_submit")
+    task_description.uid = "test-rp-future-3"
+    watcher = asyncio.create_task(to_thread(tmgr.submit_tasks, task_description), name="rp_submit")
     try:
         task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:
-        logger.exception(f"Waited more than {timeout} to submit {td}.")
+        logger.exception(f"Waited more than {timeout} to submit {task_description}.")
         watcher.cancel()
         raise e
 

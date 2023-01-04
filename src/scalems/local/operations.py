@@ -16,7 +16,7 @@ import scalems.workflow
 from scalems.exceptions import InternalError
 from scalems.exceptions import ProtocolError
 from scalems.subprocess._subprocess import OutputFile
-from scalems.utility import next_monotonic_integer as _next_int
+from scalems.unique import next_monotonic_integer as _next_int
 
 
 @dataclasses.dataclass

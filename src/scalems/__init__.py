@@ -45,14 +45,51 @@ __all__ = [
     "ScriptEntryPoint",
 ]
 
+import abc
+import functools
 import logging
+import typing
 
 from ._version import __version__
-from .workflow import get_scope
-from .subprocess import executable
-from .utility import app
-from .utility import ScriptEntryPoint
 from .context import FileReference
+from .subprocess import executable
+from .workflow import get_scope
 
 logger = logging.getLogger(__name__)
 logger.debug("Imported {}".format(__name__))
+
+
+class ScriptEntryPoint(abc.ABC):
+    """Annotate a SCALE-MS entry point function.
+
+    An importable Python script may decorate a callable with scalems.app to
+    mark it for execution. This abstract base class provides SCALE-MS with a
+    way to identify callables marked for execution and is not intended to be
+    used directly.
+
+    See :py:func:`scalems.app`
+    """
+
+    name: typing.Optional[str]
+
+    @abc.abstractmethod
+    def __call__(self, *args, **kwargs):
+        ...
+
+
+def app(func: typing.Callable) -> typing.Callable:
+    """Annotate a callable for execution by SCALEMS."""
+
+    class App(ScriptEntryPoint):
+        def __init__(self, func: typing.Callable):
+            if not callable(func):
+                raise ValueError("Needs a function or function object.")
+            self._callable = func
+            self.name = None
+
+        def __call__(self, *args, **kwargs):
+            return self._callable(*args, **kwargs)
+
+    decorated = functools.update_wrapper(App(func), wrapped=func)
+
+    return decorated

@@ -58,7 +58,7 @@ from scalems.exceptions import ScaleMSError
 from scalems.exceptions import ScopeError
 from scalems.identifiers import TypeIdentifier
 from scalems.serialization import encode
-from scalems.utility import next_monotonic_integer
+from scalems.unique import next_monotonic_integer
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))

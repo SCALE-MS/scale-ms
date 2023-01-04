@@ -70,6 +70,6 @@ utilities
 
 Execution module authors should also be aware of the following utilities.
 
-.. autofunction:: scalems.utility.parser
+.. autofunction:: scalems.invocation.base_parser
 
-.. autofunction:: scalems.utility.make_parser
+.. autofunction:: scalems.invocation.make_parser

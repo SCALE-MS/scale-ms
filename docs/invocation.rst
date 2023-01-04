@@ -27,7 +27,7 @@ available and required command line arguments::
     usage: python -m scalems.local <scalems.local args> script-to-run.py.py <script args>
     ...
 
-The base command line parser is provided by :py:func:`scalems.utility.parser`,
+The base command line parser is provided by :py:func:`scalems.invocation.base_parser`,
 extended (optionally) by the :ref:`backend`, and further extended by
 :py:func:`scalems.invocation.run`. Get usage for a particular backend with
 reference to the particular module.

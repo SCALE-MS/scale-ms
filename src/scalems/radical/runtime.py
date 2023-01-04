@@ -152,8 +152,10 @@ import weakref
 
 from radical import pilot as rp
 
+import scalems.compat
 import scalems.exceptions
 import scalems.execution
+import scalems.invocation
 import scalems.radical.raptor
 import scalems.subprocess
 import scalems.workflow
@@ -165,7 +167,6 @@ from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from .raptor import master_input
 from .raptor import master_script
-from .. import utility as _utility
 from ..context import FileStore
 from ..execution import AbstractWorkflowUpdater
 from ..execution import RuntimeManager
@@ -209,7 +210,7 @@ def parser(add_help=False):
     See Also:
          https://docs.python.org/3/library/argparse.html#parents
     """
-    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
+    _parser = argparse.ArgumentParser(add_help=add_help, parents=[scalems.invocation.base_parser()])
 
     # We could consider inferring a default venv from the VIRTUAL_ENV environment
     # variable,
@@ -526,7 +527,7 @@ async def _get_scheduler(
 
     task_metadata = {"uid": td.uid, "task_manager": task_manager.uid}
 
-    to_thread = _utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     await asyncio.create_task(to_thread(filestore.add_task, master_identity, **task_metadata), name="add-task")
     # filestore.add_task(master_identity, **task_metadata)
@@ -637,7 +638,7 @@ async def new_session():
         Runtime instance.
 
     """
-    to_thread = _utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     # Note that we cannot resolve the full _resource config until we have a Session
     # object.
@@ -765,7 +766,7 @@ async def add_pilot(runtime: Runtime, **kwargs):
     # Note: Consider fetching through the Runtime instance.
     config: Configuration = configuration()
 
-    to_thread = _utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     # Warning: The Pilot ID needs to be unique within the Session.
     pilot_description = {"uid": f"pilot.{str(uuid.uuid4())}"}
@@ -934,7 +935,7 @@ class RPDispatchingExecutor(RuntimeManager):
         # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
         # but we have not fully explored the consequences of doing so.
 
-        to_thread = _utility.get_to_thread()
+        to_thread = scalems.compat.get_to_thread()
         try:
             #
             # Start the Session.

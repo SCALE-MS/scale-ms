@@ -45,12 +45,13 @@ import weakref
 from typing import Iterator
 
 import scalems.exceptions
+import scalems.unique
 from ._file import FileReference
 from ._lock import is_locked
 from ._lock import LockException
 from ._lock import scoped_directory_lock as _scoped_directory_lock
 from ..identifiers import Identifier
-from ..utility import get_to_thread
+from ..compat import get_to_thread
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -534,7 +535,7 @@ class FileStore:
 
         filename = None
         key = None
-        tmpfile_target = self.datastore.joinpath(self._tmpfile_prefix + str(scalems.utility.next_monotonic_integer()))
+        tmpfile_target = self.datastore.joinpath(self._tmpfile_prefix + str(scalems.unique.next_monotonic_integer()))
         try:
             # 1. Copy the file.
             kwargs = dict(src=path, dst=tmpfile_target, follow_symlinks=False)

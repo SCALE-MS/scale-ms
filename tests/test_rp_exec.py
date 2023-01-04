@@ -81,9 +81,9 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
             scheduler: rp.Task = dispatcher.runtime.scheduler
             td = rp.TaskDescription(
                 from_dict={
-                    'scheduler': scheduler.uid,
-                    'mode': scalems.radical.raptor.CPI_MESSAGE,
-                    'metadata': scalems.messages.HelloCommand().encode()
+                    "scheduler": scheduler.uid,
+                    "mode": scalems.radical.raptor.CPI_MESSAGE,
+                    "metadata": scalems.messages.HelloCommand().encode(),
                 }
             )
             logger.debug(f"Submitting {str(td.as_dict())}")
@@ -170,13 +170,13 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             # TODO: Use scalems.radical.runtime.submit()
             watcher = asyncio.create_task(to_thread(task_manager.submit_tasks, task_description), name="rp_submit")
             try:
-                rp_task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
+                rp_watcher: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
             except asyncio.TimeoutError as e:
                 logger.exception(f"Waited more than {timeout} to submit {task_description}.")
                 watcher.cancel()
                 raise e
 
-            rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(rp_task)
+            rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(rp_watcher)
             try:
                 rp_task: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
             except asyncio.TimeoutError as e:
@@ -186,9 +186,18 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             assert rp_task.exit_code == 0
 
             # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
-            assert rp_task.return_value is None
+            try:
+                rp_release = packaging.version.parse(rp.version_detail).release
+            except packaging.version.InvalidVersion:
+                # Ref: https://github.com/radical-cybertools/radical.pilot/issues/2807
+                rp_release = None
+            if rp_release == (1, 20, 0):
+                assert rp_task.return_value is None
+                work_item_task_id = rp_task.stdout
+            else:
+                assert rp_task.return_value is not None
+                work_item_task_id = rp_task.return_value
 
-            work_item_task_id = rp_task.stdout
             logger.debug(f"Master submitted task {work_item_task_id} to Worker.")
             # TODO(#229): Check an actual data result.
 

@@ -277,6 +277,10 @@ class Configuration:
 class Runtime:
     """Container for scalems.radical runtime state data.
 
+    Note:
+        This class is almost exclusively a container. Lifetime management is assumed
+        to be handled externally.
+
     .. todo:: Consider either merging with `scalems.radical.runtime.Configuration` or
         explicitly encapsulating the responsibilities of `RPDispatchingExecutor.runtime_startup()`
         and `RPDispatchingExecutor.runtime_shutdown()`.
@@ -320,24 +324,34 @@ class Runtime:
 
     @property
     def session(self) -> rp.Session:
+        """The current radical.pilot.Session (may already be closed)."""
         return self._session
 
     @typing.overload
     def pilot_manager(self) -> typing.Union[rp.PilotManager, None]:
-        """Get the current PilotManager, if any."""
         ...
 
     @typing.overload
-    def pilot_manager(self, pilot_manager: str) -> typing.Union[rp.PilotManager, None]:
-        """Set the pilot manager from a UID"""
+    def pilot_manager(self, pilot_manager: str) -> rp.PilotManager:
         ...
 
     @typing.overload
-    def pilot_manager(self, pilot_manager: rp.PilotManager) -> typing.Union[rp.PilotManager, None]:
-        """Set the current pilot manager as provided."""
+    def pilot_manager(self, pilot_manager: rp.PilotManager) -> rp.PilotManager:
         ...
 
     def pilot_manager(self, pilot_manager=None) -> typing.Union[rp.PilotManager, None]:
+        """Get (optionally set) the current PilotManager.
+
+        Args:
+            pilot_manager (optional, radical.pilot.PilotManager, str): Set to RP PilotManager instance or identifier, if provided.
+
+        Returns:
+            radical.pilot.PilotManager: instance, if set, else ``None``.
+
+        Raises:
+            ValueError: for invalid identifier.
+            APIError: for invalid RP Session configuration.
+        """
         if pilot_manager is None:
             return self._pilot_manager
         elif isinstance(pilot_manager, rp.PilotManager):
@@ -360,20 +374,29 @@ class Runtime:
 
     @typing.overload
     def task_manager(self) -> typing.Union[rp.TaskManager, None]:
-        """Get the current TaskManager, if any."""
         ...
 
     @typing.overload
-    def task_manager(self, task_manager: str) -> typing.Union[rp.TaskManager, None]:
-        """Set the TaskManager from a UID."""
+    def task_manager(self, task_manager: str) -> rp.TaskManager:
         ...
 
     @typing.overload
-    def task_manager(self, task_manager: rp.TaskManager) -> typing.Union[rp.TaskManager, None]:
-        """Set the TaskManager from the provided instance."""
+    def task_manager(self, task_manager: rp.TaskManager) -> rp.TaskManager:
         ...
 
     def task_manager(self, task_manager=None) -> typing.Union[rp.TaskManager, None]:
+        """Get (optionally set) the current TaskManager.
+
+        Args:
+            task_manager (optional, radical.pilot.TaskManager, str): Set to RP TaskManager instance or identifier, if provided.
+
+        Returns:
+            radical.pilot.TaskManager: instance, if set, else ``None``.
+
+        Raises:
+            ValueError: for invalid identifier.
+            APIError: for invalid RP Session configuration.
+        """
         if task_manager is None:
             return self._task_manager
         elif isinstance(task_manager, rp.TaskManager):
@@ -396,17 +419,14 @@ class Runtime:
 
     @typing.overload
     def pilot(self) -> typing.Union[rp.Pilot, None]:
-        """Get the current Pilot, if any."""
         ...
 
     @typing.overload
-    def pilot(self, pilot: str) -> typing.Union[rp.Pilot, None]:
-        """Set the Pilot according to the provided UID."""
+    def pilot(self, pilot: str) -> rp.Pilot:
         ...
 
     @typing.overload
-    def pilot(self, pilot: rp.Pilot) -> typing.Union[rp.Pilot, None]:
-        """Set the Pilot to the provided instance."""
+    def pilot(self, pilot: rp.Pilot) -> rp.Pilot:
         ...
 
     def pilot(self, pilot=None) -> typing.Union[rp.Pilot, None]:
@@ -417,6 +437,10 @@ class Runtime:
 
         Returns:
             radical.pilot.Pilot: instance, if set, else ``None``
+
+        Raises:
+            ValueError: for invalid identifier.
+            APIError: for invalid RP Session configuration.
         """
         if pilot is None:
             return self._pilot

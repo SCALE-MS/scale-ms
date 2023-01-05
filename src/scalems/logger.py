@@ -1,9 +1,11 @@
 """Python logging facilities use the built-in logging module.
 
 Upon import, the scalems package sets a placeholder "NullHandler" to block
-propagation of log messages to the root logger (and sys.stderr, if not handled).
+propagation of log messages to the `handler of last resort
+<https://docs.python.org/3/howto/logging.html#what-happens-if-no-configuration-is-provided>`__
+(and to `sys.stderr`).
 
-If you want to see logging output on sys.stderr, attach a
+If you want to see logging output on `sys.stderr`, attach a
 `logging.StreamHandler` to the 'scalems' logger.
 
 Example::

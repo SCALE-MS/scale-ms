@@ -3,7 +3,7 @@
 Refer to :doc:`invocation` for user-level documentation about SCALE-MS command line
 invocation.
 
-The base command line parser is provided by :py:func:`scalems.utility.parser`,
+The base command line parser is provided by :py:func:`scalems.invocation.base_parser`,
 extended (optionally) by the :ref:`backend`, and further extended by
 :py:func:`scalems.invocation.run`. Get usage for a particular backend with
 reference to the particular module.
@@ -28,7 +28,7 @@ the following module attribute(s).
     :noindex:
 
     `argparse.ArgumentParser` for the execution module. For correct composition,
-    see `scalems.utility.make_parser()`.
+    see `scalems.invocation.make_parser()`.
 
 Optional Attributes
 ~~~~~~~~~~~~~~~~~~~
@@ -49,8 +49,9 @@ the following module attribute(s) for hooks in `run()`
     module's *parser*.
 
 """
-
+import argparse
 import asyncio
+import functools
 import os
 import runpy
 import sys
@@ -59,6 +60,7 @@ import typing
 
 import scalems.exceptions
 import scalems.workflow
+from scalems import ScriptEntryPoint
 
 _reentrance_guard = threading.Lock()
 
@@ -196,7 +198,7 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
 
                     main = None
                     for name, ref in globals_namespace.items():
-                        if isinstance(ref, scalems.ScriptEntryPoint):
+                        if isinstance(ref, ScriptEntryPoint):
                             if main is not None:
                                 raise scalems.exceptions.DispatchError(
                                     "Multiple apps in the same script is not (yet?) supported."
@@ -239,3 +241,78 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
             raise SystemExit(exitcode)
     finally:
         _reentrance_guard.release()
+
+
+# TODO(Python 3.9): Use functools.cache instead of lru_cache when Py 3.9 is required.
+_cache = getattr(functools, "cache", functools.lru_cache(maxsize=None))
+
+
+@_cache
+def base_parser(add_help=False):
+    """Get the base scalems argument parser.
+
+    Provides a base argument parser for scripts or other module parsers.
+
+    By default, the returned ArgumentParser is created with ``add_help=False``
+    to avoid conflicts when used as a *parent* for a parser more local to the caller.
+    If *add_help* is provided, it is passed along to the ArgumentParser created
+    in this function.
+
+    See Also:
+         https://docs.python.org/3/library/argparse.html#parents
+    """
+    from . import __version__ as _scalems_version
+
+    _parser = argparse.ArgumentParser(add_help=add_help)
+
+    _parser.add_argument("--version", action="version", version=f"scalems version {_scalems_version}")
+
+    _parser.add_argument(
+        "--log-level",
+        type=str.upper,
+        choices=["CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"],
+        help="Optionally configure console logging to the indicated level.",
+    )
+
+    _parser.add_argument(
+        "--pycharm",
+        action="store_true",
+        default=False,
+        help="Attempt to connect to PyCharm remote debugging system, where appropriate.",
+    )
+
+    _parser.add_argument(
+        "script",
+        metavar="script-to-run.py",
+        type=str,
+        help="The workflow script. Must contain a function decorated with `scalems.app`",
+    )
+
+    return _parser
+
+
+def make_parser(module: str, parents: typing.Iterable[argparse.ArgumentParser] = None):
+    """Make a SCALE-MS Execution Module command line argument parser.
+
+    Args:
+        module: Name of the execution module.
+        parents: Optional list of parent parsers.
+
+    If *parents* is not provided, `scalems.invocation.base_parser` is used to generate a default.
+    If *parents* _is_ provided, one of the provided parents **should** inherit from
+    `scalems.invocation.base_parser` using the *parents* parameter of
+    :py:class:`argparse.ArgumentParser`.
+
+    Notes:
+        :py:attr:`__package__` module attribute and :py:attr:`__module__` class or
+        function attribute are convenient for programmatically finding the *module* argument.
+    """
+    if parents is None:
+        parents = [base_parser()]
+    _parser = argparse.ArgumentParser(
+        prog=module,
+        description=f"Command line interface for `{module}` workflow execution module.",
+        usage=f"python -m {module} <{module} args> script-to-run.py.py " "<script args>",
+        parents=parents,
+    )
+    return _parser

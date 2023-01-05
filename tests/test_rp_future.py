@@ -8,6 +8,7 @@ import logging
 import pytest
 
 import scalems
+import scalems.compat
 import scalems.context
 import scalems.radical
 import scalems.radical.runtime
@@ -75,7 +76,7 @@ async def test_rp_future(rp_task_manager):
     assert rp_future.cancelled()
 
     # WARNING: rp.Task.wait blocks, and may never complete. Don't do it in the event loop thread.
-    to_thread = scalems.utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
     watcher = asyncio.create_task(to_thread(task.wait, timeout=timeout), name=f"watch_{task.uid}")
     try:
         state = await asyncio.wait_for(watcher, timeout=timeout)

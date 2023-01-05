@@ -26,7 +26,7 @@ from ..exceptions import MissingImplementationError
 from ..exceptions import ProtocolError
 from ..identifiers import TypeIdentifier
 from ..subprocess._subprocess import SubprocessTask
-from scalems.utility import make_parser as _make_parser
+from ..invocation import make_parser as _make_parser
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))

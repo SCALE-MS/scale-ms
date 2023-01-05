@@ -55,6 +55,7 @@ def test_normal_lifecycle(tmp_path, caplog):
     assert datastore.instance == os.getpid()
     assert datastore.filepath == filepath
     with pytest.raises(AttributeError):
+        # `log` attribute is not assignable.
         datastore.log = list()
     # TODO: log interface.
     # datastore.log.append('Testing')

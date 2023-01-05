@@ -43,7 +43,7 @@ import logging
 import scalems.execution
 import scalems.subprocess
 import scalems.workflow
-from scalems.utility import make_parser as _make_parser
+from ..invocation import make_parser as _make_parser
 from .runtime import configuration
 from .runtime import parser as _runtime_parser
 

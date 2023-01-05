@@ -6,6 +6,7 @@ from exceptions specified in scalems.exceptions.
 """
 
 import logging as _logging
+import typing
 
 logger = _logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -65,3 +66,39 @@ class ScopeError(ScaleMSError):
 
 class ProtocolWarning(ScaleMSWarning):
     """Unexpected behavior is detected that is not fatal, but which may indicate a bug."""
+
+
+def deprecated(explanation: str):
+    """Mark a deprecated definition.
+
+    Wraps a callable to issue a DeprecationWarning when called.
+
+    Use as a parameterized decorator::
+
+        @deprecated("func is deprecated because...")
+        def func():
+            ...
+
+    """
+    try:
+        _message = str(explanation)
+        assert len(_message) > 0
+    except Exception as e:
+        raise ValueError("`deprecated` decorator needs a *explanation*.") from e
+
+    def decorator(func: typing.Callable):
+        import functools
+
+        def deprecation(message):
+            import warnings
+
+            warnings.warn(message, DeprecationWarning, stacklevel=2)
+
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            deprecation(_message)
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator

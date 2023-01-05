@@ -16,6 +16,7 @@ import packaging.version
 import pytest
 
 import scalems
+import scalems.compat
 import scalems.context
 import scalems.messages
 import scalems.workflow
@@ -69,7 +70,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
-    to_thread = scalems.utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     manager = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(manager, close_on_exit=True):
@@ -164,7 +165,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
 
             task_manager = dispatcher.runtime.task_manager()
-            to_thread = scalems.utility.get_to_thread()
+            to_thread = scalems.compat.get_to_thread()
             timeout = 120
             # Submit a raptor task
             # TODO: Use scalems.radical.runtime.submit()

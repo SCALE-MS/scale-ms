@@ -121,7 +121,7 @@ Dynamic functions generate operations during graph execution.
 
 .. autofunction:: while_loop
 
-.. autofunction:: scalems.utility.poll
+.. autofunction:: poll
 
 Data shaping functions
 ======================
@@ -137,7 +137,7 @@ Helpers
 
 Tools for dynamically generating Functions.
 
-.. autofunction:: scalems.utility.function_wrapper
+.. autofunction:: function_wrapper
 
 .. autofunction:: subgraph
 

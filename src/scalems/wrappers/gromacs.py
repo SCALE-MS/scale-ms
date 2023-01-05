@@ -28,7 +28,7 @@ from typing import Sequence
 
 import scalems.workflow
 from scalems.exceptions import MissingImplementationError
-from scalems.utility import next_monotonic_integer as _next_int
+from scalems.unique import next_monotonic_integer as _next_int
 from scalems.workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)

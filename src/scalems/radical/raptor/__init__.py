@@ -267,6 +267,7 @@ import zlib
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
+
 try:
     from mpi4py.MPI import Comm
 except ImportError:
@@ -291,9 +292,9 @@ except (ImportError,):
 import scalems.exceptions
 import scalems.radical
 import scalems.messages
-from .. import FileReference
-from ..context import describe_file
-from ..context import FileStore
+from scalems.context import FileReference
+from scalems.context import describe_file
+from scalems.context import FileStore
 
 # QUESTION: How should we approach logging? To what degree can/should we integrate
 # with rp logging?
@@ -643,7 +644,7 @@ def master_script() -> str:
     return _master_script
 
 
-async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str) -> FileReference:
+async def master_input(*, filestore: FileStore, worker_pre_exec: list, worker_venv: str) -> FileReference:
     """Provide the input file for a SCALE-MS Raptor Master script.
 
     Args:
@@ -655,7 +656,7 @@ async def master_input(*, filestore: FileStore, pre_exec: list, worker_venv: str
 
     # This is the initial Worker submission. The Master may submit other workers later,
     # but we should try to make this one as usable as possible.
-    task_metadata = worker_requirements(pre_exec=pre_exec, worker_venv=worker_venv)
+    task_metadata = worker_requirements(pre_exec=worker_pre_exec, worker_venv=worker_venv)
 
     # TODO(#248): Decide on how to identify the workers from the client side.
     # We can't know the worker identity until the master task has called submit_workers()
@@ -697,7 +698,10 @@ def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequ
     gpus_per_worker = 0
 
     workload_metadata = ClientWorkerRequirements(
-        named_env=worker_venv, pre_exec=pre_exec, cpu_processes=cores_per_worker, gpus_per_process=gpus_per_worker
+        named_env=worker_venv,
+        pre_exec=pre_exec,
+        cpu_processes=cores_per_worker,
+        gpus_per_process=gpus_per_worker,
     )
 
     return workload_metadata
@@ -795,6 +799,11 @@ def master():
     character_stream.setFormatter(formatter)
     logger.addHandler(character_stream)
 
+    file_logger = logging.FileHandler("scalems.radical.raptor.log")
+    file_logger.setLevel(logging.DEBUG)
+    file_logger.setFormatter(formatter)
+    logging.getLogger("scalems").addHandler(file_logger)
+
     if not os.environ["RP_TASK_ID"]:
         warnings.warn("Attempting to start a Raptor Master without RP execution environment.")
 
@@ -811,30 +820,35 @@ def master():
 
     requirements = configuration.worker
 
-    with _master.configure_worker(requirements=requirements) as worker_submission:
-        assert os.path.isabs(worker_submission["descr"]["worker_file"])
-        assert os.path.exists(worker_submission["descr"]["worker_file"])
-        logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
-        _master.submit_workers(**worker_submission)
-        message = "Submitted workers: "
-        message += ", ".join(_master.workers.keys())
-        logger.info(message)
+    try:
+        with _master.configure_worker(requirements=requirements) as worker_submission:
+            assert os.path.isabs(worker_submission["descr"]["worker_file"])
+            assert os.path.exists(worker_submission["descr"]["worker_file"])
+            logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
+            _master.submit_workers(**worker_submission)
+            message = "Submitted workers: "
+            message += ", ".join(_master.workers.keys())
+            logger.info(message)
 
-        _master.start()
-        logger.debug("Master started.")
+            _master.start()
+            logger.debug("Master started.")
 
-        # Make sure at least one worker comes online.
-        # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
-        # _master.wait(count=1)
-        # logger.debug('Ready to submit raptor tasks.')
-        # TODO: Confirm workers start successfully or produce useful error
-        #  (then release temporary file).
-        # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
-        # relevant worker states _master.workers['uid']['state']
-        # * 'NEW' -> 'ACTIVE' -> 'DONE'
+            # Make sure at least one worker comes online.
+            # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
+            # _master.wait(count=1)
+            # logger.debug('Ready to submit raptor tasks.')
+            # TODO: Confirm workers start successfully or produce useful error
+            #  (then release temporary file).
+            # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
+            # relevant worker states _master.workers['uid']['state']
+            # * 'NEW' -> 'ACTIVE' -> 'DONE'
 
-        _master.join()
-        logger.debug("Master joined.")
+            _master.join()
+            logger.debug("Master joined.")
+    finally:
+        if sys.exc_info():
+            logger.exception("Master task encountered exception.")
+        logger.debug("Completed master task.")
 
 
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:
@@ -848,16 +862,16 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     assert os.path.exists(filename)
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
     num_workers = 1
-    config: RaptorWorkerConfig = {
-        "count": num_workers,
-        "descr": worker_description(
-            named_env=requirements.named_env,
-            worker_file=filename,
-            pre_exec=requirements.pre_exec,
-            cpu_processes=requirements.cpu_processes,
-            gpus_per_process=requirements.gpus_per_process,
-        ),
-    }
+    kwargs = dict(
+        named_env=requirements.named_env,
+        worker_file=filename,
+        pre_exec=requirements.pre_exec,
+        cpu_processes=requirements.cpu_processes,
+        gpus_per_process=requirements.gpus_per_process,
+    )
+    descr = worker_description(**kwargs)
+
+    config = RaptorWorkerConfig(count=num_workers, descr=descr)
     return config
 
 
@@ -1260,7 +1274,7 @@ class RaptorWorkerConfig(typing.TypedDict):
     :py:meth:`~radical.pilot.raptor.Master.submit_workers()`,
     pending further documentation.
 
-    Create with `worker_description()`.
+    Create with `_configure_worker()`.
     """
 
     descr: WorkerDescriptionDict
@@ -1284,12 +1298,14 @@ def worker_description(
     cpu_processes: int = None,
     gpus_per_process: int = None,
     pre_exec: typing.Iterable[str] = (),
+    environment: typing.Optional[typing.Mapping[str, str]] = None,
 ) -> WorkerDescriptionDict:
     """Get a worker description for Master.submit_workers().
 
     Parameters:
         cores_per_process (int, optional): See `radical.pilot.TaskDescription.cores_per_rank`
         cpu_processes (int, optional): See `radical.pilot.TaskDescription.ranks`
+        environment (dict, optional): Environment variables to set in the Worker task.
         gpus_per_process (int, optional): See `radical.pilot.TaskDescription.gpus_per_rank`
         named_env (str): Python virtual environment registered with `radical.pilot.Pilot.prepare_env`
             (currently ignored. see #90).
@@ -1303,7 +1319,7 @@ def worker_description(
     """
     kwargs = dict(
         cores_per_rank=cores_per_process,
-        environment=None,
+        environment=environment,
         gpus_per_rank=gpus_per_process,
         named_env=None,
         pre_exec=list(pre_exec),

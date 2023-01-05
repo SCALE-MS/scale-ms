@@ -26,7 +26,7 @@ from pathlib import Path  # We probably need a scalems abstraction for Path.
 import scalems.workflow
 from scalems.exceptions import InternalError
 from scalems.serialization import encode
-from scalems.utility import next_monotonic_integer
+from ..unique import next_monotonic_integer
 from ..exceptions import APIError
 from ..exceptions import MissingImplementationError
 from ..workflow import WorkflowManager

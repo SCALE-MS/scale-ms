@@ -152,8 +152,10 @@ import weakref
 
 from radical import pilot as rp
 
+import scalems.compat
 import scalems.exceptions
 import scalems.execution
+import scalems.invocation
 import scalems.radical.raptor
 import scalems.subprocess
 import scalems.workflow
@@ -165,7 +167,6 @@ from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from .raptor import master_input
 from .raptor import master_script
-from .. import utility as _utility
 from ..context import FileStore
 from ..execution import AbstractWorkflowUpdater
 from ..execution import RuntimeManager
@@ -209,7 +210,7 @@ def parser(add_help=False):
     See Also:
          https://docs.python.org/3/library/argparse.html#parents
     """
-    _parser = argparse.ArgumentParser(add_help=add_help, parents=[_utility.parser()])
+    _parser = argparse.ArgumentParser(add_help=add_help, parents=[scalems.invocation.base_parser()])
 
     # We could consider inferring a default venv from the VIRTUAL_ENV environment
     # variable,
@@ -236,7 +237,9 @@ def parser(add_help=False):
     )
 
     _parser.add_argument(
-        "--access", type=str, help="Explicitly specify the access_schema to use from the RADICAL resource."
+        "--access",
+        type=str,
+        help="Explicitly specify the access_schema to use from the RADICAL resource.",
     )
 
     _parser.add_argument(
@@ -448,7 +451,10 @@ class Runtime:
 
 
 async def _get_scheduler(
-    pre_exec: typing.Iterable[str], task_manager: rp.TaskManager, filestore: FileStore, scalems_env: str
+    pre_exec: typing.Iterable[str],
+    task_manager: rp.TaskManager,
+    filestore: FileStore,
+    scalems_env: str,
 ):
     """Establish the radical.pilot.raptor.Master task.
 
@@ -467,10 +473,28 @@ async def _get_scheduler(
     """
     # define a raptor.scalems master and launch it within the pilot
     td = rp.TaskDescription()
+
+    # The master uid is used as the `scheduler` value for raptor task routing.
+    # TODO(#108): Use caller-provided *name* for master_identity.
+    # Master tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    master_identity = EphemeralIdentifier()
+    td.uid = "scalems-rp-master." + str(master_identity)
+
     td.mode = rp.RAPTOR_MASTER
 
-    td.pre_exec = pre_exec
+    # scalems_rp_master will write output before it begins handling requests. The
+    # script may crash even before it can write anything, but if it does write
+    # anything, we _will_ have the output file locally.
+    # TODO: Why don't we have the output files? Can we ensure output files for CANCEL?
+    td.output_staging = [
+        # TODO(#229) Write and stage output from master task.
+    ]
     td.stage_on_error = True
+
+    td.pre_exec = list(pre_exec)
+
     # We are not using prepare_env at this point. We use the `venv` configured by the
     # caller.
     # td.named_env = 'scalems_env'
@@ -481,37 +505,29 @@ async def _get_scheduler(
 
     logger.debug(f"Using {filestore}.")
 
-    # scalems_rp_master will write output before it begins handling requests. The
-    # script may crash even before it can write anything, but if it does write
-    # anything, we _will_ have the output file locally
-    td.output_staging = [
-        # TODO(#229) Write and stage output from master task.
-    ]
-
     # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
     # asyncio.get_running_loop().slow_callback_duration = 0.5
     config_file = await asyncio.create_task(
-        master_input(filestore=filestore, pre_exec=list(pre_exec), worker_venv=scalems_env), name="get-master-input"
+        master_input(filestore=filestore, worker_pre_exec=list(pre_exec), worker_venv=scalems_env),
+        name="get-master-input",
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
-
-    # The master uid is used as the `scheduler` value for raptor task routing.
-    # TODO(#108): Use caller-provided *name* for master_identity.
-    # Master tasks may not appear unique, but must be uniquely identified within the
-    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
-    # information at this time, we can generate a random ID and track it in our metadata.
-    master_identity = EphemeralIdentifier()
-    td.uid = "scalems-rp-master." + str(master_identity)
 
     # TODO(#75): Automate handling of file staging directives for scalems.FileReference
     # e.g. _add_file_dependency(td, config_file)
     config_file_name = str(td.uid) + "-config.json"
-    td.input_staging = [{"source": config_file.as_uri(), "target": f"{config_file_name}", "action": rp.TRANSFER}]
-    td.arguments = [config_file_name]
+    td.input_staging = [
+        {
+            "source": config_file.as_uri(),
+            "target": f"{config_file_name}",
+            "action": rp.TRANSFER,
+        }
+    ]
+    td.arguments.append(config_file_name)
 
     task_metadata = {"uid": td.uid, "task_manager": task_manager.uid}
 
-    to_thread = _utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     await asyncio.create_task(to_thread(filestore.add_task, master_identity, **task_metadata), name="add-task")
     # filestore.add_task(master_identity, **task_metadata)
@@ -524,7 +540,8 @@ async def _get_scheduler(
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
     # check type.
     _task = asyncio.create_task(
-        to_thread(scheduler.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL), name="check-Master-started"
+        to_thread(scheduler.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
+        name="check-Master-started",
     )
     await _task
     logger.debug(f"Scheduler in state {scheduler.state}.")
@@ -607,7 +624,9 @@ def _(namespace: argparse.Namespace) -> Configuration:
         logger.debug(f'Pilot options: {repr(rp_resource_params["PilotDescription"])}')
 
     config = Configuration(
-        execution_target=namespace.resource, target_venv=namespace.venv, rp_resource_params=rp_resource_params
+        execution_target=namespace.resource,
+        target_venv=namespace.venv,
+        rp_resource_params=rp_resource_params,
     )
     return _set_configuration(config)
 
@@ -619,7 +638,7 @@ async def new_session():
         Runtime instance.
 
     """
-    to_thread = _utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     # Note that we cannot resolve the full _resource config until we have a Session
     # object.
@@ -692,7 +711,12 @@ class _PilotDescriptionProxy(rp.PilotDescription):
 
     assert hasattr(rp.PilotDescription, "_schema")
     assert isinstance(rp.PilotDescription._schema, dict)
-    assert all(map(lambda v: isinstance(v, (type, list, dict, type(None))), rp.PilotDescription._schema.values()))
+    assert all(
+        map(
+            lambda v: isinstance(v, (type, list, dict, type(None))),
+            rp.PilotDescription._schema.values(),
+        )
+    )
 
     @classmethod
     def normalize_values(cls, desc: typing.Sequence[tuple]):
@@ -742,7 +766,7 @@ async def add_pilot(runtime: Runtime, **kwargs):
     # Note: Consider fetching through the Runtime instance.
     config: Configuration = configuration()
 
-    to_thread = _utility.get_to_thread()
+    to_thread = scalems.compat.get_to_thread()
 
     # Warning: The Pilot ID needs to be unique within the Session.
     pilot_description = {"uid": f"pilot.{str(uuid.uuid4())}"}
@@ -911,7 +935,7 @@ class RPDispatchingExecutor(RuntimeManager):
         # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
         # but we have not fully explored the consequences of doing so.
 
-        to_thread = _utility.get_to_thread()
+        to_thread = scalems.compat.get_to_thread()
         try:
             #
             # Start the Session.
@@ -932,14 +956,16 @@ class RPDispatchingExecutor(RuntimeManager):
 
             logger.debug("Launching PilotManager.")
             pilot_manager = await asyncio.create_task(
-                to_thread(rp.PilotManager, session=_runtime.session), name="get-PilotManager"
+                to_thread(rp.PilotManager, session=_runtime.session),
+                name="get-PilotManager",
             )
             logger.debug("Got PilotManager {}.".format(pilot_manager.uid))
             _runtime.pilot_manager(pilot_manager)
 
             logger.debug("Launching TaskManager.")
             task_manager = await asyncio.create_task(
-                to_thread(rp.TaskManager, session=_runtime.session), name="get-TaskManager"
+                to_thread(rp.TaskManager, session=_runtime.session),
+                name="get-TaskManager",
             )
             logger.debug(("Got TaskManager {}".format(task_manager.uid)))
             _runtime.task_manager(task_manager)
@@ -1035,7 +1061,7 @@ class RPDispatchingExecutor(RuntimeManager):
             # The RP convention seems to be to use the component uid as the name
             # of the underlying logging.Logger node, so we could presumably attach
             # a log handler to the logger for a component of interest.
-            session.close()
+            session.close(download=True)
 
             if session.closed:
                 logger.debug(f"Session {session.uid} closed.")
@@ -1137,8 +1163,21 @@ class RPFinalTaskState:
     def __bool__(self):
         return self.canceled.is_set() or self.done.is_set() or self.failed.is_set()
 
+    def __repr__(self):
+        return (
+            f"<{self.__class__.__qualname__} "
+            f"canceled={self.canceled.is_set()} "
+            f"done={self.done.is_set()} "
+            f"failed={self.failed.is_set()}>"
+        )
 
-def _rp_callback(obj: rp.Task, state, cb_data: weakref.ReferenceType = None, final: RPFinalTaskState = None):
+
+def _rp_callback(
+    obj: rp.Task,
+    state,
+    cb_data: weakref.ReferenceType = None,
+    final: RPFinalTaskState = None,
+):
     """Prototype for RP.Task callback.
 
     To use, partially bind the *final* parameter (with `functools.partial`) to get a
@@ -1425,7 +1464,11 @@ def _describe_raptor_task(item: scalems.workflow.Task, scheduler: str, pre_exec:
 
 
 async def submit(
-    *, item: scalems.workflow.Task, task_manager: rp.TaskManager, pre_exec: list, scheduler: str = None
+    *,
+    item: scalems.workflow.Task,
+    task_manager: rp.TaskManager,
+    pre_exec: list,
+    scheduler: str = None,
 ) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 

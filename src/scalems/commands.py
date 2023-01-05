@@ -23,6 +23,8 @@ __all__ = [
     "while_loop",
 ]
 
+import typing
+
 from scalems import exceptions
 
 
@@ -217,5 +219,66 @@ def map(function, iterable, shape=None):
     If *iterable* is ordered, the generated operation collection is ordered.
 
     If *iterable* is unordered, the generated operation collection is unordered.
+    """
+    raise exceptions.MissingImplementationError()
+
+
+class Callable(typing.Protocol):
+    """This protocol describes the required function signature for a SCALE-MS command."""
+
+    def __call__(self):
+        ...
+
+
+class Command(typing.Protocol):
+    """Protocol describing a SCALE-MS Command."""
+
+
+def command(obj: Callable) -> Command:
+    """Decorate a callable to create a SCALE-MS Command."""
+    raise exceptions.MissingImplementationError
+
+
+def function_wrapper(output: dict = None):
+    # Suppress warnings in the example code.
+    # noinspection PyUnresolvedReferences
+    """Generate a decorator for wrapped functions with signature manipulation.
+
+    New function accepts the same arguments, with additional arguments required by
+    the API.
+
+    The new function returns an object with an ``output`` attribute containing the
+    named outputs.
+
+    Example:
+
+        >>> @function_wrapper(output={'spam': str, 'foo': str})
+        ... def myfunc(parameter: str = None, output=None):
+        ...    output.spam = parameter
+        ...    output.foo = parameter + ' ' + parameter
+        ...
+        >>> operation1 = myfunc(parameter='spam spam')
+        >>> assert operation1.spam.result() == 'spam spam'
+        >>> assert operation1.foo.result() == 'spam spam spam spam'
+
+    Arguments:
+        output (dict): output names and types
+
+    If ``output`` is provided to the wrapper, a data structure will be passed to
+    the wrapped functions with the named attributes so that the function can easily
+    publish multiple named results. Otherwise, the ``output`` of the generated operation
+    will just capture the return value of the wrapped function.
+    """
+    raise exceptions.MissingImplementationError()
+
+
+def poll():
+    """Inspect the execution status of an operation.
+
+    Inspects the execution graph state in the current context at the time of
+    execution.
+
+    Used in a work graph, this adds a non-deterministic aspect, but adds truly
+    asynchronous adaptability.
     """
     raise exceptions.MissingImplementationError()

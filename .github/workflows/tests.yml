@@ -197,13 +197,11 @@ jobs:
         ls $HOME
         pwd
         ls
-        for file in $(cd tests && ls -d test*py); do
-          python -X dev -m pytest \
-            --cov=scalems --cov-report=xml:coverage-$file.xml \
-            -rA -l --full-trace --log-cli-level=debug \
-            tests/$file \
-            --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
-        done
+        python -X dev -m pytest -x \
+          --cov=scalems --cov-report=xml:coverage.xml \
+          -rA -l --full-trace --log-cli-level=debug \
+          tests \
+          --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
     - name: Command line tests with static venv
       timeout-minutes: 3
       env:
@@ -308,13 +306,11 @@ jobs:
         ls $HOME
         pwd
         ls
-        for file in $(cd tests && ls -d test*py); do
-          python -X dev -m pytest \
-            --cov=scalems --cov-report=xml:coverage-$file.xml \
-            -rA -l --full-trace --log-cli-level=debug \
-            tests/$file \
-            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
-        done
+        python -X dev -m pytest -x \
+          --cov=scalems --cov-report=xml:coverage.xml \
+          -rA -l --full-trace --log-cli-level=debug \
+          tests \
+          --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
     - name: Command line tests
       timeout-minutes: 3
       env:
@@ -427,14 +423,12 @@ jobs:
         ls $HOME
         pwd
         ls
-        for file in $(cd tests && ls -d test*py); do
-          python -X dev -m pytest \
-            --cov=scalems --cov-report=xml:coverage-$file.xml \
-            -rA -l --full-trace --log-cli-level=debug \
-            tests/$file \
-            --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
-            --experimental
-        done
+        python -X dev -m pytest -x \
+          --cov=scalems --cov-report=xml:coverage.xml \
+          -rA -l --full-trace --log-cli-level=debug \
+          tests \
+          --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
+          --experimental
     - name: Command line tests
       timeout-minutes: 3
       env:

@@ -69,21 +69,29 @@ def pytest_addoption(parser):
         help='Remove temporary test working directory "always", "never", or on "success".',
     )
     parser.addoption("--experimental", action="store_true", default=False, help="run tests for experimental features")
+    parser.addoption(
+        "--exhaustive", action="store_true", default=False, help="run exhaustive coverage with extra tests"
+    )
 
 
 def pytest_configure(config):
     config.addinivalue_line("markers", "experimental: mark test as experimental")
+    config.addinivalue_line("markers", "exhaustive: mark test to run only for exhaustive testing")
 
 
 def pytest_collection_modifyitems(config, items):
     # Ref https://docs.pytest.org/en/latest/example/simple.html#control-skipping-of-tests-according-to-command-line-option  # noqa: E501
-    if config.getoption("--experimental"):
-        # --experimental given in cli: do not skip experimental tests
-        return
-    skip_experimental = pytest.mark.skip(reason="need --experimental option to run")
-    for item in items:
-        if "experimental" in item.keywords:
-            item.add_marker(skip_experimental)
+    skip_experimental = pytest.mark.skip(reason="only runs for --experimental")
+    skip_exhaustive = pytest.mark.skip(reason="use --exhaustive for more exhaustive testing")
+    if not config.getoption("--experimental"):
+        # skip experimental tests unless --experimental given in cli
+        for item in items:
+            if "experimental" in item.keywords:
+                item.add_marker(skip_experimental)
+    if not config.getoption("--exhaustive"):
+        for item in items:
+            if "exhaustive" in item.keywords:
+                item.add_marker(skip_exhaustive)
 
 
 @pytest.fixture(scope="session", autouse=True)

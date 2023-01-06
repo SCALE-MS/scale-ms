@@ -1034,7 +1034,9 @@ class RPDispatchingExecutor(RuntimeManager):
         Overrides :py:class:`scalems.execution.RuntimeManager`
         """
         session: rp.Session = getattr(runtime, "session", None)
-        if session is None or session.closed:
+        if session is None:
+            raise scalems.exceptions.APIError(f"No Session in {runtime}.")
+        if session.closed:
             logger.error("Runtime Session is already closed?!")
         else:
             if runtime.scheduler is not None:
@@ -1061,6 +1063,7 @@ class RPDispatchingExecutor(RuntimeManager):
             # The RP convention seems to be to use the component uid as the name
             # of the underlying logging.Logger node, so we could presumably attach
             # a log handler to the logger for a component of interest.
+            logger.debug(f"Closing Session {session.uid}.")
             session.close(download=True)
 
             if session.closed:

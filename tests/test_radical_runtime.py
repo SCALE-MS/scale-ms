@@ -1,4 +1,5 @@
 """Test the scalems.radical.Runtime state object."""
+import logging
 import typing
 import warnings
 
@@ -8,7 +9,11 @@ import radical.pilot as rp
 from scalems.exceptions import APIError
 from scalems.radical.runtime import Runtime
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
+
+@pytest.mark.exhaustive
 def test_runtime_normal_instance(rp_task_manager, pilot_description):
     """Set the Runtime.pilot from an rp.Pilot instance."""
     with warnings.catch_warnings():
@@ -39,6 +44,7 @@ def test_runtime_normal_instance(rp_task_manager, pilot_description):
         state.pilot(pilot)
 
 
+@pytest.mark.exhaustive
 def test_runtime_normal_uid(rp_task_manager, pilot_description):
     """Set the Runtime.pilot from the UID obtained from the task_manager."""
     with warnings.catch_warnings():
@@ -70,6 +76,7 @@ def test_runtime_normal_uid(rp_task_manager, pilot_description):
         state.pilot(pilot_uid)
 
 
+@pytest.mark.exhaustive
 def test_runtime_bad_uid(pilot_description):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
@@ -102,6 +109,7 @@ def test_runtime_bad_uid(pilot_description):
         assert session.closed
 
 
+@pytest.mark.exhaustive
 def test_runtime_mismatch(pilot_description):
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")

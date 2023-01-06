@@ -1,17 +1,16 @@
 """Test the scalems.radical.Runtime state object."""
+import logging
 import typing
 import warnings
 
 import pytest
 import radical.pilot as rp
 
-import logging
+from scalems.exceptions import APIError
+from scalems.radical.runtime import Runtime
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-from scalems.exceptions import APIError
-from scalems.radical.runtime import Runtime
 
 
 @pytest.mark.exhaustive

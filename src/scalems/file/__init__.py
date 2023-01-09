@@ -1,11 +1,18 @@
 """Provide an interface for managing filesystem objects in a workflow."""
 
-__all__ = ["FileReference", "DataLocalizationError"]
+__all__ = ("AbstractFile", "FileReference", "DataLocalizationError", "describe_file")
 
 import abc
+import codecs
+import enum
+import hashlib
+import locale
+import mmap
+import os
 import pathlib
 import typing
 
+import scalems.exceptions
 from scalems.exceptions import ScopeError
 
 
@@ -112,3 +119,121 @@ class FileReference(typing.Protocol):
         the referenced file through the filestore.
         """
         raise NotImplementedError
+
+
+class AccessFlags(enum.Flag):
+    NO_ACCESS = 0
+    READ = enum.auto()
+    WRITE = enum.auto()
+
+
+class AbstractFile(typing.Protocol):
+    """Abstract base for file types.
+
+    See :py:func:`describe_file`.
+    """
+
+    access: AccessFlags
+
+    # _params: dict = None
+    #
+    # def __repr__(self):
+    #     params = ', '.join([f'{key}={value}' for key, value in self._params.items()])
+    #     return f'{self.__class__.__qualname__}({params})'
+
+    @abc.abstractmethod
+    def __fspath__(self) -> str:
+        raise NotImplementedError
+
+    def path(self) -> pathlib.Path:
+        return pathlib.Path(os.fspath(self))
+
+    def fingerprint(self) -> bytes:
+        """Get a checksum or other suitable fingerprint for the file data."""
+        with open(os.fspath(self), "rb") as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                m = hashlib.sha256(data)
+        checksum: bytes = m.digest()
+        return checksum
+
+    # @abc.abstractmethod
+    # def serialize(self) -> bytes:
+    #     ...
+    #
+    # @abc.abstractmethod
+    # @classmethod
+    # def deserialize(cls, stream: bytes):
+    #     ...
+
+
+class BaseBinary(AbstractFile):
+    """Base class for binary file types."""
+
+    _path: pathlib.Path
+
+    def __init__(self, path: typing.Union[str, pathlib.Path, os.PathLike], access: AccessFlags = AccessFlags.READ):
+        self._path = pathlib.Path(path).resolve()
+        self.access = access
+
+    def __fspath__(self) -> str:
+        return str(self._path)
+
+    def path(self) -> pathlib.Path:
+        return self._path
+
+
+class BaseText(BaseBinary):
+    """Base class for text file types."""
+
+    encoding = locale.getpreferredencoding(False)
+
+    def __init__(self, path, access: AccessFlags = AccessFlags.READ, encoding=None):
+        if encoding is None:
+            encoding = locale.getpreferredencoding(False)
+        try:
+            codecs.getencoder(encoding)
+        except LookupError:
+            raise ValueError("Specify a valid character encoding for text files.")
+        self.encoding = encoding
+        super().__init__(path=path, access=access)
+
+    def fingerprint(self) -> bytes:
+        m = hashlib.sha256()
+        # Use universal newlines and utf-8 encoding for text file fingerprinting.
+        with open(self._path, "r", encoding=self.encoding) as f:
+            # If we knew more about the text file size or line length, or if we already
+            # had an open buffer, socket, or mmap, we could  optimize this in subclasses.
+            for line in f:
+                m.update(line.encode("utf8"))
+        checksum: bytes = m.digest()
+        return checksum
+
+
+def describe_file(
+    obj: typing.Union[str, pathlib.Path, os.PathLike], mode="rb", encoding: str = None, file_type_hint=None
+) -> AbstractFile:
+    """Describe an existing local file."""
+    access = AccessFlags.NO_ACCESS
+    if "r" in mode:
+        access |= AccessFlags.READ
+        if "w" in mode:
+            access |= AccessFlags.WRITE
+    else:
+        # If neither 'r' nor 'w' is provided, still assume 'w'
+        access |= AccessFlags.WRITE
+    # TODO: Confirm requested access permissions.
+
+    if file_type_hint:
+        raise scalems.exceptions.MissingImplementationError("Extensible file types not yet supported.")
+
+    if "b" in mode:
+        if encoding is not None:
+            raise TypeError("*encoding* argument is not supported for binary files.")
+        file = BaseBinary(path=obj, access=access)
+    else:
+        file = BaseText(path=obj, access=access, encoding=encoding)
+
+    if not file.path().exists():
+        raise ValueError("Not an existing file.")
+
+    return file

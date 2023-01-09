@@ -292,9 +292,9 @@ except (ImportError,):
 import scalems.exceptions
 import scalems.radical
 import scalems.messages
-from scalems.context import FileReference
-from scalems.context import describe_file
-from scalems.context import FileStore
+from scalems.file import FileReference
+from scalems.file import describe_file
+from scalems.store import FileStore
 
 # QUESTION: How should we approach logging? To what degree can/should we integrate
 # with rp logging?

@@ -33,7 +33,6 @@ Invocation:
 __all__ = [
     # core UI
     "app",
-    "FileReference",
     # tools / commands
     "executable",
     # utilities and helpers
@@ -51,7 +50,6 @@ import logging
 import typing
 
 from ._version import __version__
-from .context import FileReference
 from .subprocess import executable
 from .workflow import get_scope
 

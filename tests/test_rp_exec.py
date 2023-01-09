@@ -192,7 +192,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
             except packaging.version.InvalidVersion:
                 # Ref: https://github.com/radical-cybertools/radical.pilot/issues/2807
                 rp_release = None
-            if rp_release == (1, 20, 0):
+            if rp_release is not None and rp_release[0:2] == (1, 20):
                 assert rp_task.return_value is None
                 work_item_task_id = rp_task.stdout
             else:

@@ -19,7 +19,7 @@ import weakref
 from . import operations
 from .. import execution as _execution
 from .. import workflow as _workflow
-from ..context import FileStore
+from ..store import FileStore
 from ..context import scoped_chdir
 from ..exceptions import InternalError
 from ..exceptions import MissingImplementationError

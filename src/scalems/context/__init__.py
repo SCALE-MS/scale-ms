@@ -1,16 +1,6 @@
-"""Execution environment context management.
-"""
+"""Execution environment context management."""
 
-__all__ = (
-    "describe_file",
-    "get_file_reference",
-    "scoped_chdir",
-    "ContextError",
-    "StaleFileStore",
-    "FileReference",
-    "FileStore",
-    "FileStoreManager",
-)
+__all__ = ("scoped_chdir",)
 
 import contextlib
 import logging
@@ -19,14 +9,6 @@ import pathlib
 import threading
 import typing
 import warnings
-
-from ._datastore import ContextError
-from ._datastore import describe_file
-from ._datastore import StaleFileStore
-from ._datastore import get_file_reference
-from ._datastore import FileStore
-from ._datastore import FileStoreManager
-from ._file import FileReference
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))

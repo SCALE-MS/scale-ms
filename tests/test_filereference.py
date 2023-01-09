@@ -13,8 +13,8 @@ import urllib.parse
 import pytest
 import scalems.context
 import scalems.exceptions
-from scalems.context import describe_file
-from scalems.context import FileStoreManager
+import scalems.file
+import scalems.store
 
 sample_text = ("Hi there!", "Hello, World.")
 
@@ -126,19 +126,19 @@ def test_hash():
 
 @pytest.mark.asyncio
 async def test_simple_text_file(tmp_path):
-    manager = FileStoreManager(directory=tmp_path)
+    manager = scalems.store.FileStoreManager(directory=tmp_path)
     datastore = manager.filestore()
     with text_file() as filename:
         # Add the file to the file store.
-        future = asyncio.ensure_future(datastore.add_file(describe_file(filename, mode="r")))
+        future = asyncio.ensure_future(datastore.add_file(scalems.file.describe_file(filename, mode="r")))
         await future
         assert future.done()
-        fileref: scalems.FileReference = future.result()
+        fileref: scalems.file.FileReference = future.result()
 
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
-            await datastore.add_file(describe_file(filename, mode="r"))
+            await datastore.add_file(scalems.file.describe_file(filename, mode="r"))
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
-            await datastore.add_file(describe_file(filename, mode="r"), _name="spam")
+            await datastore.add_file(scalems.file.describe_file(filename, mode="r"), _name="spam")
 
     assert not os.path.exists(filename)
     assert fileref.path().exists()
@@ -170,9 +170,9 @@ async def test_simple_text_file(tmp_path):
         assert key in datastore.files
         assert fileref.path() in datastore.files.values()
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
-            await datastore.add_file(describe_file(filename, mode="r"), _name=duplicate)
+            await datastore.add_file(scalems.file.describe_file(filename, mode="r"), _name=duplicate)
 
-        fileref: scalems.FileReference = await datastore.add_file(describe_file(filename, mode="r"))
+        fileref: scalems.file.FileReference = await datastore.add_file(scalems.file.describe_file(filename, mode="r"))
         assert fileref.key() != key
         assert fileref.path().name != duplicate
         assert str(fileref.path()) != path
@@ -185,17 +185,17 @@ async def test_simple_text_file(tmp_path):
 
 @pytest.mark.asyncio
 async def test_simple_binary_file(tmp_path):
-    manager = FileStoreManager(directory=tmp_path)
+    manager = scalems.store.FileStoreManager(directory=tmp_path)
     datastore = manager.filestore()
     with binary_file() as filename:
         # Add the file to the file store.
-        future = asyncio.ensure_future(datastore.add_file(describe_file(filename, mode="rb")))
+        future = asyncio.ensure_future(datastore.add_file(scalems.file.describe_file(filename, mode="rb")))
         await future
         assert future.done()
-        fileref: scalems.FileReference = future.result()
+        fileref: scalems.file.FileReference = future.result()
 
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
-            await datastore.add_file(describe_file(filename, mode="rb"))
+            await datastore.add_file(scalems.file.describe_file(filename, mode="rb"))
     assert not os.path.exists(filename)
     assert fileref.path().exists()
 
@@ -217,8 +217,8 @@ async def test_simple_binary_file(tmp_path):
         with open(filename, "wb") as fh:
             fh.write(new_data)
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
-            await datastore.add_file(describe_file(filename, mode="rb"), _name=duplicate)
-        fileref = await datastore.add_file(describe_file(filename, mode="rb"))
+            await datastore.add_file(scalems.file.describe_file(filename, mode="rb"), _name=duplicate)
+        fileref = await datastore.add_file(scalems.file.describe_file(filename, mode="rb"))
         new_key = fileref.key()
         assert new_key != key
         assert isinstance(new_key, str)
@@ -231,10 +231,10 @@ async def test_simple_binary_file(tmp_path):
 
 @pytest.mark.asyncio
 async def test_dispatching(tmp_path):
-    manager = FileStoreManager(directory=tmp_path)
+    manager = scalems.store.FileStoreManager(directory=tmp_path)
     datastore = manager.filestore()
     with text_file() as textfile:
-        fileref = await scalems.context._datastore.get_file_reference(textfile, filestore=datastore, mode="r")
+        fileref = await scalems.store.get_file_reference(textfile, filestore=datastore, mode="r")
     assert fileref.key() in datastore.files
     with fileref.path().open("r") as fh:
         assert all([sample == read.rstrip() for sample, read in zip(sample_text, fh)])

@@ -29,6 +29,9 @@ a coroutine except in the root coroutine of a Task or otherwise within the scope
 of a contextvars.copy_context().run(). scalems will try to flag misuse by raising
 a ProtocolError, but please be sensible.
 """
+
+__all__ = ("WorkflowManager", "get_scope", "scope", "wait", "workflow_item_director_factory")
+
 import asyncio
 import contextlib
 import contextvars
@@ -44,7 +47,7 @@ import weakref
 
 from scalems import exceptions as _exceptions
 
-from scalems.context import FileStoreManager
+from scalems.store import FileStoreManager
 from scalems.messages import CommandQueueAddItem
 from scalems.messages import CommandQueueControlItem
 from scalems.messages import QueueItem

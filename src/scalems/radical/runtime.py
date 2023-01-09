@@ -167,7 +167,7 @@ from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from .raptor import master_input
 from .raptor import master_script
-from ..context import FileStore
+from ..store import FileStore
 from ..execution import AbstractWorkflowUpdater
 from ..execution import RuntimeManager
 from ..identifiers import EphemeralIdentifier
@@ -932,6 +932,8 @@ class RPDispatchingExecutor(RuntimeManager):
         #  that we can raise in an appropriate task. However, we should make sure that we
         #  account for the signal handling that RP expects to be able to do.
         #  See https://github.com/SCALE-MS/randowtal/issues/1
+        #  We should also make sure that scalems and RP together handle keyboard interrupts
+        #  as a user would expect.
         # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
         # but we have not fully explored the consequences of doing so.
 

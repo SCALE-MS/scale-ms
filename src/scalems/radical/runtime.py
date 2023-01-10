@@ -1042,20 +1042,34 @@ class RPDispatchingExecutor(RuntimeManager):
             logger.error("Runtime Session is already closed?!")
         else:
             if runtime.scheduler is not None:
-                # Cancel the master.
-                logger.debug("Canceling the master scheduling task.")
-                task_manager = runtime.task_manager()
-                task_manager.cancel_tasks(uids=runtime.scheduler.uid)
-                # Cancel blocks until the task is done so the following wait is
-                # (currently) redundant, but there is a ticket open to change this
-                # behavior.
-                # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-                runtime.scheduler.wait(state=rp.FINAL)
-                logger.info(f"Master scheduling task complete: {repr(runtime.scheduler)}.")
+                # Note: The __aexit__ for the RuntimeManager makes sure that a `stop`
+                # is issued after the work queue is drained, if the scheduler task has
+                # not already ended.
+                runtime.scheduler.wait(rp.FINAL, timeout=10)
+                if not runtime.scheduler.state in rp.FINAL:
+                    # Cancel the master.
+                    logger.debug("Canceling the master scheduling task.")
+                    # Note: the effect of CANCEL is to send SIGTERM to the shell that
+                    # launched the task process.
+                    # TODO: Report incomplete tasks and handle the consequences of terminating the
+                    #  Raptor processes early.
+                    task_manager = runtime.task_manager()
+                    task_manager.cancel_tasks(uids=runtime.scheduler.uid)
+                    # Cancel blocks until the task is done so the following wait is
+                    # (currently) redundant, but there is a ticket open to change this
+                    # behavior.
+                    # See https://github.com/radical-cybertools/radical.pilot/issues/2336
+                # TODO(#249): wrap in a thread.
+                runtime.scheduler.wait(state=rp.FINAL, timeout=60)
+                logger.info(f"Master scheduling task state {runtime.scheduler.state}: {repr(runtime.scheduler)}.")
                 if runtime.scheduler.stdout:
+                    # TODO(#229): Fetch actual stdout file.
                     logger.debug(runtime.scheduler.stdout)
                 if runtime.scheduler.stderr:
-                    logger.error(runtime.scheduler.stderr)
+                    # TODO(#229): Fetch actual stderr file.
+                    # Note that all of the logging output goes to stderr, it seems,
+                    # so we shouldn't necessarily consider it an error level event.
+                    logger.debug(runtime.scheduler.stderr)
                 # TODO(#108,#229): Receive report of work handled by Master.
 
             # Note: there are no documented exceptions or errors to check for,

@@ -1046,7 +1046,7 @@ class RPDispatchingExecutor(RuntimeManager):
                 # is issued after the work queue is drained, if the scheduler task has
                 # not already ended.
                 runtime.scheduler.wait(rp.FINAL, timeout=10)
-                if not runtime.scheduler.state in rp.FINAL:
+                if runtime.scheduler.state not in rp.FINAL:
                     # Cancel the master.
                     logger.debug("Canceling the master scheduling task.")
                     # Note: the effect of CANCEL is to send SIGTERM to the shell that

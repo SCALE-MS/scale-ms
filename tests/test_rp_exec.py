@@ -70,6 +70,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
+    timeout = 180
     to_thread = scalems.compat.get_to_thread()
 
     manager = scalems.radical.workflow_manager(loop)
@@ -85,28 +86,56 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
                     "scheduler": scheduler.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
                     "metadata": scalems.messages.HelloCommand().encode(),
+                    "uid": "task-hello",
                 }
             )
             logger.debug(f"Submitting {str(td.as_dict())}")
             tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             hello_task = tasks[0]
             logger.debug(f"Submitted {str(hello_task.as_dict())}. Waiting...")
-            state = await to_thread(hello_task.wait, state=rp.FINAL, timeout=180)
+            state = await to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
             logger.debug(str(hello_task.as_dict()))
 
             td.metadata = scalems.messages.StopCommand().encode()
+            td.output_staging = []
+            td.uid = "task-stop"
             logger.debug(f"Submitting {str(td.as_dict())}")
             tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             stop_task = tasks[0]
 
-            # Note: Once `stop` is issued, the client will never see the Task complete. I.e. the following would fail:
-            # stop_watcher = asyncio.create_task(
-            #     to_thread(stop_task.wait, state=rp.FINAL, timeout=180), name='stop-watcher')
-            # await asyncio.wait_for(stop_watcher, timeout=120)
-            assert stop_task.state not in rp.FINAL
+            # We expect the status update -> DONE, even if self.stop() was called during result_cb for the task.
+            stop_watcher = asyncio.create_task(
+                to_thread(stop_task.wait, state=rp.FINAL, timeout=timeout), name="stop-watcher"
+            )
 
-            # Note: We don't actually have anything to keep us from canceling the Master task
-            # before the work has been handled.
+            scheduler_watcher = asyncio.create_task(
+                to_thread(scheduler.wait, state=rp.FINAL, timeout=timeout), name="master-watcher"
+            )
+            # If master task fails, stop-watcher will never complete.
+            done, pending = await asyncio.wait(
+                (stop_watcher, scheduler_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+            )
+
+            if scheduler_watcher not in done:
+                await asyncio.wait_for(scheduler_watcher, timeout=10)
+            logger.debug(f"scheduler-task state: {scheduler.state}")
+            if scheduler.state == rp.DONE and stop_watcher in pending:
+                # Waiting longer doesn't seem to help.
+                # logger.debug("Waiting a little longer for the stop task to wrap up.")
+                # await asyncio.wait_for(stop_watcher, timeout=timeout)
+                # TODO(#289) Reconcile expectations regarding stop-task state updates.
+                # The prescribed behavior is that the task _should_ reach final state.
+                # The following assertion will alert us to the bug fix in scalems or rp that
+                # is preventing expected behavior. When it ceases to be true, then we should
+                # adjust our assumptions about the behavior of tasks that include
+                # a `Master.stop()` in the result_cb.
+                assert stop_task.state not in rp.FINAL
+            if not stop_watcher.done():
+                logger.debug(f"Canceling {stop_task}.")
+                stop_watcher.cancel()
+            logger.debug(f"stop-task state: {stop_task.state}")
+
+            assert scheduler.state == rp.DONE
 
     assert state == rp.DONE
     assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)

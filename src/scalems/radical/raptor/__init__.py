@@ -807,13 +807,15 @@ def master():
     if not os.environ["RP_TASK_ID"]:
         warnings.warn("Attempting to start a Raptor Master without RP execution environment.")
 
+    rp_version = packaging.version.parse(rp.version)
+
     args = parser.parse_args()
     if not os.path.exists(args.file):
         raise RuntimeError(f"File not found: {args.file}")
     with open(args.file, "r") as fh:
         configuration = MasterTaskConfiguration.from_dict(json.load(fh))
 
-    logger.info(f"Launching ScaleMSMaster task with {repr(dataclasses.asdict(configuration))}.")
+    logger.info(f"Launching ScaleMSMaster task in raptor {rp_version} with {repr(dataclasses.asdict(configuration))}.")
 
     _master = ScaleMSMaster(configuration)
     logger.debug(f"Created {repr(_master)}.")
@@ -833,20 +835,28 @@ def master():
             _master.start()
             logger.debug("Master started.")
 
-            # Make sure at least one worker comes online.
-            # TODO(#253): 'wait' does not work in RP 1.18, but should in a near future release.
-            # _master.wait(count=1)
-            # logger.debug('Ready to submit raptor tasks.')
-            # TODO: Confirm workers start successfully or produce useful error
-            #  (then release temporary file).
+            if rp_version >= packaging.version.parse("1.21"):
+                # Make sure at least one worker comes online.
+                _master.wait(count=1)
+                logger.debug("Ready to submit raptor tasks.")
+                # Confirm all workers start successfully or produce useful error
+                #  (then release temporary file).
+                _master.wait()
+            for uid, worker in _master.workers.items():
+                logger.info(f"Worker {uid} in state {worker['status']}.")
+            # TODO(#253): Confirm that workers started successfully and notify client
             # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
-            # relevant worker states _master.workers['uid']['state']
+            # relevant worker states _master.workers['uid']['status']
             # * 'NEW' -> 'ACTIVE' -> 'DONE'
-
+            # Note: Until we integrate with ZMQ, there is not a good mechanism to provide feedback
+            # to the client that the raptor session is active, but we could add some sort of status
+            # check to the CPI.
+            # TODO(#253): Confirm workers start successfully or produce useful error, then release temporary file.
+            # Until then, we can't safely exit this `with` block until after `join`.
             _master.join()
             logger.debug("Master joined.")
     finally:
-        if sys.exc_info():
+        if sys.exc_info() != (None, None, None):
             logger.exception("Master task encountered exception.")
         logger.debug("Completed master task.")
 

@@ -120,8 +120,10 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
                 await asyncio.wait_for(scheduler_watcher, timeout=10)
             logger.debug(f"scheduler-task state: {scheduler.state}")
             if scheduler.state == rp.DONE and stop_watcher in pending:
-                logger.debug("Waiting a little longer for the stop task to wrap up.")
-                await asyncio.wait_for(stop_watcher, timeout=timeout)
+                # Waiting longer doesn't seem to help.
+                # logger.debug("Waiting a little longer for the stop task to wrap up.")
+                # await asyncio.wait_for(stop_watcher, timeout=timeout)
+                assert stop_task.state not in rp.FINAL
             if not stop_watcher.done():
                 logger.debug(f"Canceling {stop_task}.")
                 stop_watcher.cancel()

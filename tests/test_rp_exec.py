@@ -123,7 +123,10 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
                 # Waiting longer doesn't seem to help.
                 # logger.debug("Waiting a little longer for the stop task to wrap up.")
                 # await asyncio.wait_for(stop_watcher, timeout=timeout)
-                # Note: if the following assertion ceases to be true, then we should
+                # TODO(#289) Reconcile expectations regarding stop-task state updates.
+                # The prescribed behavior is that the task _should_ reach final state.
+                # The following assertion will alert us to the bug fix in scalems or rp that
+                # is preventing expected behavior. When it ceases to be true, then we should
                 # adjust our assumptions about the behavior of tasks that include
                 # a `Master.stop()` in the result_cb.
                 assert stop_task.state not in rp.FINAL

@@ -1055,11 +1055,11 @@ class RPDispatchingExecutor(RuntimeManager):
                     #  Raptor processes early.
                     task_manager = runtime.task_manager()
                     task_manager.cancel_tasks(uids=runtime.scheduler.uid)
-                    # Cancel blocks until the task is done so the following wait is
-                    # (currently) redundant, but there is a ticket open to change this
-                    # behavior.
-                    # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-                # TODO(#249): wrap in a thread.
+                # As of https://github.com/radical-cybertools/radical.pilot/pull/2702,
+                # we do not expect `cancel` to block, so we must wait for the
+                # cancellation to succeed. It shouldn't take long, but it is not
+                # instantaneous or synchronous. We hope that a minute is enough.
+                # TODO(#249): wrap in a thread, since this could take a few seconds.
                 runtime.scheduler.wait(state=rp.FINAL, timeout=60)
                 logger.info(f"Master scheduling task state {runtime.scheduler.state}: {repr(runtime.scheduler)}.")
                 if runtime.scheduler.stdout:

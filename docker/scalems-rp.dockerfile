@@ -6,7 +6,7 @@
 # Usage:
 #
 # To build an image named `scalems-rp`, use the following Docker command while in this directory.
-#     docker build -t scalems-rp -f scalems-rp.dockerfile ..
+#     docker build -t scalems/scalems-rp -f scalems-rp.dockerfile ..
 #
 # The above command will use the parent directory as the "Docker build context" so that
 # the git repository contents are avaialble to the docker build script.
@@ -27,11 +27,15 @@ FROM scalems/rp-complete:$TAG
 
 USER rp
 WORKDIR /home/rp
+ENV HOME=/home/rp
 
-RUN ./rp-venv/bin/pip install --upgrade pip setuptools
+RUN ./rp-venv/bin/pip install --no-cache-dir --upgrade pip setuptools
 
 COPY --chown=rp:radical . scalems
 
-RUN ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
-RUN ./rp-venv/bin/pip install scalems/
+RUN ./rp-venv/bin/pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
+RUN ./rp-venv/bin/pip install --no-cache-dir scalems/
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
+
+USER mongodb
+ENV HOME=/data/db

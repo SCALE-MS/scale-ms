@@ -65,10 +65,11 @@ RUN apt-get update && \
 USER rp
 
 WORKDIR /home/rp
+ENV HOME=/home/rp
 
-RUN $RPVENV/bin/pip install --upgrade pip setuptools wheel
-RUN $RPVENV/bin/pip install --upgrade cmake
-RUN $RPVENV/bin/pip install mpi4py
+RUN $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
+RUN $RPVENV/bin/pip install --no-cache-dir mpi4py
 
 # Patch release will have a path like lammps-27May2021
 RUN . $RPVENV/bin/activate && \
@@ -99,10 +100,10 @@ RUN . $RPVENV/bin/activate && \
     echo 'export LD_LIBRARY_PATH=$RPVENV/lib:$LD_LIBRARY_PATH' >> $RPVENV/bin/activate
 
 COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
-RUN . $RPVENV/bin/activate && ./rp-venv/bin/pip install --upgrade -r scalems/requirements-testing.txt
+RUN . $RPVENV/bin/activate && ./rp-venv/bin/pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
 
 COPY --chown=rp:radical . scalems
-RUN $RPVENV/bin/pip install --no-deps scalems/
+RUN $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
 
 # Try to update the testdata submodule if it is missing or out of date.
 # If there are files in testdata, but it is not tracked as a git submodule,
@@ -125,3 +126,4 @@ RUN cd scalems && \
 
 # Restore the user for the default entry point (the mongodb server)
 USER mongodb
+ENV HOME=/data/db

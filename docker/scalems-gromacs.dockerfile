@@ -69,14 +69,15 @@ RUN apt-get update && \
 USER rp
 
 WORKDIR /home/rp
+ENV HOME=/home/rp
 
-RUN $RPVENV/bin/pip install --upgrade pip setuptools wheel
-RUN $RPVENV/bin/pip install --upgrade cmake
-RUN $RPVENV/bin/pip install mpi4py
+RUN $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
+RUN $RPVENV/bin/pip install --no-cache-dir mpi4py
 
 ARG BRANCH=release-2022
 RUN . $RPVENV/bin/activate && \
-    cd $HOME && \
+    cd ~rp && \
         git clone \
             --depth=1 \
             -b $BRANCH \
@@ -95,17 +96,17 @@ RUN . $RPVENV/bin/activate && \
                     .. && \
                 cmake --build . --target install
 
-RUN $RPVENV/bin/pip install -r $HOME/gromacs-src/python_packaging/requirements-test.txt
+RUN $RPVENV/bin/pip install --no-cache-dir -r ~rp/gromacs-src/python_packaging/requirements-test.txt
 
 ARG GMXAPI_REF="gmxapi"
-RUN . $RPVENV/gromacs/bin/GMXRC && $RPVENV/bin/pip install $GMXAPI_REF
+RUN . $RPVENV/gromacs/bin/GMXRC && $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF
 
 COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
 # Note: RCT stack may not install correctly unless venv is actually "activated".
-RUN . $RPVENV/bin/activate && pip install --upgrade -r scalems/requirements-testing.txt
+RUN . $RPVENV/bin/activate && pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
 
 COPY --chown=rp:radical . scalems
-RUN $RPVENV/bin/pip install --no-deps scalems/
+RUN $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
 
 # Try to update the testdata submodule if it is missing or out of date.
 # If there are files in testdata, but it is not tracked as a git submodule,
@@ -128,3 +129,4 @@ RUN cd scalems && \
 
 # Restore the user for the default entry point (the mongodb server)
 USER mongodb
+ENV HOME=/data/db

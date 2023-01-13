@@ -22,7 +22,8 @@
 # respository files to the container however you prefer and install the scalems package
 # (updating the dependencies if necessary). I have my IDE configured to automatically
 # synchronize repository files to the /tmp/scalems_dev/ directory in the "login"
-# container.
+# container. Alternatively:
+#     tar cvf - -C .. . | docker compose exec -T -u rp login bash -c 'tar xvf - -C /tmp/scalems_dev'
 # Then I connect to the "login" service, either with `ssh -p 2345 rp@localhost`
 # or `docker compose exec -u rp login bash`
 # Then: `. /home/rp/rp-venv`, install the pydevd package recommend by my IDE,
@@ -31,13 +32,14 @@
 #     python -m pytest /tmp/scalems_dev/tests --rp-venv=/home/rp/rp-venv/ --rp-resource=docker.login --rp-access=local
 #
 # Alternatively, bring up the Docker Compose stack and run a test with a single line:
+#     tar cvf - -C .. . | docker compose exec -T -u rp login bash -c 'tar xvf - -C /tmp/scalems_dev'
 #     docker compose exec -u rp login bash -c '. rp-venv/bin/activate && pip install -r /tmp/scalems_dev/requirements-testing.txt && pip install -e /tmp/scalems_dev && python -m pytest /tmp/scalems_dev/tests/test_rp_exec.py --rp-venv=/home/rp/rp-venv/ --rp-resource=docker.login --rp-access=local'
 
 version: '3.2'
 
 services:
   mongo:
-    image: mongo:bionic
+    image: mongo:focal
     restart: always
     ports:
       - "127.0.0.1:27017:27017"

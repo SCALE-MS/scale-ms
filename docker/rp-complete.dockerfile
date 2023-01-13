@@ -19,7 +19,7 @@
 #     docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
 #
 
-FROM mongo:bionic
+FROM mongo:focal
 # Reference https://github.com/docker-library/mongo/blob/master/4.2/Dockerfile
 
 USER root
@@ -58,6 +58,7 @@ USER rp
 
 WORKDIR /home/rp
 
+ENV HOME=/home/rp
 ENV RPVENV=/home/rp/rp-venv
 RUN python3.8 -m venv $RPVENV
 
@@ -83,9 +84,10 @@ RUN $RPVENV/bin/pip install --upgrade \
 # Get repository for example and test files and to simplify RPREF build argument.
 # Note that GitHub may have a source directory name suffix that does not exactly
 # match the branch or tag name, so we use a glob to try to normalize the name.
-ARG RPREF="v1.20.0"
+ARG RPREF="v1.20.1"
 #ARG RPREF="project/scalems"
-# Note: radical.pilot does not work properly with an "editable install"
+# Note: radical.pilot does not work properly with an "editable install", and
+# requires the venv to be activated in order to install properly.
 RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     . $RPVENV/bin/activate && \
     cd ~rp/radical.pilot && \
@@ -117,3 +119,4 @@ RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 RUN echo "rp\nrp" | passwd rp
 
 USER mongodb
+ENV HOME=/data/db

@@ -7,6 +7,7 @@ pytest>=6.1.2
 pytest-asyncio>=0.14
 pytest-env
 setuptools>=61.0
+versioningit
 wheel
 # RADICAL requirements
 mock

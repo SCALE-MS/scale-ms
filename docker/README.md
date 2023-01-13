@@ -35,14 +35,14 @@ comments in [rp-complete.dockerfile](rp-complete.dockerfile) for more informatio
 
 `compose.yml` provides a recipe for `docker-compose` (or more elaborate
 container-based service cluster). The stack relies on two public
-container images (`mongo:bionic` for the database service and, optionally,
+container images (`mongo:focal` for the database service and, optionally,
 `mongo-express` for a database admin console) and a custom image
 (to be built locally) providing the sshd service and login environment.
 See `radicalpilot.dockerfile` for instructions on
 building the (required) `radicalpilot` container image.
 
 In the simplest case, one service container each is launched for the services
-*mongo* (`mongo:bionic`),
+*mongo* (`mongo:focal`),
 *mongo-express* (`mongo-express` image),
 *login* (`scalems/radicalpilot`), and
 *compute* (`scalems/radicalpilot`).

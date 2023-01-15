@@ -283,7 +283,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
                             raise _exceptions.ContextError("Context is already in use.")
                         else:
                             assert metadata_dict["instance"] == instance_id
-                            raise scalems.exceptions.InternalError(
+                            raise _exceptions.InternalError(
                                 "This process appears already to be managing "
                                 f"{self.filepath}, but is not "
                                 "registered in FileStore._instances."
@@ -375,9 +375,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
                 if current_instance is None:
                     raise StaleFileStore(f"{self} is already closed.")
                 elif current_instance != os.getpid():
-                    raise scalems.exceptions.ScopeError(
-                        "Calling close() on a FileStore from another process is not allowed."
-                    )
+                    raise _exceptions.ScopeError("Calling close() on a FileStore from another process is not allowed.")
                 with open(self.filepath, "r") as fp:
                     context = json.load(fp)
                 stored_instance = context.get("instance", None)
@@ -432,6 +430,11 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         functions that produce AbstractFileReference objects that FileStore.add_file() can
         consume.
 
+        Raises:
+            scalems.exceptions.DuplicateKeyError: if a file with the same
+                `ResourceIdentifier` is already under management.
+            StaleFileStore: if the filestore state appears invalid.
+
         In addition to TypeError and ValueError for invalid inputs, propagates
         exceptions raised by failed attempts to access the provided file object.
         """
@@ -441,7 +444,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         # confidence. However, we may prefer to convert AbstractFileReference to an abc.ABC so
         # that we can actually functools.singledispatchmethod on the provided object.
         if isinstance(obj, _file.AbstractFileReference):
-            raise scalems.exceptions.MissingImplementationError("AbstractFileReference input not yet supported.")
+            raise _exceptions.MissingImplementationError("AbstractFileReference input not yet supported.")
         if self.closed:
             raise StaleFileStore("Cannot add file to a closed FileStore.")
         path: pathlib.Path = pathlib.Path(obj)
@@ -475,10 +478,9 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
             filename = self.datastore.joinpath(_name)
             with self._update_lock:
                 if key in self._data.files:
-                    # TODO: Support caching. Use existing file if checksums match.
-                    raise scalems.exceptions.DuplicateKeyError(f"FileStore is already managing a file with key {key}.")
+                    raise _exceptions.DuplicateKeyError(f"FileStore is already managing a file with key {key}.")
                 if str(filename) in self._data.files.values():
-                    raise scalems.exceptions.DuplicateKeyError(f"FileStore already has {filename}.")
+                    raise _exceptions.DuplicateKeyError(f"FileStore already has {filename}.")
                 else:
                     if filename.exists():
                         raise StaleFileStore(f"Unexpected file in filestore: {filename}.")
@@ -493,7 +495,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
 
             return FileReference(filestore=self, key=key)
         except Exception as e:
-            if isinstance(e, (scalems.exceptions.DuplicateKeyError, StaleFileStore)):
+            if isinstance(e, (_exceptions.DuplicateKeyError, StaleFileStore)):
                 tmpfile_target.unlink(missing_ok=True)
             else:
                 # Something went particularly wrong. Let's try to clean up as best we can.
@@ -536,7 +538,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
             # TODO: It is not an error to add an item with the same key if it
             #  represents the same workflow object (potentially in a more or less
             #  advanced state).
-            raise scalems.exceptions.DuplicateKeyError(f"Task {identity} is already in the metadata store.")
+            raise _exceptions.DuplicateKeyError(f"Task {identity} is already in the metadata store.")
         else:
             # Note: we don't attempt to be thread-safe, and this is not (yet) an async
             # coroutine, so we don't bother with a lock at this point.
@@ -550,7 +552,9 @@ class FileReference(_file.AbstractFileReference):
     def __init__(self, filestore: FileStore, key: _identifiers.ResourceIdentifier | str):
         self._filestore: FileStore = filestore
         if key not in self._filestore.files:
-            raise scalems.exceptions.ProtocolError("Cannot create reference to unmanaged file.")
+            raise _exceptions.ProtocolError("Cannot create reference to unmanaged file.")
+        if not isinstance(key, _identifiers.ResourceIdentifier):
+            key = _identifiers.ResourceIdentifier(bytes.fromhex(key))
         self._key = key
         self._repr = f"<FileReference key:{key} path:{self._filestore.files[key]}>"
 
@@ -570,7 +574,7 @@ class FileReference(_file.AbstractFileReference):
         if context is None:
             context = self._filestore
         if context is not self._filestore:
-            raise scalems.exceptions.MissingImplementationError("Push subscription not yet implemented.")
+            raise _exceptions.MissingImplementationError("Push subscription not yet implemented.")
         assert self._key in context.files
         return self
 
@@ -584,11 +588,11 @@ class FileReference(_file.AbstractFileReference):
         if context is None:
             context = self._filestore
         if context is not self._filestore:
-            raise scalems.exceptions.MissingImplementationError("Path resolution dispatching is not yet implemented.")
+            raise _exceptions.MissingImplementationError("Path resolution dispatching is not yet implemented.")
         if self.is_local():
             return context.files[self._key].as_uri()
         else:
-            raise scalems.exceptions.MissingImplementationError("No URI available for non-local files.")
+            raise _exceptions.MissingImplementationError("No URI available for non-local files.")
 
     def __repr__(self):
         return self._repr
@@ -668,6 +672,22 @@ class FileStoreManager:
             return True
 
 
+async def _get_file_reference_by_path(obj: pathlib.Path, *, filestore: FileStore, mode="rb") -> FileReference:
+    """Get file reference, adding to filestore, if and only if necessary.
+
+    TODO: Optimize. (This call should only read and fingerprint *obj* once.)
+    """
+    obj = _file.describe_file(obj.resolve(), mode=mode)
+    try:
+        file_ref = await filestore.add_file(_file.describe_file(obj, mode=mode))
+    except _exceptions.DuplicateKeyError:
+        # Return the existing fileref, if it matches the fingerprint of *obj*.
+        fingerprint = await _compat.get_to_thread()(obj.fingerprint)
+        key = _identifiers.ResourceIdentifier(fingerprint)
+        file_ref = filestore.get(key)
+    return file_ref
+
+
 @functools.singledispatch
 def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
     """Get a FileReference for the provided object.
@@ -685,7 +705,12 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileR
         mode (str) : file access mode
 
     If *obj* is a :py:class:`~pathlib.Path` or :py:class:`~os.PathLike` object,
-    add the identified file to the file store.
+    add the identified file to the file store. If *obj* is a `ResourceIdentifier`,
+    attempts to retrieve a reference to the identified filesystem object.
+
+    Note:
+        If *obj* is a `str` or `bytes`, *obj* is interpreted as a `ResourceIdentifier`,
+        **not** as a filesystem path.
 
     This involves placing (copying) the file, reading the file to fingerprint it,
     and then writing metadata for the file. For clarity, we also rename the file
@@ -696,10 +721,6 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileR
     exceptions raised by failed attempts to access the provided file object.
 
     TODO: Try to detect file type. See, for instance, https://pypi.org/project/python-magic/
-
-    Note:
-        As documented, this function should probably succeed if the input matches
-        a file that is already managed, but this may currently result in an error.
     """
     try:
         return filestore.get_file_reference(obj, mode=mode)
@@ -713,31 +734,35 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileR
     raise TypeError(f"Cannot convert {obj.__class__.__qualname__} to FileReference.")
 
 
-@get_file_reference.register(pathlib.Path)
-def _(obj, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
+@get_file_reference.register
+def _(obj: pathlib.Path, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
     if filestore is None:
-        raise scalems.exceptions.MissingImplementationError(
+        raise _exceptions.MissingImplementationError(
             'There is not yet a "default" data store. *filestore* must be provided.'
         )
     else:
         # TODO: Check whether filestore is local or whether we need to proxy the object.
         ...
 
-    path: pathlib.Path = obj.resolve()
     # Should we assume that a Path object is intended to refer to a local file? We don't
     # want to  be ambiguous if the same path exists locally and remotely.
-    if not path.exists() or not path.is_file():
-        raise ValueError(f"Path {obj} is not a valid file.")
+    if not obj.exists() or not obj.is_file():
+        raise ValueError(f"Path {obj} is not a valid local file.")
 
-    task = asyncio.create_task(filestore.add_file(_file.describe_file(path, mode=mode)))
+    task = asyncio.create_task(_get_file_reference_by_path(obj, filestore=filestore, mode=mode))
     return task
 
 
-@get_file_reference.register(str)
-def _(obj, *args, **kwargs) -> typing.Awaitable[FileReference]:
+@get_file_reference.register
+def _(obj: str, *args, **kwargs) -> typing.Awaitable[FileReference]:
+    return get_file_reference(_identifiers.ResourceIdentifier(bytes.fromhex(obj)), *args, **kwargs)
+
+
+@get_file_reference.register
+def _(obj: bytes, *args, **kwargs) -> typing.Awaitable[FileReference]:
+    return get_file_reference(_identifiers.ResourceIdentifier(obj), *args, **kwargs)
+
+
+@get_file_reference.register
+def _(obj: os.PathLike, *args, **kwargs) -> typing.Awaitable[FileReference]:
     return get_file_reference(pathlib.Path(obj), *args, **kwargs)
-
-
-@get_file_reference.register(os.PathLike)
-def _(obj, *args, **kwargs) -> typing.Awaitable[FileReference]:
-    return get_file_reference(os.fspath(obj), *args, **kwargs)

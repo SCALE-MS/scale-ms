@@ -15,6 +15,7 @@ import scalems.context
 import scalems.exceptions
 import scalems.file
 import scalems.store
+from scalems.identifiers import ResourceIdentifier
 
 sample_text = ("Hi there!", "Hello, World.")
 
@@ -155,8 +156,8 @@ async def test_simple_text_file(tmp_path):
         assert all([sample == read.rstrip() for sample, read in zip(sample_text, fh)])
 
     key = fileref.key()
-    assert isinstance(key, str)
-    assert len(key) > 0
+    assert isinstance(key, ResourceIdentifier)
+    assert len(key.bytes()) > 0
 
     # Make sure a small change is caught.
     duplicate = pathlib.Path(fileref).name
@@ -205,11 +206,11 @@ async def test_simple_binary_file(tmp_path):
         data: bytes = fh.read()
         assert int.from_bytes(data, byteorder=sys.byteorder) == sample_value
 
-    key = fileref.key()
-    assert isinstance(key, str)
-    assert len(key) > 0
+    key: ResourceIdentifier = fileref.key()
+    assert isinstance(key, ResourceIdentifier)
+    assert len(str(key)) > 0
 
-    # Make sure a small change is caught.
+    # Make sure a small change is handled properly.
     duplicate = pathlib.Path(fileref).name
     try:
         new_data = int.from_bytes(sample_data, byteorder=sys.byteorder).to_bytes(
@@ -218,13 +219,22 @@ async def test_simple_binary_file(tmp_path):
         assert int.from_bytes(new_data, byteorder=sys.byteorder) == sample_value
         with open(filename, "wb") as fh:
             fh.write(new_data)
+        # We are not allowed to use the same key for a new file.
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
             await datastore.add_file(scalems.file.describe_file(filename, mode="rb"), _name=duplicate)
+        # We are allowed to let the filestore generate a new entry for a new file.
+        # The path of the file argument does not matter because we rely on
+        # fingerprinting the file contents.
         fileref = await datastore.add_file(scalems.file.describe_file(filename, mode="rb"))
-        new_key = fileref.key()
+        new_key: ResourceIdentifier = fileref.key()
         assert new_key != key
-        assert isinstance(new_key, str)
-        assert len(new_key) > 0
+        assert len(bytes(new_key)) > 0
+        # We get an exception if we try to add the same file twice through add_file,
+        # but we have a utility function to wrap up the logic for that.
+        with pytest.raises(scalems.exceptions.DuplicateKeyError):
+            await datastore.add_file(scalems.file.describe_file(filename, mode="rb"))
+        recycled = await scalems.store.get_file_reference(pathlib.Path(filename), filestore=datastore)
+        assert recycled.key() == new_key
     finally:
         os.unlink(filename)
     del manager

@@ -92,6 +92,9 @@ class AbstractFileReference(typing.Protocol):
 
         Raises:
             TBD
+
+        TODO:
+            Abstract type for required *context* interface.
         """
         return self
 

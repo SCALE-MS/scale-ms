@@ -95,20 +95,6 @@ class AbstractFileReference(typing.Protocol):
         """
         return self
 
-    def path(self, context=None) -> pathlib.Path:
-        """Get the path for the referenced file.
-
-        If *context* is specified, the returned :py:class:`~pathlib.Path` is valid in
-        the filesystem associated with the given context.
-
-        If *context* is unspecified, the filesystem for the currently active (client)
-        FileStore is used.
-
-        Raises:
-            DataLocalizationError: if the referenced file has not been localized.
-        """
-        return context.files[self.key()]
-
     def as_uri(self, context=None) -> str:
         """Get an appropriate URI for a referenced file, whether or not it is available.
 

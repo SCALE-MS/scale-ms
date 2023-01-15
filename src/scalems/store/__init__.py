@@ -97,6 +97,12 @@ class FilesView(typing.Mapping[_identifiers.ResourceIdentifier, pathlib.Path]):
 
     Provides a mapping from :py:class:`~scalems.identifiers.ResourceIdentifier` to
     the stored filesystem path.
+
+    Warnings:
+        The :py:class:`~pathlib.Path` objects represent paths in the context of
+        the filesystem of the FileStore. If the FileStore does not represent a local
+        filesystem, then a ``file://`` URIs from ``value.as_uri()`` is specific
+        to the remote filesystem.
     """
 
     def __init__(self, files: typing.Mapping[str, str]):
@@ -568,14 +574,7 @@ class FileReference(_file.AbstractFileReference):
         assert self._key in context.files
         return self
 
-    def path(self, context=None) -> pathlib.Path:
-        if context is None:
-            context = self._filestore
-        if context is not self._filestore:
-            raise scalems.exceptions.MissingImplementationError("Path resolution dispatching is not yet implemented.")
-        return context.files[self._key]
-
-    def filestore(self):
+    def filestore(self) -> FileStore:
         return self._filestore
 
     def key(self) -> _identifiers.ResourceIdentifier:

@@ -141,7 +141,7 @@ async def test_simple_text_file(tmp_path):
             await datastore.add_file(scalems.file.describe_file(filename, mode="r"), _name="spam")
 
     assert not os.path.exists(filename)
-    assert fileref.path().exists()
+    assert pathlib.Path(fileref).exists()
 
     assert fileref.filestore() is datastore
     assert fileref.key() in datastore.files
@@ -149,9 +149,9 @@ async def test_simple_text_file(tmp_path):
     assert await fileref.localize() is fileref
     uri = fileref.as_uri()
     path = urllib.parse.urlparse(uri).path
-    assert path == str(fileref.path())
+    assert path == str(pathlib.Path(fileref))
 
-    with open(fileref.path(), "r") as fh:
+    with open(fileref, "r") as fh:
         assert all([sample == read.rstrip() for sample, read in zip(sample_text, fh)])
 
     key = fileref.key()
@@ -159,7 +159,7 @@ async def test_simple_text_file(tmp_path):
     assert len(key) > 0
 
     # Make sure a small change is caught.
-    duplicate = fileref.path().name
+    duplicate = pathlib.Path(fileref).name
     try:
         with open(filename, "w") as fh:
             fh.write("\n".join(sample_text))
@@ -168,7 +168,7 @@ async def test_simple_text_file(tmp_path):
                 with open(f, "r") as fh2:
                     assert not all([line1.encode() == line2.encode() for line1, line2 in zip(fh1, fh2)])
         assert key in datastore.files
-        assert fileref.path() in datastore.files.values()
+        assert pathlib.Path(fileref) in datastore.files.values()
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
             await datastore.add_file(scalems.file.describe_file(filename, mode="r"), _name=duplicate)
 
@@ -176,8 +176,8 @@ async def test_simple_text_file(tmp_path):
             scalems.file.describe_file(filename, mode="r")
         )
         assert fileref.key() != key
-        assert fileref.path().name != duplicate
-        assert str(fileref.path()) != path
+        assert pathlib.Path(fileref).name != duplicate
+        assert os.fspath(fileref) != path
 
     finally:
         os.unlink(filename)
@@ -199,9 +199,9 @@ async def test_simple_binary_file(tmp_path):
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
             await datastore.add_file(scalems.file.describe_file(filename, mode="rb"))
     assert not os.path.exists(filename)
-    assert fileref.path().exists()
+    assert pathlib.Path(fileref).exists()
 
-    with open(fileref.path(), "rb") as fh:
+    with open(fileref, "rb") as fh:
         data: bytes = fh.read()
         assert int.from_bytes(data, byteorder=sys.byteorder) == sample_value
 
@@ -210,7 +210,7 @@ async def test_simple_binary_file(tmp_path):
     assert len(key) > 0
 
     # Make sure a small change is caught.
-    duplicate = fileref.path().name
+    duplicate = pathlib.Path(fileref).name
     try:
         new_data = int.from_bytes(sample_data, byteorder=sys.byteorder).to_bytes(
             length=len(sample_data) - 1, byteorder=sys.byteorder
@@ -238,6 +238,6 @@ async def test_dispatching(tmp_path):
     with text_file() as textfile:
         fileref = await scalems.store.get_file_reference(textfile, filestore=datastore, mode="r")
     assert fileref.key() in datastore.files
-    with fileref.path().open("r") as fh:
+    with pathlib.Path(fileref).open("r") as fh:
         assert all([sample == read.rstrip() for sample, read in zip(sample_text, fh)])
     del manager

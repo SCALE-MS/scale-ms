@@ -133,7 +133,7 @@ async def test_simple_text_file(tmp_path):
         future = asyncio.ensure_future(datastore.add_file(scalems.file.describe_file(filename, mode="r")))
         await future
         assert future.done()
-        fileref: scalems.file.FileReference = future.result()
+        fileref: scalems.file.AbstractFileReference = future.result()
 
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
             await datastore.add_file(scalems.file.describe_file(filename, mode="r"))
@@ -172,7 +172,9 @@ async def test_simple_text_file(tmp_path):
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
             await datastore.add_file(scalems.file.describe_file(filename, mode="r"), _name=duplicate)
 
-        fileref: scalems.file.FileReference = await datastore.add_file(scalems.file.describe_file(filename, mode="r"))
+        fileref: scalems.file.AbstractFileReference = await datastore.add_file(
+            scalems.file.describe_file(filename, mode="r")
+        )
         assert fileref.key() != key
         assert fileref.path().name != duplicate
         assert str(fileref.path()) != path
@@ -192,7 +194,7 @@ async def test_simple_binary_file(tmp_path):
         future = asyncio.ensure_future(datastore.add_file(scalems.file.describe_file(filename, mode="rb")))
         await future
         assert future.done()
-        fileref: scalems.file.FileReference = future.result()
+        fileref: scalems.file.AbstractFileReference = future.result()
 
         with pytest.raises(scalems.exceptions.DuplicateKeyError):
             await datastore.add_file(scalems.file.describe_file(filename, mode="rb"))

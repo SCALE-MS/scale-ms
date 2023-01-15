@@ -32,7 +32,10 @@ def test_normal_lifecycle(tmp_path, caplog):
 
     generator = filestore_generator(directory=tmp_path)
     datastore = next(generator)()
+    # Disallow multiple FileStores per directory.
     with pytest.raises(scalems.exceptions.ContextError):
+        assert tmp_path in FileStore._instances
+        assert FileStore._instances[tmp_path] is datastore
         FileStore(directory=tmp_path)
     datastore.close()
     # finalize_datastore() must be called exactly once for a data store that has been

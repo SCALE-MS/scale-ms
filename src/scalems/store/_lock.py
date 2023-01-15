@@ -1,4 +1,4 @@
-"""Provide locking protocol for scalems.context data stores."""
+"""Locking protocol for scalems data stores."""
 
 __all__ = ["LockException", "is_locked", "scoped_directory_lock"]
 

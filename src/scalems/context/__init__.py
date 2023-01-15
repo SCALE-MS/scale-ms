@@ -26,6 +26,8 @@ def scoped_chdir(directory: typing.Union[str, bytes, os.PathLike]):
         active at a time. If necessary, we could allow for nested cwd contexts,
         but we cannot make this behavior thread-safe.
 
+    See Also:
+        https://github.com/SCALE-MS/scale-ms/issues/166
     """
     if isinstance(directory, bytes):
         directory = os.fsdecode(directory)

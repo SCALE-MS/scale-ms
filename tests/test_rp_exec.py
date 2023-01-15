@@ -173,7 +173,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
     )
 
     manager = scalems.radical.workflow_manager(loop)
-    with scalems.workflow.scope(manager):
+    with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         async with manager.dispatch(params=params) as dispatcher:

@@ -114,7 +114,7 @@ class AbstractFileReference(typing.Protocol):
             return pathlib.Path(self).as_uri()
         else:
             raise _exceptions.MissingImplementationError(
-                f"Protocol for non-local filesystem contexts is a work in progress."
+                "Protocol for non-local filesystem contexts is a work in progress."
             )  # return self.path(context=context).as_uri()
 
     @abc.abstractmethod
@@ -150,7 +150,7 @@ class AbstractFile(typing.Protocol):
 
     access: AccessFlags
     """Declared access requirements.
-    
+
     Not yet enforced or widely used.
     """
 

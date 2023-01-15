@@ -24,7 +24,6 @@ __all__ = (
     "FileStoreManager",
 )
 
-import asyncio
 import contextvars
 import dataclasses
 import functools
@@ -40,7 +39,7 @@ import weakref
 
 import scalems.exceptions as _exceptions
 import scalems.unique
-from ._lock import scoped_directory_lock as _scoped_directory_lock
+from . import _lock
 from .. import file as _file
 from .. import identifiers as _identifiers
 from .. import compat as _compat
@@ -81,13 +80,13 @@ class Metadata:
 
     files: typing.MutableMapping[str, str] = dataclasses.field(default_factory=dict)
     """Managed filesystem objects.
-    
+
     Maps hexadecimal-encoded (str) ResourceIdentifiers to filesystem paths (str).
     """
 
     objects: typing.MutableMapping[str, dict] = dataclasses.field(default_factory=dict)
     """Dictionary-encoded objects.
-    
+
     Refer to `scalems.serialization` for encoding schema.
     """
 
@@ -245,7 +244,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         self._dirty = threading.Event()
 
         try:
-            with _scoped_directory_lock(self._directory):
+            with _lock.scoped_directory_lock(self._directory):
                 existing_filestore = FileStore._instances.get(self._directory, None)
                 if existing_filestore is not None:
                     raise _exceptions.ContextError(f"{directory} is already managed by {repr(existing_filestore)}")
@@ -369,7 +368,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         self._data.instance = None
 
         try:
-            with _scoped_directory_lock(self.directory):
+            with _lock.scoped_directory_lock(self.directory):
                 if FileStore._instances.get(self._directory, None) is self:
                     del FileStore._instances[self._directory]
                 if current_instance is None:
@@ -689,7 +688,7 @@ async def _get_file_reference_by_path(obj: pathlib.Path, *, filestore: FileStore
 
 
 @functools.singledispatch
-def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
+def get_file_reference(obj, filestore=None, mode="rb") -> typing.Coroutine[None, None, FileReference]:
     """Get a FileReference for the provided object.
 
     If *filestore* is provided, use the given FileStore to manage the `FileReference`.
@@ -735,7 +734,7 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Awaitable[FileR
 
 
 @get_file_reference.register
-def _(obj: pathlib.Path, filestore=None, mode="rb") -> typing.Awaitable[FileReference]:
+def _(obj: pathlib.Path, filestore=None, mode="rb") -> typing.Coroutine[None, None, FileReference]:
     if filestore is None:
         raise _exceptions.MissingImplementationError(
             'There is not yet a "default" data store. *filestore* must be provided.'
@@ -749,20 +748,19 @@ def _(obj: pathlib.Path, filestore=None, mode="rb") -> typing.Awaitable[FileRefe
     if not obj.exists() or not obj.is_file():
         raise ValueError(f"Path {obj} is not a valid local file.")
 
-    task = asyncio.create_task(_get_file_reference_by_path(obj, filestore=filestore, mode=mode))
-    return task
+    return _get_file_reference_by_path(obj, filestore=filestore, mode=mode)
 
 
 @get_file_reference.register
-def _(obj: str, *args, **kwargs) -> typing.Awaitable[FileReference]:
+def _(obj: str, *args, **kwargs) -> typing.Coroutine[None, None, FileReference]:
     return get_file_reference(_identifiers.ResourceIdentifier(bytes.fromhex(obj)), *args, **kwargs)
 
 
 @get_file_reference.register
-def _(obj: bytes, *args, **kwargs) -> typing.Awaitable[FileReference]:
+def _(obj: bytes, *args, **kwargs) -> typing.Coroutine[None, None, FileReference]:
     return get_file_reference(_identifiers.ResourceIdentifier(obj), *args, **kwargs)
 
 
 @get_file_reference.register
-def _(obj: os.PathLike, *args, **kwargs) -> typing.Awaitable[FileReference]:
+def _(obj: os.PathLike, *args, **kwargs) -> typing.Coroutine[None, None, FileReference]:
     return get_file_reference(pathlib.Path(obj), *args, **kwargs)

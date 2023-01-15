@@ -267,7 +267,6 @@ import zlib
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
-
 try:
     from mpi4py.MPI import Comm
 except ImportError:
@@ -685,7 +684,9 @@ async def master_input(
         with open(config_file_path, "w") as fh:
             json.dump(configuration, fh, default=object_encoder, indent=2)
         file_description = _file.describe_file(config_file_path, mode="r")
-        add_file_task = asyncio.create_task(filestore.add_file(file_description), name="add-file")
+        add_file_task = asyncio.create_task(
+            _store.get_file_reference(file_description, filestore=filestore), name="get-config-file-reference"
+        )
         await asyncio.wait((add_file_task,), return_when=asyncio.FIRST_EXCEPTION)
         assert add_file_task.done()
         try:

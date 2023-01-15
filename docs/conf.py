@@ -13,16 +13,16 @@
 import os
 import sys
 
-sys.path.insert(0, os.path.abspath('..'))
+sys.path.insert(0, os.path.abspath(".."))
 
 # -- Project information -----------------------------------------------------
 
-project = 'SCALE-MS'
-copyright = '2019'
-author = 'SCALE-MS collaboration'
+project = "SCALE-MS"
+copyright = "2019"
+author = "SCALE-MS collaboration"
 
 # The full version, including alpha/beta/rc tags
-release = '0'
+release = "0"
 
 # -- General configuration ---------------------------------------------------
 
@@ -30,44 +30,44 @@ release = '0'
 # extensions coming with Sphinx (named 'sphinx.ext.*') or your custom
 # ones.
 extensions = [
-    'sphinx.ext.autodoc',
-    'sphinx.ext.extlinks',
-    'sphinx.ext.intersphinx',
-    'sphinx.ext.todo',  # Note: todo_include_todos=True is required for directives to produce output.
-    'sphinxcontrib.autoprogram',
-    'sphinxcontrib.napoleon',
-    'sphinxcontrib.plantuml'
+    "sphinx.ext.autodoc",
+    "sphinx.ext.extlinks",
+    "sphinx.ext.intersphinx",
+    "sphinx.ext.todo",  # Note: todo_include_todos=True is required for directives to produce output.
+    "sphinx.ext.viewcode",
+    "sphinxcontrib.autoprogram",
+    "sphinxcontrib.napoleon",
+    "sphinxcontrib.plantuml",
 ]
 
-default_role = 'any'
+default_role = "any"
 
 # Note that config options can be overridden on the command line with `-D`. E.g.
 #     sphinx-build -D todo_include_todos=1 -b html -c docs/ docs/ build/html
 
 # Add any paths that contain templates here, relative to this directory.
-templates_path = ['_templates']
+templates_path = ["_templates"]
 
 # List of patterns, relative to source directory, that match files and
 # directories to ignore when looking for source files.
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = []
 
-root_doc = 'index'
+root_doc = "index"
 
 # -- Options for extlinks --------------------
 
-extlinks = {'issue': ('https://github.com/SCALE-MS/scale-ms/issues/%s',
-                      'issue %s')}
+extlinks = {"issue": ("https://github.com/SCALE-MS/scale-ms/issues/%s", "issue %s")}
 
 # -- Options for intersphinx extension ---------------------------------------
 
 # Example configuration for intersphinx: refer to the Python standard library.
 intersphinx_mapping = {
-    'https://docs.python.org/3/': None,
-    'https://radicalpilot.readthedocs.io/en/stable/': None,
-    'https://radicalsaga.readthedocs.io/en/stable/': None,
-    'https://msgpack-python.readthedocs.io/en/latest/': None,
-    'https://mpi4py.readthedocs.io/en/stable/': None,
+    "https://docs.python.org/3/": None,
+    "https://radicalpilot.readthedocs.io/en/stable/": None,
+    "https://radicalsaga.readthedocs.io/en/stable/": None,
+    "https://msgpack-python.readthedocs.io/en/latest/": None,
+    "https://mpi4py.readthedocs.io/en/stable/": None,
 }
 
 # -- Options for HTML output -------------------------------------------------
@@ -75,7 +75,7 @@ intersphinx_mapping = {
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'sphinx_rtd_theme'
+html_theme = "sphinx_rtd_theme"
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -85,20 +85,21 @@ html_theme = 'sphinx_rtd_theme'
 # -- Options for autodoc -----------------------------------------------------
 # autodoc_mock_imports = ['radical']
 autodoc_default_options = {
-    # 'inherited-members': True,
+    "inherited-members": True,
     # 'show-inheritance': True,
 }
 autoclass_content = "class"
 autodoc_class_signature = "separated"
+autodoc_member_order = "groupwise"
 autodoc_typehints = "description"
 autodoc_typehints_description_target = "all"
 autodoc_type_aliases = {
-    'rp.Pilot': 'radical.pilot.Pilot',
-    'rp.Session': 'radical.pilot.Session',
-    'rp.PilotManager': 'radical.pilot.PilotManager',
-    'rp.TaskManager': 'radical.pilot.TaskManager',
-    'rp.Task': 'radical.pilot.Task',
-    'radical.pilot.pilot.Pilot': 'radical.pilot.Pilot',
+    "rp.Pilot": "radical.pilot.Pilot",
+    "rp.Session": "radical.pilot.Session",
+    "rp.PilotManager": "radical.pilot.PilotManager",
+    "rp.TaskManager": "radical.pilot.TaskManager",
+    "rp.Task": "radical.pilot.Task",
+    "radical.pilot.pilot.Pilot": "radical.pilot.Pilot",
 }
 
 # -- Options for Napoleon ----------------------------------------------------
@@ -114,10 +115,7 @@ napoleon_include_init_with_doc = False
 # napoleon_use_param = True
 # napoleon_use_rtype = True
 # napoleon_use_keyword = True
-napoleon_custom_sections = [
-    'Design notes',
-    'Caveats'
-]
+napoleon_custom_sections = ["Design notes", "Caveats"]
 
 # -- Options for plantuml extension ------------------------------------------
 
@@ -125,4 +123,4 @@ napoleon_custom_sections = [
 # behavior of the plantuml wrapper script.
 # Wrapper script location may not be necessary.
 # plantuml = '/usr/bin/plantuml'
-plantuml_output_format = 'svg'
+plantuml_output_format = "svg"

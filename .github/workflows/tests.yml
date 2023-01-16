@@ -122,9 +122,13 @@ jobs:
         . $HOME/testenv/bin/activate
         coverage run -m scalems.local --version
         coverage run --append -m scalems.local --help
+        # We clean the working directory now, but we will need better handling for
+        # output data with #292. This and the output check below will need to be
+        # further updated soon.
+        rm -rf 000*
         coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
         coverage xml -o coverage-cli.xml
-        cat 0000*/stdout | grep -q "hi there" || false
+        python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
         (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
         (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
     - name: "Upload coverage to Codecov"
@@ -210,9 +214,14 @@ jobs:
         . $HOME/testenv/bin/activate
         coverage run -m scalems.radical --version
         coverage run --append -m scalems.radical --help
+        # We clean the working directory now, but we will need better handling for
+        # output data with #292. This and the output check below will need to be
+        # further updated soon.
+        rm -rf 000*
         coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
-        cat 0000*/stdout | grep -q "hi there" || false
+        stdout=$(echo 0*/stdout)
+        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v3
@@ -320,9 +329,14 @@ jobs:
         . $HOME/testenv/bin/activate
         coverage run -m scalems.radical --version
         coverage run --append -m scalems.radical --help
+        # We clean the working directory now, but we will need better handling for
+        # output data with #292. This and the output check below will need to be
+        # further updated soon.
+        rm -rf 000*
         coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
-        cat 0000*/stdout | grep -q "hi there" || false
+        stdout=$(echo 0*/stdout)
+        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v3
@@ -437,9 +451,14 @@ jobs:
         . $HOME/testenv/bin/activate
         coverage run -m scalems.radical --version
         coverage run --append -m scalems.radical --help
+        # We clean the working directory now, but we will need better handling for
+        # output data with #292. This and the output check below will need to be
+        # further updated soon.
+        rm -rf 000*
         coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         coverage xml -o coverage2.xml
-        cat 0000*/stdout | grep -q "hi there" || false
+        stdout=$(echo 0*/stdout)
+        python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v3

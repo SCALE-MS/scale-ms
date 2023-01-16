@@ -343,7 +343,8 @@ class Runtime:
         """Get (optionally set) the current PilotManager.
 
         Args:
-            pilot_manager (optional, radical.pilot.PilotManager, str): Set to RP PilotManager instance or identifier, if provided.
+            pilot_manager (optional, radical.pilot.PilotManager, str):
+                Set to RP PilotManager instance or identifier, if provided.
 
         Returns:
             radical.pilot.PilotManager: instance, if set, else ``None``.
@@ -388,7 +389,8 @@ class Runtime:
         """Get (optionally set) the current TaskManager.
 
         Args:
-            task_manager (optional, radical.pilot.TaskManager, str): Set to RP TaskManager instance or identifier, if provided.
+            task_manager (optional, radical.pilot.TaskManager, str):
+                Set to RP TaskManager instance or identifier, if provided.
 
         Returns:
             radical.pilot.TaskManager: instance, if set, else ``None``.

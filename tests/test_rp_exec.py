@@ -330,11 +330,6 @@ async def test_exec_rp(pilot_description, rp_venv):
     # Test RPDispatcher context
     manager = scalems.radical.workflow_manager(loop)
 
-    # This sleep doesn't cost too much waiting, but seems to effectively work around
-    # some sort of race condition as resources are freed when running the full test suite.
-    await asyncio.sleep(60)
-    # TODO: Try to find a better way to wait for previous resources to be released.
-
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher

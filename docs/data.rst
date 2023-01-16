@@ -22,6 +22,7 @@ Protocols
 
 .. automodule:: scalems.file
     :members:
+    :exclude-members: DataLocalizationError
 
 Data store
 ----------

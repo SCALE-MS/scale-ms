@@ -62,10 +62,13 @@ scalems.radical Python module
 -----------------------------
 
 .. automodule:: scalems.radical
+    :no-members:
 
 .. _scalems.radical command line:
 
 .. autoprogram:: scalems.radical:parser
+
+.. seealso:: :doc:`executor_radical`
 
 .. _venvs:
 

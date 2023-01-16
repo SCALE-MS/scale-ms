@@ -214,18 +214,7 @@ Base classes
                                   simulation=initial_input)
         loop.run()
 
-.. I list the members explicitly because nothing else seems to suppress the documentation of __fspath__ in Sphinx 4.1.2
-.. autoclass:: scalems.file.AbstractFileReference
-    :members: is_local, path, as_uri, localize
-    :noindex:
-
-.. autoclass:: scalems.file.BaseBinary
-    :members:
-    :noindex:
-
-.. autoclass:: scalems.file.BaseText
-    :members:
-    :noindex:
+.. seealso:: :doc:`data`
 
 Logging
 =======

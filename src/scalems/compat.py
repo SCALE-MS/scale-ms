@@ -1,5 +1,6 @@
 """Compatibility helpers."""
 import asyncio
+import contextvars
 import functools
 import typing
 
@@ -34,10 +35,11 @@ def get_to_thread() -> FuncToThread:
         async def _to_thread(
             __func: typing.Callable[..., _ReturnT], *args: typing.Any, **kwargs: typing.Any
         ) -> _ReturnT:
-            """Mock Python to_thread for Py 3.8."""
-            wrapped_function: typing.Callable[[], _ReturnT] = functools.partial(__func, *args, **kwargs)
+            """Port Python asyncio.to_thread for Py 3.8."""
+            context = contextvars.copy_context()
+            wrapped_function: typing.Callable[[], _ReturnT] = functools.partial(context.run, __func, *args, **kwargs)
             assert callable(wrapped_function)
-            loop = asyncio.get_event_loop()
+            loop = asyncio.get_running_loop()
             coro: typing.Awaitable[_ReturnT] = loop.run_in_executor(None, wrapped_function)
             result = await coro
             return result

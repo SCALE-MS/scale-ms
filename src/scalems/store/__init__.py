@@ -708,7 +708,7 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Coroutine[None,
     attempts to retrieve a reference to the identified filesystem object.
 
     Note:
-        If *obj* is a `str` or `bytes`, *obj* is interpreted as a `ResourceIdentifier`,
+        If *obj* is a `str` or :py:class:`bytes`, *obj* is interpreted as a `ResourceIdentifier`,
         **not** as a filesystem path.
 
     This involves placing (copying) the file, reading the file to fingerprint it,

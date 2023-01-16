@@ -248,6 +248,22 @@ See https://github.com/radical-cybertools/radical.pilot/issues/2731
 """
 from __future__ import annotations
 
+__all__ = (
+    "ClientWorkerRequirements",
+    "MasterTaskConfiguration",
+    "master_script",
+    "master_input",
+    "master",
+    "worker_requirements",
+    "worker_description",
+    "SoftwareCompatibilityError",
+    "ScaleMSWorker",
+    "ScaleMSMaster",
+    "ScalemsRaptorWorkItem",
+    "WorkerDescriptionDict",
+    "RaptorWorkerConfig",
+)
+
 import abc
 import argparse
 import asyncio

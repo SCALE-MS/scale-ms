@@ -1,6 +1,23 @@
-"""Provide an interface for managing filesystem objects in a workflow."""
+"""Provide an interface for managing filesystem objects in a workflow.
 
-__all__ = ("AbstractFile", "FileReference", "DataLocalizationError", "describe_file")
+We distinguish between *File* and *FileReference* types.
+
+A *File* is a concrete representation of a local filesystem object.
+
+A *FileReference* is more general. It may represent a non-local object
+(accessible by a URI). We currently use *FileReference* objects exclusively for
+resources managed by scalems. (See `scalems.store.FileStore`.)
+"""
+
+__all__ = (
+    "AbstractFileReference",
+    "AbstractFile",
+    "AccessFlags",
+    "BaseBinary",
+    "BaseText",
+    "DataLocalizationError",
+    "describe_file",
+)
 
 import abc
 import codecs
@@ -12,11 +29,11 @@ import os
 import pathlib
 import typing
 
-import scalems.exceptions
-from scalems.exceptions import ScopeError
+import scalems.exceptions as _exceptions
+from .. import identifiers as _identifiers
 
 
-class DataLocalizationError(ScopeError):
+class DataLocalizationError(_exceptions.ScopeError):
     """The requested file operation is not possible in the given context.
 
     This may be because a referenced file exists in a different FileStore than the
@@ -26,7 +43,7 @@ class DataLocalizationError(ScopeError):
 
 
 @typing.runtime_checkable
-class FileReference(typing.Protocol):
+class AbstractFileReference(typing.Protocol):
     """Reference to a managed file.
 
     A FileReference is an :py:class:`os.PathLike` object.
@@ -36,7 +53,7 @@ class FileReference(typing.Protocol):
     If the file is not available locally, an exception will be raised.
 
     Example:
-        handle: scalems.FileReference = filestore.add_file(...)
+        handle: scalems.file.AbstractFileReference = filestore.add_file(...)
     """
 
     @abc.abstractmethod
@@ -64,7 +81,7 @@ class FileReference(typing.Protocol):
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def localize(self, context=None) -> "FileReference":
+    async def localize(self, context=None) -> "AbstractFileReference":
         """Make sure that the referenced file is available locally for a given context.
 
         With no arguments, *localize()* affects the currently active FileStore.
@@ -75,22 +92,11 @@ class FileReference(typing.Protocol):
 
         Raises:
             TBD
+
+        TODO:
+            Abstract type for required *context* interface.
         """
         return self
-
-    def path(self, context=None) -> pathlib.Path:
-        """Get the path for the referenced file.
-
-        If *context* is specified, the returned :py:class:`~pathlib.Path` is valid in
-        the filesystem associated with the given context.
-
-        If *context* is unspecified, the filesystem for the currently active (client)
-        FileStore is used.
-
-        Raises:
-            DataLocalizationError: if the referenced file has not been localized.
-        """
-        return context.files[self.key()]
 
     def as_uri(self, context=None) -> str:
         """Get an appropriate URI for a referenced file, whether or not it is available.
@@ -104,7 +110,12 @@ class FileReference(typing.Protocol):
         extensions for RADICAL Pilot
         :py:mod:`staging directives <radical.pilot.staging_directives>`.
         """
-        return self.path(context=context).as_uri()
+        if context is None and self.is_local():
+            return pathlib.Path(self).as_uri()
+        else:
+            raise _exceptions.MissingImplementationError(
+                "Protocol for non-local filesystem contexts is a work in progress."
+            )  # return self.path(context=context).as_uri()
 
     @abc.abstractmethod
     def filestore(self):
@@ -112,10 +123,10 @@ class FileReference(typing.Protocol):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def key(self):
+    def key(self) -> _identifiers.ResourceIdentifier:
         """Get the identifying key for the file reference.
 
-        The return value may not be human readable, but may be necessary for locating
+        The return value may not be human-readable, but may be necessary for locating
         the referenced file through the filestore.
         """
         raise NotImplementedError
@@ -130,56 +141,52 @@ class AccessFlags(enum.Flag):
 class AbstractFile(typing.Protocol):
     """Abstract base for file types.
 
-    See :py:func:`describe_file`.
+    Extends `os.PathLike` with the promise of a
+    :py:func:`~AbstractFile.fingerprint()` method and some support for access
+    control semantics.
+
+    See :py:func:`describe_file` for a creation function.
     """
 
     access: AccessFlags
+    """Declared access requirements.
 
-    # _params: dict = None
-    #
-    # def __repr__(self):
-    #     params = ', '.join([f'{key}={value}' for key, value in self._params.items()])
-    #     return f'{self.__class__.__qualname__}({params})'
+    Not yet enforced or widely used.
+    """
 
     @abc.abstractmethod
     def __fspath__(self) -> str:
         raise NotImplementedError
 
-    def path(self) -> pathlib.Path:
-        return pathlib.Path(os.fspath(self))
-
+    @abc.abstractmethod
     def fingerprint(self) -> bytes:
-        """Get a checksum or other suitable fingerprint for the file data."""
-        with open(os.fspath(self), "rb") as f:
-            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
-                m = hashlib.sha256(data)
-        checksum: bytes = m.digest()
-        return checksum
+        """Get a checksum or other suitable fingerprint for the file data.
 
-    # @abc.abstractmethod
-    # def serialize(self) -> bytes:
-    #     ...
-    #
-    # @abc.abstractmethod
-    # @classmethod
-    # def deserialize(cls, stream: bytes):
-    #     ...
+        Note that the fingerprint could change if the file is written to during
+        the lifetime of the handle. This is too complicated to optimize, generally,
+        so possible caching of fingerprint results is left to the caller.
+        """
+        raise NotImplementedError
 
 
 class BaseBinary(AbstractFile):
     """Base class for binary file types."""
 
-    _path: pathlib.Path
+    _path: str
 
     def __init__(self, path: typing.Union[str, pathlib.Path, os.PathLike], access: AccessFlags = AccessFlags.READ):
-        self._path = pathlib.Path(path).resolve()
+        self._path = str(pathlib.Path(path).resolve())
         self.access = access
 
     def __fspath__(self) -> str:
-        return str(self._path)
-
-    def path(self) -> pathlib.Path:
         return self._path
+
+    def fingerprint(self) -> bytes:
+        with open(os.fspath(self), "rb") as f:
+            with mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ) as data:
+                m = hashlib.sha256(data)
+        checksum: bytes = m.digest()
+        return checksum
 
 
 class BaseText(BaseBinary):
@@ -224,7 +231,7 @@ def describe_file(
     # TODO: Confirm requested access permissions.
 
     if file_type_hint:
-        raise scalems.exceptions.MissingImplementationError("Extensible file types not yet supported.")
+        raise _exceptions.MissingImplementationError("Extensible file types not yet supported.")
 
     if "b" in mode:
         if encoding is not None:
@@ -233,7 +240,7 @@ def describe_file(
     else:
         file = BaseText(path=obj, access=access, encoding=encoding)
 
-    if not file.path().exists():
+    if not pathlib.Path(file).exists():
         raise ValueError("Not an existing file.")
 
     return file

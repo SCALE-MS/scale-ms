@@ -267,7 +267,6 @@ import zlib
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
-
 try:
     from mpi4py.MPI import Comm
 except ImportError:
@@ -289,12 +288,12 @@ try:
 except (ImportError,):
     warnings.warn("RADICAL Pilot installation not found.")
 
+import scalems.compat
 import scalems.exceptions
 import scalems.radical
 import scalems.messages
-from scalems.file import FileReference
-from scalems.file import describe_file
-from scalems.store import FileStore
+import scalems.file as _file
+import scalems.store as _store
 
 # QUESTION: How should we approach logging? To what degree can/should we integrate
 # with rp logging?
@@ -485,7 +484,7 @@ class CpiAddItem(CpiCommand):
         # TODO(#277): Check dependencies and runnability before submitting.
 
         fingerprint = zlib.crc32(json.dumps(work_item, sort_keys=True).encode("utf8"))
-        # TODO: More robust fingerprint. Ref scalems.serialization and scalems.context._datastore
+        # TODO: More robust fingerprint. Ref scalems.serialization and scalems.store
         # TODO: Check for duplicates.
         scalems_task_id = f"scalems-task-{fingerprint}"
 
@@ -644,14 +643,20 @@ def master_script() -> str:
     return _master_script
 
 
-async def master_input(*, filestore: FileStore, worker_pre_exec: list, worker_venv: str) -> FileReference:
+async def master_input(
+    *, filestore: _store.FileStore, worker_pre_exec: list, worker_venv: str
+) -> _file.AbstractFileReference:
     """Provide the input file for a SCALE-MS Raptor Master script.
 
     Args:
-        filestore: (local) FileStore that will manage the generated FileReference.
+        worker_venv (str) : Directory path for the Python virtual environment in which
+            to execute the worker.
+        worker_pre_exec (list[str]): List of shell command lines to execute in the worker
+            environment before its launch script.
+        filestore: (local) FileStore that will manage the generated AbstractFileReference.
 
     """
-    if not isinstance(filestore, FileStore) or filestore.closed or not filestore.directory.exists():
+    if not isinstance(filestore, _store.FileStore) or filestore.closed or not filestore.directory.exists():
         raise ValueError(f"{filestore} is not a usable FileStore.")
 
     # This is the initial Worker submission. The Master may submit other workers later,
@@ -678,14 +683,25 @@ async def master_input(*, filestore: FileStore, worker_pre_exec: list, worker_ve
         config_file_path = os.path.join(tmpdir, config_file_name)
         with open(config_file_path, "w") as fh:
             json.dump(configuration, fh, default=object_encoder, indent=2)
-        file_description = describe_file(config_file_path, mode="r")
-        handle: FileReference = await asyncio.create_task(filestore.add_file(file_description), name="add-file")
+        file_description = _file.describe_file(config_file_path, mode="r")
+        add_file_task = asyncio.create_task(
+            _store.get_file_reference(file_description, filestore=filestore), name="get-config-file-reference"
+        )
+        await asyncio.wait((add_file_task,), return_when=asyncio.FIRST_EXCEPTION)
+        assert add_file_task.done()
         try:
             tmpdir_manager.cleanup()
         except OSError:
             logger.exception(f"Errors occurred while cleaning up {tmpdir}.")
-
-    return handle
+    if isinstance(add_file_task.exception(), scalems.exceptions.DuplicateKeyError):
+        checksum = await scalems.compat.get_to_thread()(file_description.fingerprint)
+        key = checksum.hex()
+        # Note: the DuplicateKeyError could theoretically be the result of a
+        # pre-existing file with the same internal path but a different key, but
+        # such a condition would probably represent an internal error (bug).
+        return filestore[key]
+    else:
+        return add_file_task.result()
 
 
 def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequirements:

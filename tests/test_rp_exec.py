@@ -51,7 +51,7 @@ else:
 # This test does not add any coverage, and only adds measurable coverage or coverage
 # granularity if we either mock a RP agent or gather coverage files from remote environments.
 @pytest.mark.asyncio
-async def test_raptor_master(pilot_description, rp_venv, cleandir):
+async def test_raptor_master(pilot_description, rp_venv):
     """Check our ability to launch and interact with a Master task."""
     import radical.pilot as rp
 
@@ -149,7 +149,7 @@ async def test_raptor_master(pilot_description, rp_venv, cleandir):
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
-async def test_worker(pilot_description, rp_venv, cleandir):
+async def test_worker(pilot_description, rp_venv):
     """Launch the master script and execute a trivial workflow."""
 
     if rp_venv is None:
@@ -173,7 +173,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
     )
 
     manager = scalems.radical.workflow_manager(loop)
-    with scalems.workflow.scope(manager):
+    with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
         async with manager.dispatch(params=params) as dispatcher:
@@ -307,7 +307,7 @@ async def test_worker(pilot_description, rp_venv, cleandir):
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
-async def test_exec_rp(pilot_description, rp_venv, cleandir):
+async def test_exec_rp(pilot_description, rp_venv):
     """Test that we are able to launch and shut down a RP dispatched execution session."""
     import radical.pilot as rp
 

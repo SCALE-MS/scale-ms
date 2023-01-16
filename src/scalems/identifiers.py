@@ -54,13 +54,14 @@ class Identifier(typing.Hashable, typing.Protocol):
 
     Concrete data warrants a 128-bit or 256-bit checksum.
 
-    Design note:
+    Design notes:
         Several qualifications may be necessary regarding the use of an identifier,
         which may warrant annotation accessible through the Identifier instance.
         Additional proposed data members include:
+
         * scope: Scope in which the Identifier is effective and unique.
         * reproducible: Whether results will have the same identity if re-executed.
-                        Relates to behaviors in situations such as missing cache data.
+          Relates to behaviors in situations such as missing cache data.
         * concrete: Is this a concrete object or something more abstract?
 
     """
@@ -69,7 +70,7 @@ class Identifier(typing.Hashable, typing.Protocol):
     """Is this a concrete object or something more abstract?"""
 
     @abc.abstractmethod
-    def bytes(self) -> typing.SupportsBytes:
+    def bytes(self) -> bytes:
         """A consistent bytes representation of the identity.
 
         The core interface provided by Identifiers.
@@ -90,7 +91,7 @@ class Identifier(typing.Hashable, typing.Protocol):
         By default, the string representation is the basis for the stub used
         for filesystem objects. To change this, override the __fspath__() method.
         """
-        return hex(self)
+        return self.bytes().hex()
 
     def encode(self) -> BaseEncodable:
         """Get a canonical encoding of the identifier as a native Python object.
@@ -112,16 +113,19 @@ class Identifier(typing.Hashable, typing.Protocol):
         return self.__index__()
 
     def __fspath__(self) -> str:
-        """Get a representation suitable for naming a filesystem object."""
+        """Get a representation suitable for naming a filesystem object.
+
+        Support the `os.PathLike` protocol for `os.fspath`.
+        """
         path = os.fsencode(str(self))
         return str(path)
 
     def __bytes__(self) -> builtins.bytes:
         """Get the network ordered byte sequence for the raw identifier."""
-        return bytes(self.bytes())
+        return self.bytes()
 
     def __index__(self) -> int:
-        """Support integer conversions."""
+        """Support integer conversions, including the `hex()` builtin function."""
         return int.from_bytes(self.bytes(), "big")
 
 
@@ -179,7 +183,10 @@ class ResourceIdentifier(Identifier):
             raise InternalError(f"Expected a 256-bit hash digest. Got {repr(fingerprint)}")
 
     def bytes(self):
-        return bytes(self._data)
+        return self._data
+
+    def __str__(self) -> str:
+        return self._data.hex()
 
 
 class TypeIdentifier(NamedIdentifier):

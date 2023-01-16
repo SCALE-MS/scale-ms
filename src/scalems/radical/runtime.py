@@ -513,7 +513,7 @@ async def _get_scheduler(
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
 
-    # TODO(#75): Automate handling of file staging directives for scalems.FileReference
+    # TODO(#75): Automate handling of file staging directives for scalems.file.AbstractFileReference
     # e.g. _add_file_dependency(td, config_file)
     config_file_name = str(td.uid) + "-config.json"
     td.input_staging = [
@@ -1060,7 +1060,8 @@ class RPDispatchingExecutor(RuntimeManager):
                 # cancellation to succeed. It shouldn't take long, but it is not
                 # instantaneous or synchronous. We hope that a minute is enough.
                 # TODO(#249): wrap in a thread, since this could take a few seconds.
-                runtime.scheduler.wait(state=rp.FINAL, timeout=60)
+                final_state = runtime.scheduler.wait(state=rp.FINAL, timeout=60)
+                logger.debug(f"Final state: {final_state}")
                 logger.info(f"Master scheduling task state {runtime.scheduler.state}: {repr(runtime.scheduler)}.")
                 if runtime.scheduler.stdout:
                     # TODO(#229): Fetch actual stdout file.

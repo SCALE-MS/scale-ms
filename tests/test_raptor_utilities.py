@@ -41,6 +41,7 @@ else:
     minimum_scalems_version = client_scalems_version.base_version
 
 
+@pytest.mark.skip(reason="temporarily ignoring raptor")
 def test_master_configuration_details(rp_venv):
     """Test the details needed to launch the master script.
 

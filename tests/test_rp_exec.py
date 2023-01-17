@@ -309,8 +309,8 @@ async def test_worker(pilot_description, rp_venv):
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
-async def test_exec_rp(pilot_description, rp_venv):
-    """Test that we are able to launch and shut down a RP dispatched execution session."""
+async def test_rp_executable(pilot_description, rp_venv):
+    """Test our scalems.executable implementation for RADICAL Pilot."""
     import radical.pilot as rp
 
     # Hopefully, this requirement is temporary.
@@ -334,12 +334,18 @@ async def test_exec_rp(pilot_description, rp_venv):
 
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
+        # Test a command from before entering the dispatch context
+        cmd1 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout1.txt")
         # Enter the async context manager for the default dispatcher
-        cmd1 = scalems.executable(("/bin/echo",))
         async with manager.dispatch(params=params) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
-            cmd2 = scalems.executable(("/bin/echo", "hello", "world"))
+            # Test a command issued after entering the dispatch context.
+            # TODO: Check data flow dependency.
+            # cmd2 = scalems.executable(("/bin/cat", cmd1.stdout), stdout="stdout2.txt")
+            # TODO: Check *stdin* shim.
+            # cmd2 = scalems.executable(("/bin/cat", "-"), stdin=cmd1.stdout, stdout="stdout2.txt")
+            cmd2 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout2.txt")
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
         assert cmd1.done()

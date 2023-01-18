@@ -7,7 +7,9 @@ import pytest
 import radical.pilot as rp
 
 from scalems.exceptions import APIError
-from scalems.radical.runtime import Runtime
+
+# from scalems.radical.runtime import Runtime
+from scalems.rp.runtime import Runtime
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

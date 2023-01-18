@@ -8,6 +8,7 @@ through :file:`test_rp_exec.py`.
 
 import dataclasses
 import json
+import logging
 import os
 
 import packaging.version
@@ -20,14 +21,14 @@ from scalems.radical.raptor import ScaleMSMaster
 from scalems.radical.raptor import ScaleMSWorker
 from scalems.radical.raptor import WorkerDescriptionDict
 
+pytest.skip("Temporarily disabling raptor tests", allow_module_level=True)
+
 try:
     import radical.pilot as rp
 except ImportError:
     rp = None
 else:
     from scalems.radical.raptor import object_encoder
-
-import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)

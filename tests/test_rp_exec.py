@@ -29,6 +29,8 @@ else:
     import scalems.radical
     import scalems.radical.raptor
     import scalems.radical.runtime
+    import scalems.rp
+    import scalems.rp.runtime
 
 import logging
 
@@ -323,14 +325,14 @@ async def test_rp_executable(pilot_description, rp_venv):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
-    params = scalems.radical.runtime.Configuration(
+    params = scalems.rp.runtime.Configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
     # Test RPDispatcher context
-    manager = scalems.radical.workflow_manager(loop)
+    manager = scalems.rp.workflow_manager(loop)
 
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
@@ -338,7 +340,7 @@ async def test_rp_executable(pilot_description, rp_venv):
         cmd1 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout1.txt")
         # Enter the async context manager for the default dispatcher
         async with manager.dispatch(params=params) as dispatcher:
-            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
+            assert isinstance(dispatcher, scalems.rp.runtime.RPDispatchingExecutor)
             logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
             # Test a command issued after entering the dispatch context.
             # TODO: Check data flow dependency.

@@ -10,8 +10,11 @@ import pytest
 import scalems
 import scalems.compat
 import scalems.context
+
 import scalems.radical
 import scalems.radical.runtime
+import scalems.rp
+import scalems.rp.runtime
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -44,7 +47,7 @@ async def test_rp_future(rp_task_manager):
     # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(task_description)
 
-    rp_future: asyncio.Future = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Future = await scalems.rp.runtime.rp_task(task)
 
     task.cancel()
     try:
@@ -63,7 +66,7 @@ async def test_rp_future(rp_task_manager):
     task_description.uid = "test-rp-future-2"
     task: rp.Task = tmgr.submit_tasks(task_description)
 
-    rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Task = await scalems.rp.runtime.rp_task(task)
 
     assert isinstance(rp_future, asyncio.Task)
     rp_future.cancel()
@@ -106,7 +109,7 @@ async def test_rp_future(rp_task_manager):
         watcher.cancel()
         raise e
 
-    rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Task = await scalems.rp.runtime.rp_task(task)
     try:
         result: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:

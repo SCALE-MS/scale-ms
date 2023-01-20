@@ -24,8 +24,8 @@ sample_call_input = dict(
 
 def test_call_func():
     """Test the API for scalems.call"""
-    call = scalems.call.pack_call(**sample_call_input)
-    result = scalems.call.main(scalems.call.unpack_call(call))
+    call = scalems.call.serialize_call(**sample_call_input)
+    result = scalems.call.main(scalems.call.deserialize_call(call))
     assert result.exception is None
     complete_process: CompletedProcess = result.return_value
     # Note that we are not treating OS text encoding generally here. However,
@@ -35,21 +35,24 @@ def test_call_func():
     assert "hello world" in complete_process.stdout.decode(encoding="utf8")
 
 
-def test_call_cli(tmpdir):
+def test_call_cli(tmp_path):
     """Run the command line in a subprocess to confirm reasonable behavior."""
-    callpack = scalems.call.pack_call(**sample_call_input)
-    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", dir=tmpdir) as tmp_file:
-        tmp_file.write(callpack)
+    call = scalems.call.serialize_call(**sample_call_input)
+    outfile = os.path.join(tmp_path, "scalems_out.json")
+
+    with tempfile.NamedTemporaryFile(suffix=".json", mode="w", dir=tmp_path) as tmp_file:
+        tmp_file.write(call)
         tmp_file.flush()
-        pack_path = tmp_file.name
+        call_path = tmp_file.name
         process = subprocess_run(
-            args=(sys.executable, "-m", "scalems.call", pack_path), capture_output=True, cwd=tmpdir
+            args=(sys.executable, "-m", "scalems.call", call_path, outfile),
+            capture_output=True,
+            cwd=tmp_path,
         )
     assert process.returncode == 0
-    outfile = os.path.join(tmpdir, "scalems_out.json")
     assert os.path.exists(outfile)
     with open(outfile, "r") as fh:
-        result: scalems.call.Result = scalems.call.unpack_result(fh.read())
+        result: scalems.call.Result = scalems.call.deserialize_result(fh.read())
     completed_process: CompletedProcess = result.return_value
     assert "hello world" in completed_process.stdout.decode(encoding="utf8")
     # Output files need to be resolvable to local files.

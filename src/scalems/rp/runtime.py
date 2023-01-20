@@ -1182,7 +1182,7 @@ async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asynci
         raise e
 
 
-async def rp_task(rptask: rp.Task) -> asyncio.Task:
+async def rp_task(rptask: rp.Task) -> asyncio.Task[rp.Task]:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 
     Schedule an asyncio Task to receive the result of the RP Task. The asyncio
@@ -1228,6 +1228,8 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
 
     if rptask.state in rp.FINAL:
         # rptask may have reached FINAL state before callback was registered.
+        # radical.pilot.Task.register_callback does not guarantee that callbacks
+        # will be called if registered after task completion.
         # Call it once. For simplicity, let the task_watcher logic proceed normally.
         logger.warning(f"RP Task {repr(rptask)} finished suspiciously fast.")
         callback(rptask, rptask.state, cb_data)

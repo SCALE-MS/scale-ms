@@ -11,11 +11,15 @@ Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 import asyncio
 import json
 import os
+from subprocess import CompletedProcess
+from subprocess import run as subprocess_run
+from urllib.parse import urlparse
 
 import packaging.version
 import pytest
 
 import scalems
+import scalems.call
 import scalems.compat
 import scalems.context
 import scalems.messages
@@ -307,6 +311,124 @@ async def test_worker(pilot_description, rp_venv):
 #         print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
 #         assert t.state == rp.states.DONE
 #         assert t.exit_code == 0
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+@pytest.mark.asyncio
+async def test_rp_function(pilot_description, rp_venv, tmp_path):
+    """Test our automation for RP Task generation for function calls."""
+    import radical.pilot as rp
+
+    timeout = 180
+
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip("This test requires a user-provided static RP venv.")
+
+    original_context = scalems.workflow.get_scope()
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+    # Configure module.
+    params = scalems.rp.runtime.Configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+    )
+
+    sample_call_input = dict(
+        func=subprocess_run,
+        kwargs={"args": ["/bin/echo", "hello", "world"], "capture_output": True},
+    )
+    task_uid = "test_rp_function-1"
+    input_pack = tmp_path.joinpath(task_uid + "-input.json")
+    with open(input_pack, "w") as fh:
+        fh.write(scalems.call.serialize_call(**sample_call_input))
+    client_output_dir = tmp_path.joinpath(task_uid)
+    task_description = rp.TaskDescription()
+    task_description.stage_on_error = True
+    task_description.uid = task_uid
+    task_description.executable = "python3"
+    task_description.arguments = ["-m", "scalems.call"]
+
+    result_pack = client_output_dir.joinpath(task_uid + "-output.json")
+    # TODO: Warn users that these files and the RP support files will be present
+    #  in the task working directory.
+    task_description.arguments.extend((input_pack.name, result_pack.name))
+
+    task_description.input_staging = [
+        {
+            "source": input_pack.as_uri(),
+            # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
+            "target": "task:///" + input_pack.name,
+            "action": rp.TRANSFER,
+        }
+    ]
+    task_description.output_staging = [
+        {"source": "task:///", "target": client_output_dir.as_uri(), "action": rp.TRANSFER, "flags": rp.CREATE_PARENTS}
+    ]
+
+    # Test RPDispatcher context
+    manager = scalems.rp.workflow_manager(loop)
+
+    with scalems.workflow.scope(manager, close_on_exit=True):
+        assert not loop.is_closed()
+        # Test a command from before entering the dispatch context
+        # cmd1 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout1.txt")
+        # Enter the async context manager for the default dispatcher
+        async with manager.dispatch(params=params) as dispatcher:
+            assert isinstance(dispatcher, scalems.rp.runtime.RPDispatchingExecutor)
+            logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
+            # Test a command issued after entering the dispatch context.
+            # TODO: Check data flow dependency.
+            # cmd2 = scalems.executable(("/bin/cat", cmd1.stdout), stdout="stdout2.txt")
+            # TODO: Check *stdin* shim.
+            # cmd2 = scalems.executable(("/bin/cat", "-"), stdin=cmd1.stdout, stdout="stdout2.txt")
+            # cmd2 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout2.txt")
+            # TODO: Wrap submission.
+            task_manager = dispatcher.runtime.task_manager()
+            cmd2_task: rp.Task = task_manager.submit_tasks([task_description])[0]
+            rp_future: asyncio.Task[rp.Task] = await scalems.rp.runtime.rp_task(cmd2_task)
+            try:
+                result: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
+            except asyncio.TimeoutError as e:
+                logger.debug(f"Waited more than {timeout} for {rp_future}: {e}")
+                rp_future.cancel("Canceled after waiting too long.")
+                raise e
+            # TODO: Clarify whether/how result() method should work in this scope.
+            # TODO: Make scalems.wait(cmd) work as expected in this scope.
+        # assert cmd1.done()
+        # assert cmd2.done()
+        assert result.uid == cmd2_task.uid
+        assert cmd2_task.state in rp.FINAL
+        assert cmd2_task.exit_code == 0
+        # logger.debug(cmd1.result())
+        # logger.debug(cmd2.result())
+
+    # TODO: Output typing.
+    # out1: rp.Task = cmd1.result()
+    # for output in out1.description["output_staging"]:
+    #     assert os.path.exists(output["target"])
+    out2: rp.Task = rp_future.result()
+    for output in out2.description["output_staging"]:
+        url = urlparse(output["target"])
+        if url.scheme:
+            assert url.scheme == "file"
+        assert os.path.exists(url.path)
+        # if output["target"].endswith("stdout"):
+        #     with open(output["target"], "r") as fh:
+        #         line = fh.readline()
+        #         assert line.rstrip() == "hello world"
+    logger.debug(f"Output directory contents: {list(client_output_dir.iterdir())}")
+    with open(result_pack, "r") as fh:
+        result: scalems.call.Result = scalems.call.deserialize_result(fh.read())
+    completed_process: CompletedProcess = result.return_value
+    assert "hello world" in completed_process.stdout.decode(encoding="utf8")
+
+    # Test active context scoping.
+    assert scalems.workflow.get_scope() is original_context
+    assert not loop.is_closed()
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")

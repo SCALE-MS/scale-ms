@@ -3,7 +3,7 @@
 Example:
     python -m scalems.call record.json
 """
-__all__ = ("Result", "main", "cli", "pack_call", "unpack_result")
+__all__ = ("Result", "main", "cli", "serialize_call", "deserialize_result")
 
 import dataclasses
 import functools
@@ -109,7 +109,13 @@ class CallPack(typing.TypedDict):
     """Optional overrides of environment variables."""
 
     skeleton: typing.Optional[str]
-    """Optional string-encoded URI for archived skeleton of working directory files."""
+    """Optional string-encoded URI for archived skeleton of working directory files.
+    
+    Warning:
+        With or without this file list, additional files will be created to support
+        task execution. If this is a problem, we might be able to customize the RP
+        task launch script to execute in a subdirectory.
+    """
 
     args: list[str]
     """List of serialized positional arguments."""
@@ -182,23 +188,24 @@ def main(call: _Call) -> Result:
     return result
 
 
-def cli(*argv):
+def cli(*argv: str):
     """Command line entry point.
 
     Invoke with ``python -m scalems.call <args>``
     """
     logger.debug(f"scalems.call got args: {', '.join(str(arg) for arg in argv)}")
-    # argv[0] will be the __main__.py script. Arguments to `call` are at argv[1:]
-    if len(argv) == 0:
+    # TODO: Consider an argparse parser for clarity.
+    if len(argv) < 3:
         raise RuntimeError("Arguments are required.")
-    args = argv[1:]
-    package_path = pathlib.Path(args[0])
-    with open(package_path, "r") as fh:
-        call: _Call = unpack_call(fh.read())
+    # argv[0] will be the __main__.py script. Arguments to `call` are at argv[1:]
+    call_path = pathlib.Path(argv[1])
+    result_path = pathlib.Path(argv[2])
+    with open(call_path, "r") as fh:
+        call: _Call = deserialize_call(fh.read())
     result = main(call)
     # TODO: Add output file descriptions to result before packaging.
-    with open("scalems_out.json", "w") as fh:
-        fh.write(pack_result(result))
+    with open(result_path, "w") as fh:
+        fh.write(serialize_result(result))
     return 0
 
 
@@ -212,7 +219,7 @@ def from_hex(x: str):
     return dill.loads(bytes.fromhex(x))
 
 
-def pack_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None) -> str:
+def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None) -> str:
     """Create a serialized representation of a function call.
 
     This utility function is provided for stability while the serialization
@@ -234,7 +241,7 @@ def pack_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None) -
     return json.dumps(pack, separators=(",", ":"))
 
 
-def unpack_call(record: str) -> _Call:
+def deserialize_call(record: str) -> _Call:
     """Deserialize a function call."""
     record_dict: CallPack = json.loads(record)
     assert record_dict["encoder"] == "dill"
@@ -248,7 +255,7 @@ def unpack_call(record: str) -> _Call:
     return call
 
 
-def pack_result(result: Result) -> str:
+def serialize_result(result: Result) -> str:
     assert result.encoder == "dill"
     assert result.decoder == "dill"
     if result.return_value is not None:
@@ -272,7 +279,7 @@ def pack_result(result: Result) -> str:
     return json.dumps(pack, separators=(",", ":"))
 
 
-def unpack_result(stream: str) -> Result:
+def deserialize_result(stream: str) -> Result:
     pack: ResultPack = json.loads(stream)
     assert pack["encoder"] == "dill"
     assert pack["decoder"] == "dill"

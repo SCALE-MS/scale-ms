@@ -1182,6 +1182,7 @@ async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asynci
         raise e
 
 
+# TODO: Separate this out to a scalems.rptask module.
 async def rp_task(rptask: rp.Task) -> asyncio.Task[rp.Task]:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 

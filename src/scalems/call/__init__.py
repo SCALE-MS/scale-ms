@@ -13,9 +13,12 @@ import json
 
 import logging
 import pathlib
+import tempfile
 import typing
 
 import dill
+
+import scalems.store as _store
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -110,7 +113,7 @@ class CallPack(typing.TypedDict):
 
     skeleton: typing.Optional[str]
     """Optional string-encoded URI for archived skeleton of working directory files.
-    
+
     Warning:
         With or without this file list, additional files will be created to support
         task execution. If this is a problem, we might be able to customize the RP
@@ -166,6 +169,58 @@ class ResultPack(typing.TypedDict):
     # support
     decoder: str
     encoder: str
+
+
+@dataclasses.dataclass
+class _Subprocess:
+    """Simplified Subprocess representation.
+
+    This exists to support initial implementation and testing of function_call_to_subprocess().
+    To be reconciled with generalized Subprocess class after testing and feedback.
+    """
+
+    # Note: we can/should enforce uniqueness semantics.
+    uid: str
+    input_filenames: typing.Mapping[str, _store.FileReference]
+    output_filenames: tuple
+    executable: str
+    arguments: tuple[str, ...]
+
+
+async def function_call_to_subprocess(
+    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager
+) -> _Subprocess:
+    if kwargs is None:
+        kwargs = {}
+    # TODO: FileStore should probably provide a new_file() method.
+    #   Possibly an overload to get_file_reference() for IOStreams or buffers,
+    #   but requires internal support to optimize out redundant fingerprinting
+    #   and filesystem operations. I.e. it should be one read, one fingerprint
+    #   calculation, one write, and one rename based on the fingerprint. The
+    #   support could be in the form of `add_text`, and `add_blob` methods.
+    #   Optimization for known binary formats (with potentially local differences)
+    #   could be in the form of `add_typed_data`.
+    with tempfile.NamedTemporaryFile(mode="w", suffix="-input.json") as tmp_file:
+        tmp_file.write(serialize_call(func=func, args=args, kwargs=kwargs))
+        tmp_file.flush()
+        # We can't release the temporary file until the file reference is obtained.
+        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=manager.datastore())
+
+    uid = str(label)
+    input_filename = uid + "-input.json"
+    # TODO: Collaborate with scalems.call to agree on output filename.
+    output_filename = uid + "-output.json"
+    executable = "python3"
+    # TODO: Validate with argparse, once scalems.call.__main__ has a real parser.
+    arguments = ("-m", "scalems.call", input_filename, output_filename)
+
+    return _Subprocess(
+        uid=uid,
+        input_filenames={input_filename: file_ref},
+        output_filenames=(output_filename,),
+        executable=executable,
+        arguments=arguments,
+    )
 
 
 def main(call: _Call) -> Result:

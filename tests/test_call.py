@@ -22,7 +22,7 @@ sample_call_input = dict(
 )
 
 
-def test_call_func():
+def test_call_builtin_func():
     """Test the API for scalems.call"""
     call = scalems.call.serialize_call(**sample_call_input)
     result = scalems.call.main(scalems.call.deserialize_call(call))

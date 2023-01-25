@@ -174,7 +174,7 @@ jobs:
         which mpiexec
         python -m venv $HOME/testenv
         echo "$HOME/testenv"
-        ls $HOME/testenv
+        ls -d $HOME/testenv/bin/*
         . $HOME/testenv/bin/activate
         echo `which python`
         python --version

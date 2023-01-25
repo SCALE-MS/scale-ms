@@ -1161,7 +1161,11 @@ async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asynci
                 assert final
                 logger.debug(f"Handling finalization for RP task {task.uid}.")
                 if final.failed.is_set():
-                    # TODO(#92): Provide more useful error feedback.
+                    logger.error(f"{task.uid} stderr: {task.stderr}")
+                    logger.info(f"Failed {task.uid} working directory: {task.task_sandbox}")
+                    if logger.level <= logging.DEBUG:
+                        for key, value in task.as_dict().items():
+                            logger.debug(f"    {key}: {str(value)}")
                     raise RPTaskFailure(f"{task.uid} failed.", task=task)
                 elif final.canceled.is_set():
                     # Act as if RP called Task.cancel() on us.

@@ -173,6 +173,8 @@ jobs:
         sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
         which mpiexec
         python -m venv $HOME/testenv
+        echo "$HOME/testenv"
+        ls $HOME/testenv
         . $HOME/testenv/bin/activate
         echo `which python`
         python --version
@@ -199,7 +201,7 @@ jobs:
         ulimit -n 65536
         echo "HOME=$HOME"
         ls $HOME
-        pwd
+        echo "Working directory: $(pwd)"
         ls
         python -X dev -m pytest -x \
           --cov=scalems --cov-report=xml:coverage.xml \

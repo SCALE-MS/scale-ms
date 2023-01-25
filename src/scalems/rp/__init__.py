@@ -58,6 +58,7 @@ from ..invocation import make_parser as _make_parser
 from .runtime import configuration
 from .runtime import parser as _runtime_parser
 from .runtime import RPDispatchingExecutor as _RPDispatchingExecutor
+from .runtime import get_pre_exec as _get_pre_exec
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -142,6 +143,7 @@ async def subprocess_to_rp_task(
     subprocess_task_description.uid = call_handle.uid
     subprocess_task_description.executable = call_handle.executable
     subprocess_task_description.arguments = list(call_handle.arguments)
+    subprocess_task_description.pre_exec = list(_get_pre_exec(dispatcher.configuration()))
 
     subprocess_task_description.input_staging = list()
     for name, ref in call_handle.input_filenames.items():

@@ -53,7 +53,7 @@ else:
 # We either need to mock a RP agent or gather coverage files from remote environments.
 # This test does not add any coverage, and only adds measurable coverage or coverage
 # granularity if we either mock a RP agent or gather coverage files from remote environments.
-@pytest.mark.skip(reason="temporarily ignoring raptor")
+@pytest.mark.experimental
 @pytest.mark.asyncio
 async def test_raptor_master(pilot_description, rp_venv):
     """Check our ability to launch and interact with a Master task."""
@@ -72,6 +72,7 @@ async def test_raptor_master(pilot_description, rp_venv):
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
     )
 
     timeout = 180
@@ -151,7 +152,7 @@ async def test_raptor_master(pilot_description, rp_venv):
     #     assert state in rp.states.FINAL
 
 
-@pytest.mark.skip(reason="temporarily ignoring raptor")
+@pytest.mark.experimental
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_worker(pilot_description, rp_venv):
@@ -169,6 +170,7 @@ async def test_worker(pilot_description, rp_venv):
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
     )
 
     # TODO: Make the work representation non-Raptor-specific or decouple

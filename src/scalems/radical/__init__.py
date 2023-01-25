@@ -40,8 +40,6 @@ import asyncio
 import functools
 import logging
 
-import scalems.execution
-import scalems.subprocess
 import scalems.workflow
 from ..invocation import make_parser as _make_parser
 from .runtime import configuration

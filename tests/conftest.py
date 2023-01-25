@@ -37,10 +37,6 @@ import scalems.radical.runtime
 from scalems.context import cwd_lock
 from scalems.context import scoped_chdir
 
-# from scalems.radical.runtime import Runtime
-import scalems.rp.runtime
-from scalems.rp.runtime import Runtime
-
 logger = logging.getLogger("pytest_config")
 logger.setLevel(logging.DEBUG)
 
@@ -170,9 +166,9 @@ def _cleandir(remove_tempdir: str = "always"):
             callback()
         except OSError as e:
             logger.exception("Exception while exiting _cleandir.", exc_info=e)
-            logger.error(f"{newpath} may not have been successfully removed.")
-            # pytest.exit(msg='Unrecoverable error. Stopping pytest.',
-            #             returncode=e.errno)
+            logger.error(
+                f"{newpath} may not have been successfully removed."
+            )  # pytest.exit(msg='Unrecoverable error. Stopping pytest.',  #             returncode=e.errno)
         else:
             logger.debug("_cleandir exited after removing dir.")
 
@@ -287,7 +283,7 @@ def _new_session():
 
 def _new_runtime():
     session = _new_session()
-    runtime = Runtime(session)
+    runtime = scalems.radical.runtime.Runtime(session)
     return runtime
 
 
@@ -364,21 +360,21 @@ def _new_pilot(session: rp.Session, pilot_manager: rp.PilotManager, pilot_descri
 
 
 @pytest.fixture(scope="session")
-def rp_runtime(pilot_description) -> Runtime:
+def rp_runtime(pilot_description) -> scalems.radical.runtime.Runtime:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
-        runtime: Runtime = _new_runtime()
+        runtime: scalems.radical.runtime.Runtime = _new_runtime()
         try:
             yield runtime
         finally:
-            scalems.rp.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
+            scalems.radical.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
         assert runtime.session.closed
 
 
-def _check_pilot_manager(runtime: Runtime):
+def _check_pilot_manager(runtime: scalems.radical.runtime.Runtime):
     # Caller should destroy and recreate Pilot if this call has to replace PilotManager.
     session = runtime.session
     original_pilot_manager: rp.PilotManager = runtime.pilot_manager()
@@ -397,7 +393,7 @@ def _check_pilot_manager(runtime: Runtime):
         runtime.pilot_manager(pilot_manager)
 
 
-def _check_pilot(runtime: Runtime, pilot_description: rp.PilotDescription, venv):
+def _check_pilot(runtime: scalems.radical.runtime.Runtime, pilot_description: rp.PilotDescription, venv):
     pilot_manager = runtime.pilot_manager()
     pilot = runtime.pilot()
     _check_pilot_manager(runtime=runtime)
@@ -427,7 +423,7 @@ def _check_pilot(runtime: Runtime, pilot_description: rp.PilotDescription, venv)
         assert pilot is runtime.pilot()
 
 
-def _check_task_manager(runtime: Runtime, pilot_description: rp.PilotDescription, venv):
+def _check_task_manager(runtime: scalems.radical.runtime.Runtime, pilot_description: rp.PilotDescription, venv):
     task_manager = runtime.task_manager()
     original_pilot = runtime.pilot()
     _check_pilot(runtime=runtime, pilot_description=pilot_description, venv=venv)
@@ -447,13 +443,18 @@ def _check_task_manager(runtime: Runtime, pilot_description: rp.PilotDescription
 
 
 @pytest.fixture(scope="function")
-def rp_pilot_manager(rp_runtime: Runtime):
+def rp_pilot_manager(rp_runtime: scalems.radical.runtime.Runtime):
     _check_pilot_manager(runtime=rp_runtime)
     yield rp_runtime.pilot_manager()
 
 
 @pytest.fixture(scope="function")
-def rp_pilot(rp_runtime: Runtime, rp_pilot_manager: rp.PilotManager, pilot_description: rp.PilotDescription, rp_venv):
+def rp_pilot(
+    rp_runtime: scalems.radical.runtime.Runtime,
+    rp_pilot_manager: rp.PilotManager,
+    pilot_description: rp.PilotDescription,
+    rp_venv,
+):
     _check_pilot(runtime=rp_runtime, pilot_description=pilot_description, venv=rp_venv)
     pilot = rp_runtime.pilot()
     assert pilot is not None
@@ -462,7 +463,7 @@ def rp_pilot(rp_runtime: Runtime, rp_pilot_manager: rp.PilotManager, pilot_descr
 
 
 @pytest.fixture(scope="function")
-def rp_task_manager(rp_runtime: Runtime, pilot_description, rp_venv):
+def rp_task_manager(rp_runtime: scalems.radical.runtime.Runtime, pilot_description, rp_venv):
     _check_task_manager(runtime=rp_runtime, pilot_description=pilot_description, venv=rp_venv)
     task_manager: rp.TaskManager = rp_runtime.task_manager()
     yield task_manager

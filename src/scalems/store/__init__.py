@@ -147,6 +147,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
 
     @property
     def _tmpfile_prefix(self) -> str:
+        """Filename generation helper for internal use."""
         return f"tmp_{self.instance}_"
 
     @property
@@ -436,6 +437,10 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
 
         In addition to TypeError and ValueError for invalid inputs, propagates
         exceptions raised by failed attempts to access the provided file object.
+
+        See Also:
+            :py:func:`scalems.file.describe_file()`
+
         """
         # Note: We can use a more effective and flexible `try: ... except: ...` check
         # once we actually have AbstractFileReference support ready to use here, at which point
@@ -710,6 +715,8 @@ def get_file_reference(obj, filestore=None, mode="rb") -> typing.Coroutine[None,
     Note:
         If *obj* is a `str` or :py:class:`bytes`, *obj* is interpreted as a `ResourceIdentifier`,
         **not** as a filesystem path.
+
+    TODO: Either try to disambiguate str and bytes, or disallow and require stronger typed inputs.
 
     This involves placing (copying) the file, reading the file to fingerprint it,
     and then writing metadata for the file. For clarity, we also rename the file

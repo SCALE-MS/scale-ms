@@ -1368,3 +1368,6 @@ def wait(ref):
 
     # Dispatch on reference type.
     return _wait(ref, manager=context)
+    # TODO: Normalize a Future behavior. Require argument types that guarantee
+    #   that the work will eventually be handled, and defer to asyncio.wait, or
+    #   reliably produce an error if this is not possible.

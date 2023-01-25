@@ -140,23 +140,32 @@ import contextlib
 import contextvars
 import dataclasses
 import functools
+import io
 import json
 import logging
 import os
 import pathlib
+import shutil
 import threading
 import typing
 import uuid
 import warnings
 import weakref
+import zipfile
+from typing import Awaitable
 
+import radical.saga
 from radical import pilot as rp
 
+import scalems.call
 import scalems.compat
 import scalems.exceptions
 import scalems.execution
+import scalems.file
 import scalems.invocation
+import scalems.radical
 import scalems.radical.raptor
+import scalems.store
 import scalems.subprocess
 import scalems.workflow
 from scalems.exceptions import APIError
@@ -219,14 +228,25 @@ def parser(add_help=False):
     # Ref https://github.com/SCALE-MS/scale-ms/issues/89
     # See also https://github.com/SCALE-MS/scale-ms/issues/90
     # TODO: Set module variables rather than carry around an args namespace?
+
     _parser.add_argument(
-        "--venv",
-        metavar="PATH",
+        "--access",
         type=str,
-        required=True,
-        help="Path to the (pre-configured) Python virtual "
-        "environment with which RP tasks should be executed. "
-        "(Required. See also https://github.com/SCALE-MS/scale-ms/issues/90)",
+        help="Explicitly specify the access_schema to use from the RADICAL resource.",
+    )
+
+    _parser.add_argument(
+        "--enable-raptor",
+        action="store_true",
+        help="Enable RP Raptor, and manage an execution side dispatching task.",
+    )
+
+    _parser.add_argument(
+        "--pilot-option",
+        action="append",
+        type=_parse_option,
+        metavar="<key>=<value>",
+        help="Add a key value pair to the `radical.pilot.PilotDescription`.",
     )
 
     _parser.add_argument(
@@ -237,18 +257,15 @@ def parser(add_help=False):
     )
 
     _parser.add_argument(
-        "--access",
+        "--venv",
+        metavar="PATH",
         type=str,
-        help="Explicitly specify the access_schema to use from the RADICAL resource.",
+        required=True,
+        help="Path to the (pre-configured) Python virtual "
+        "environment with which RP tasks should be executed. "
+        "(Required. See also https://github.com/SCALE-MS/scale-ms/issues/90)",
     )
 
-    _parser.add_argument(
-        "--pilot-option",
-        action="append",
-        type=_parse_option,
-        metavar="<key>=<value>",
-        help="Add a key value pair to the `radical.pilot.PilotDescription`.",
-    )
     return _parser
 
 
@@ -272,6 +289,7 @@ class Configuration:
     execution_target: str = "local.localhost"
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None
+    enable_raptor: bool = False
 
 
 class Runtime:
@@ -649,10 +667,16 @@ def _(namespace: argparse.Namespace) -> Configuration:
         rp_resource_params["PilotDescription"].update(user_options)
         logger.debug(f'Pilot options: {repr(rp_resource_params["PilotDescription"])}')
 
+    if namespace.enable_raptor:
+        logger.debug("RP Raptor enabled.")
+    else:
+        logger.debug("RP Raptor disabled.")
+
     config = Configuration(
         execution_target=namespace.resource,
         target_venv=namespace.venv,
         rp_resource_params=rp_resource_params,
+        enable_raptor=namespace.enable_raptor,
     )
     return _set_configuration(config)
 
@@ -1012,23 +1036,22 @@ class RPDispatchingExecutor(RuntimeManager):
             pilot = await add_pilot(runtime=_runtime)
             logger.debug("Added Pilot {} to task manager {}.".format(pilot.uid, _runtime.task_manager().uid))
 
-            #
-            # Get a scheduler task.
-            #
-
             assert _runtime.scheduler is None
-            # Note that _get_scheduler is a coroutine that, itself, returns a Task.
-            # We await the result of _get_scheduler, then store the scheduler Task.
-            _runtime.scheduler = await asyncio.create_task(
-                _get_scheduler(
-                    pre_exec=list(get_pre_exec(config)),
-                    task_manager=task_manager,
-                    filestore=config.datastore,
-                    scalems_env="scalems_venv",  # TODO: normalize ownership of this name.
-                ),
-                name="get-scheduler",
-            )
-            # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
+
+            # Get a scheduler task IFF raptor is explicitly enabled.
+            if config.enable_raptor:
+                # Note that _get_scheduler is a coroutine that, itself, returns a Task.
+                # We await the result of _get_scheduler, then store the scheduler Task.
+                _runtime.scheduler = await asyncio.create_task(
+                    _get_scheduler(
+                        pre_exec=list(get_pre_exec(config)),
+                        task_manager=task_manager,
+                        filestore=config.datastore,
+                        scalems_env="scalems_venv",  # TODO: normalize ownership of this name.
+                    ),
+                    name="get-scheduler",
+                )
+                # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         except asyncio.CancelledError as e:
             raise e
         except Exception as e:
@@ -1120,7 +1143,7 @@ class RPDispatchingExecutor(RuntimeManager):
 
 
 def configuration(*args, **kwargs) -> Configuration:
-    """Get (and optionally set) the RADICAL Pilot configuration.
+    """Get (and optionally set) the RADICAL runtime configuration.
 
     With no arguments, returns the current configuration. If a configuration has
     not yet been set, the command line parser is invoked to try to build a new
@@ -1322,7 +1345,11 @@ async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asynci
                 assert final
                 logger.debug(f"Handling finalization for RP task {task.uid}.")
                 if final.failed.is_set():
-                    # TODO(#92): Provide more useful error feedback.
+                    logger.error(f"{task.uid} stderr: {task.stderr}")
+                    logger.info(f"Failed {task.uid} working directory: {task.task_sandbox}")
+                    if logger.level <= logging.DEBUG:
+                        for key, value in task.as_dict().items():
+                            logger.debug(f"    {key}: {str(value)}")
                     raise RPTaskFailure(f"{task.uid} failed.", task=task)
                 elif final.canceled.is_set():
                     # Act as if RP called Task.cancel() on us.
@@ -1343,7 +1370,8 @@ async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asynci
         raise e
 
 
-async def rp_task(rptask: rp.Task) -> asyncio.Task:
+# TODO: Separate this out to a scalems.rptask module.
+async def rp_task(rptask: rp.Task) -> asyncio.Task[rp.Task]:
     """Mediate between a radical.pilot.Task and an asyncio.Future.
 
     Schedule an asyncio Task to receive the result of the RP Task. The asyncio
@@ -1389,6 +1417,8 @@ async def rp_task(rptask: rp.Task) -> asyncio.Task:
 
     if rptask.state in rp.FINAL:
         # rptask may have reached FINAL state before callback was registered.
+        # radical.pilot.Task.register_callback does not guarantee that callbacks
+        # will be called if registered after task completion.
         # Call it once. For simplicity, let the task_watcher logic proceed normally.
         logger.warning(f"RP Task {repr(rptask)} finished suspiciously fast.")
         callback(rptask, rptask.state, cb_data)
@@ -1514,7 +1544,7 @@ async def submit(
     item: scalems.workflow.Task,
     task_manager: rp.TaskManager,
     pre_exec: list,
-    scheduler: str = None,
+    scheduler: typing.Optional[str] = None,
 ) -> asyncio.Task:
     """Dispatch a WorkflowItem to be handled by RADICAL Pilot.
 
@@ -1556,7 +1586,7 @@ async def submit(
             through which the task should be submitted.
         pre_exec: :py:data:`radical.pilot.Task.pre_exec` prototype.
         scheduler (str): The string name of the "scheduler," corresponding to
-            the UID of a Task running a rp.raptor.Master.
+            the UID of a Task running a rp.raptor.Master (if Raptor is enabled).
 
     Returns:
         asyncio.Task: a "Future[rp.Task]" for a rp.Task in its final state.
@@ -1581,15 +1611,19 @@ async def submit(
         )
 
     subprocess_type = TypeIdentifier(("scalems", "subprocess", "SubprocessTask"))
-    if item.description().type() == subprocess_type:
+    submitted_type = item.description().type()
+    if submitted_type == subprocess_type:
         if scheduler is not None:
             raise DispatchError("Raptor not yet supported for scalems.executable.")
         rp_task_description = _describe_legacy_task(item, pre_exec=pre_exec)
-    elif scheduler_is_ready(scheduler):
-        # We might want a contextvars.Context to hold the current rp.Master instance name.
-        rp_task_description = _describe_raptor_task(item, scheduler, pre_exec=pre_exec)
+    elif configuration().enable_raptor:
+        if scheduler_is_ready(scheduler):
+            # We might want a contextvars.Context to hold the current rp.Master instance name.
+            rp_task_description = _describe_raptor_task(item, scheduler, pre_exec=pre_exec)
+        else:
+            raise APIError("Caller must provide the UID of a submitted *scheduler* task.")
     else:
-        raise APIError("Caller must provide the UID of a submitted *scheduler* task.")
+        raise APIError(f"Cannot dispatch {submitted_type}.")
 
     # TODO(#249): A utility function to move slow blocking RP calls to a separate thread.
     #  Compartmentalize TaskDescription -> rp_task_watcher in a separate utility function.
@@ -1658,3 +1692,143 @@ class WorkflowUpdater(AbstractWorkflowUpdater):
 
         task: asyncio.Task[rp.Task] = await submit(item=item, task_manager=self.task_manager, pre_exec=self._pre_exec)
         return task
+
+
+@dataclasses.dataclass
+class RPTaskResult:
+    """A collection of data and managed objects associated with a completed RP Task.
+
+    A rp.Task is associated with additional artifacts that are not directly tied
+    to the rp.Task object, such as an arbitrary number of files that are not generally
+    knowable a priori.
+    """
+
+    task_dict: dict
+    """Dictionary representation from `radical.pilot.Task.as_dict()`."""
+
+    final_state: str
+    """Final state of the `radical.pilot.Task`."""
+
+    directory: radical.saga.Url
+    """Resource location information for the Task working directory."""
+
+    directory_archive: Awaitable[scalems.store.FileReference]
+    """An archive of the task working directory.
+
+    This result is separately awaitable to allow elision of unnecessary transfers.
+    The exact implementation is not strongly specified; a Future usually implies
+    that the result will eventually be produced, whereas a more general "awaitable"
+    may not and may never be scheduled.
+
+    A future optimization should allow individual files to be selected and remotely
+    extracted, but this would require more progress on the Scale-MS structured data typing model.
+
+    TODO: In the next iteration, use a non-local FileReference or (TBD) DirectoryReference.
+    """
+
+
+async def subprocess_to_rp_task(
+    call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor
+) -> RPTaskResult:
+    """Dispatch a subprocess task through the scalems.rp execution backend.
+
+    Get a Future for a RPTaskResult (a collection representing a completed rp.Task).
+
+    Schedule a RP Task and wrap with asyncio. Subscribe a dependent asyncio.Task
+    that can provide the intended result type and return it as the Future.
+    Schedule a call-back to clean up temporary files.
+    """
+    subprocess_task_description = rp.TaskDescription()
+    subprocess_task_description.stage_on_error = True
+    subprocess_task_description.uid = call_handle.uid
+    subprocess_task_description.executable = call_handle.executable
+    subprocess_task_description.arguments = list(call_handle.arguments)
+    subprocess_task_description.pre_exec = list(get_pre_exec(dispatcher.configuration()))
+
+    subprocess_task_description.input_staging = list()
+    for name, ref in call_handle.input_filenames.items():
+        # TODO: Localize the files to the execution site, instead, and use the
+        #   (remotely valid) URI (with a COPY or LINK action).
+        #   Perform transfers concurrently and await successful transfer
+        #   before the submit_tasks call.
+        await ref.localize()
+        subprocess_task_description.input_staging.append(
+            {
+                "source": ref.as_uri(),
+                # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
+                "target": "task:///" + name,
+                "action": rp.TRANSFER,
+            }
+        )
+
+    task_manager = dispatcher.runtime.task_manager()
+    (subprocess_task,) = await asyncio.to_thread(task_manager.submit_tasks, [subprocess_task_description])
+    subprocess_task_future: asyncio.Task[rp.Task] = await scalems.radical.runtime.rp_task(subprocess_task)
+
+    # TODO: We really should consider putting timeouts on all tasks.
+    subprocess_task = await subprocess_task_future
+    # Note: This coroutine may never be scheduled. That's okay, for now. In the long run, though,
+    # we should have a low-priority scheme for synchronizing file stores in the background.
+    logger.debug(f"Task {subprocess_task.uid} sandbox: {subprocess_task.task_sandbox}.")
+    archive_future = get_directory_archive(subprocess_task.task_sandbox, dispatcher=dispatcher)
+
+    result = RPTaskResult(
+        task_dict=subprocess_task.description,
+        directory=subprocess_task.task_sandbox,
+        final_state=subprocess_task.state,
+        directory_archive=archive_future,
+    )
+    return result
+
+
+async def subprocess_result_from_rp_task(
+    subprocess: scalems.call._Subprocess, rp_task_result: RPTaskResult
+) -> scalems.call.Result:
+    archive_ref = await rp_task_result.directory_archive
+    output_file = subprocess.output_filenames[0]
+
+    with zipfile.ZipFile(pathlib.Path(archive_ref)) as myzip:
+        with myzip.open(output_file) as fh:
+            result: scalems.call.Result = scalems.call.deserialize_result(io.TextIOWrapper(fh).read())
+    return result
+
+
+async def get_directory_archive(
+    directory: radical.saga.Url, dispatcher: RPDispatchingExecutor
+) -> scalems.store.FileReference:
+    """Get a local archive of a remote directory."""
+    staging_directory = dispatcher.datastore.directory.joinpath(f".scalems_output_staging_{id(directory)}")
+    logger.debug(f"Preparing to stage {directory} to {staging_directory}.")
+
+    # TODO: Don't rely on the RP Session. We should be able to do this after the
+    #   Session is closed or after an interrupted Session.
+    pilot = dispatcher.runtime.pilot()
+    # TODO: Can we avoid serializing more than once? Such as with `rp.TARBALL`?
+    await asyncio.to_thread(
+        pilot.stage_out,
+        sds=[
+            {
+                "source": directory,
+                "target": staging_directory.as_uri(),
+                "action": rp.TRANSFER,
+                "flags": rp.CREATE_PARENTS | rp.RECURSIVE,
+            }
+        ],
+    )
+    archive_name = dispatcher.datastore.directory.joinpath(f".scalems_output_staging_{id(directory)}")
+    # WARNING: shutil.make_archive is not threadsafe until Python 3.10.6
+    # TODO: Improve locking scheme or thread safety.
+    with dispatcher.datastore._update_lock:
+        archive_path = await asyncio.to_thread(
+            shutil.make_archive,
+            archive_name,
+            "zip",
+            root_dir=staging_directory,
+            base_dir=".",
+        )
+    try:
+        file_ref = await dispatcher.datastore.add_file(scalems.file.describe_file(archive_path))
+    finally:
+        await asyncio.to_thread(shutil.rmtree, staging_directory)
+        await asyncio.to_thread(os.unlink, archive_path)
+    return file_ref

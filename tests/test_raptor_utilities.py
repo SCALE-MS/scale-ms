@@ -8,6 +8,7 @@ through :file:`test_rp_exec.py`.
 
 import dataclasses
 import json
+import logging
 import os
 
 import packaging.version
@@ -27,8 +28,6 @@ except ImportError:
 else:
     from scalems.radical.raptor import object_encoder
 
-import logging
-
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -41,6 +40,7 @@ else:
     minimum_scalems_version = client_scalems_version.base_version
 
 
+@pytest.mark.experimental
 def test_master_configuration_details(rp_venv):
     """Test the details needed to launch the master script.
 

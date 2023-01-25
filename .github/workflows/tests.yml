@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        python-version: [3.8, "3.10"]
+        python-version: [3.9, "3.10"]
     env:
       LAMMPSVER: 20201029
       LAMMPSHASH: da9b6ecb5dc20c7614b9a2ef65903225654badfead9feb8937f1fbc6b4c9838e
@@ -173,6 +173,8 @@ jobs:
         sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
         which mpiexec
         python -m venv $HOME/testenv
+        echo "$HOME/testenv"
+        ls -d $HOME/testenv/bin/*
         . $HOME/testenv/bin/activate
         echo `which python`
         python --version
@@ -199,7 +201,7 @@ jobs:
         ulimit -n 65536
         echo "HOME=$HOME"
         ls $HOME
-        pwd
+        echo "Working directory: $(pwd)"
         ls
         python -X dev -m pytest -x \
           --cov=scalems --cov-report=xml:coverage.xml \
@@ -256,7 +258,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.8]
+        python-version: ["3.10"]
 
     steps:
     - name: Prepare ssh

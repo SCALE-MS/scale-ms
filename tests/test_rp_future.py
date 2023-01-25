@@ -106,7 +106,7 @@ async def test_rp_future(rp_task_manager):
         watcher.cancel()
         raise e
 
-    rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Task[rp.Task] = await scalems.radical.runtime.rp_task(task)
     try:
         result: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:

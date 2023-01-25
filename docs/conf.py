@@ -85,7 +85,8 @@ html_theme = "sphinx_rtd_theme"
 # -- Options for autodoc -----------------------------------------------------
 # autodoc_mock_imports = ['radical']
 autodoc_default_options = {
-    "inherited-members": True,
+    # For some reason, "inherited-members" seems to irrevocably activate ":members:"
+    # "inherited-members": True,
     # 'show-inheritance': True,
 }
 autoclass_content = "class"

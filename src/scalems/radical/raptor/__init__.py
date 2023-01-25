@@ -1316,7 +1316,7 @@ class RaptorWorkerConfig(typing.TypedDict):
     :py:meth:`~radical.pilot.raptor.Master.submit_workers()`,
     pending further documentation.
 
-    Create with `_configure_worker()`.
+    Created internally with :py:func:`_configure_worker()`.
     """
 
     descr: WorkerDescriptionDict
@@ -1587,7 +1587,7 @@ class _RaptorTaskDescription(typing.TypedDict):
     Names the callable for dispatching.
 
     The callable can either be a function object present in the namespace of the interpreter launched
-    by the Worker for the task, or a `radical.pilot.pytask` pickled function object.
+    by the Worker for the task, or a :py:class:`radical.pilot.pytask.PythonTask` pickled function object.
     """
 
     args: list

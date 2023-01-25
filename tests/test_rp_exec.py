@@ -11,11 +11,14 @@ Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 import asyncio
 import json
 import os
+from subprocess import CompletedProcess
+from subprocess import run as subprocess_run
 
 import packaging.version
 import pytest
 
 import scalems
+import scalems.call
 import scalems.compat
 import scalems.context
 import scalems.messages
@@ -50,6 +53,7 @@ else:
 # We either need to mock a RP agent or gather coverage files from remote environments.
 # This test does not add any coverage, and only adds measurable coverage or coverage
 # granularity if we either mock a RP agent or gather coverage files from remote environments.
+@pytest.mark.experimental
 @pytest.mark.asyncio
 async def test_raptor_master(pilot_description, rp_venv):
     """Check our ability to launch and interact with a Master task."""
@@ -68,6 +72,7 @@ async def test_raptor_master(pilot_description, rp_venv):
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
     )
 
     timeout = 180
@@ -147,6 +152,7 @@ async def test_raptor_master(pilot_description, rp_venv):
     #     assert state in rp.states.FINAL
 
 
+@pytest.mark.experimental
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_worker(pilot_description, rp_venv):
@@ -164,6 +170,7 @@ async def test_worker(pilot_description, rp_venv):
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
     )
 
     # TODO: Make the work representation non-Raptor-specific or decouple
@@ -307,8 +314,61 @@ async def test_worker(pilot_description, rp_venv):
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
-async def test_exec_rp(pilot_description, rp_venv):
-    """Test that we are able to launch and shut down a RP dispatched execution session."""
+async def test_rp_function(pilot_description, rp_venv, tmp_path):
+    """Test our automation for RP Task generation for function calls."""
+    # timeout = 180
+
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip("This test requires a user-provided static RP venv.")
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+    logging.getLogger("asyncio").setLevel(logging.DEBUG)
+
+    # Configure module.
+    params = scalems.radical.runtime.Configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+    )
+
+    # Test RPDispatcher context
+    manager = scalems.radical.workflow_manager(loop)
+
+    with scalems.workflow.scope(manager, close_on_exit=True):
+        assert not loop.is_closed()
+        # TODO: Further simplification. E.g.
+        #     call_ref = manager.submit(function_call(**sample_call_input))
+        #     return_value = call_ref.result()
+
+        async with manager.dispatch(params=params) as dispatcher:
+            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
+            logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
+            task_uid = "test_rp_function-1"
+
+            call_handle: scalems.call._Subprocess = await scalems.call.function_call_to_subprocess(
+                func=subprocess_run,
+                kwargs={"args": ["/bin/echo", "hello", "world"], "capture_output": True},
+                label=task_uid,
+                manager=manager,
+            )
+            rp_task_result: scalems.radical.runtime.RPTaskResult = await scalems.radical.runtime.subprocess_to_rp_task(
+                call_handle, dispatcher=dispatcher
+            )
+
+            call_result: scalems.call.Result = await scalems.radical.runtime.subprocess_result_from_rp_task(
+                call_handle, rp_task_result
+            )
+
+    completed_process: CompletedProcess = call_result.return_value
+    assert "hello world" in completed_process.stdout.decode(encoding="utf8")
+
+
+@pytest.mark.filterwarnings("ignore::DeprecationWarning")
+@pytest.mark.asyncio
+async def test_rp_executable(pilot_description, rp_venv):
+    """Test our scalems.executable implementation for RADICAL Pilot."""
     import radical.pilot as rp
 
     # Hopefully, this requirement is temporary.
@@ -332,12 +392,18 @@ async def test_exec_rp(pilot_description, rp_venv):
 
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
+        # Test a command from before entering the dispatch context
+        cmd1 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout1.txt")
         # Enter the async context manager for the default dispatcher
-        cmd1 = scalems.executable(("/bin/echo",))
         async with manager.dispatch(params=params) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
-            cmd2 = scalems.executable(("/bin/echo", "hello", "world"))
+            # Test a command issued after entering the dispatch context.
+            # TODO: Check data flow dependency.
+            # cmd2 = scalems.executable(("/bin/cat", cmd1.stdout), stdout="stdout2.txt")
+            # TODO: Check *stdin* shim.
+            # cmd2 = scalems.executable(("/bin/cat", "-"), stdin=cmd1.stdout, stdout="stdout2.txt")
+            cmd2 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout2.txt")
             # TODO: Clarify whether/how result() method should work in this scope.
             # TODO: Make scalems.wait(cmd) work as expected in this scope.
         assert cmd1.done()

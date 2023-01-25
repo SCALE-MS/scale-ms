@@ -1,5 +1,5 @@
 sphinx>=4.1
 sphinxcontrib-autoprogram
-sphinxcontrib-napoleon
+sphinxcontrib-napoleon>=0.7
 sphinxcontrib-plantuml
 sphinx-rtd-theme

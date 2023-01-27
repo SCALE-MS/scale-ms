@@ -61,12 +61,8 @@ _ResultT = typing.TypeVar("_ResultT")
 
 
 class TaskHandle(typing.Generic[_ResultT]):
-    def __init__(self, result_future: typing.Awaitable[scalems.call.CallResult]):
-        self._result_future = result_future
-
-    @classmethod
-    async def submit(
-        cls,
+    def __init__(
+        self,
         *,
         func: typing.Callable[..., _ResultT],
         label: str,
@@ -74,22 +70,31 @@ class TaskHandle(typing.Generic[_ResultT]):
         dispatcher: scalems.radical.runtime.RPDispatchingExecutor,
         args=(),
         kwargs=None,
-    ) -> "TaskHandle[_ResultT]":
+    ):
         if kwargs is None:
             kwargs = {}
         task_uid = label
-        call_handle: scalems.call._Subprocess = await scalems.call.function_call_to_subprocess(
-            func=func, args=args, kwargs=kwargs, label=task_uid, manager=manager
+        self._call_handle: asyncio.Task[scalems.call._Subprocess] = asyncio.create_task(
+            scalems.call.function_call_to_subprocess(
+                func=func, args=args, kwargs=kwargs, label=task_uid, manager=manager
+            )
         )
-        rp_task_result: scalems.radical.runtime.RPTaskResult = await scalems.radical.runtime.subprocess_to_rp_task(
-            call_handle, dispatcher=dispatcher
-        )
-        result_future = scalems.radical.runtime.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
-        return cls(result_future)
+        self._dispatcher = dispatcher
 
     async def result(self) -> _ResultT:
-        call_result: scalems.call.CallResult = await self._result_future
-        return call_result.return_value
+        # Wait for input preparation
+        call_handle = await self._call_handle
+        rp_task_result_future = asyncio.create_task(
+            scalems.radical.runtime.subprocess_to_rp_task(call_handle, dispatcher=self._dispatcher)
+        )
+        # Wait for submission and completion
+        rp_task_result = await rp_task_result_future
+        result_future = asyncio.create_task(
+            scalems.radical.runtime.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
+        )
+        # Wait for results staging.
+        result = await result_future
+        return result.return_value
 
 
 async def main(text, manager: scalems.workflow.WorkflowManager):
@@ -118,44 +123,28 @@ async def main(text, manager: scalems.workflow.WorkflowManager):
         NUMBER_CHAINS = 1
 
         tasks_A = tuple(
-            asyncio.create_task(
-                TaskHandle.submit(func=sender, args=(text,), label=f"sender-{i}", manager=manager, dispatcher=session),
-                name=f"submit-{i}",
-            )
+            TaskHandle(func=sender, args=(text,), label=f"sender-{i}", manager=manager, dispatcher=session)
             for i in range(NUMBER_CHAINS)
         )
-        # wait for submission
-        handles_A = await asyncio.gather(*tasks_A)
 
         # Localize all the results.
         # For periodic batches, see asyncio.with()
         # For proxy access to next-available iterative chaining, use asyncio.as_completed()
-        results_A = await asyncio.gather(*tuple(typing.cast(TaskHandle, handle).result() for handle in handles_A))
-        # assert isinstance(handles_A[0], TaskHandle)
-        # result = await handles_A[0].result()
-        # print(result)
+        results_A = await asyncio.gather(*tuple(handle.result() for handle in tasks_A))
+        print(results_A)
 
-        # Wait for submission
-        tasks_B = await asyncio.gather(
-            *tuple(
-                asyncio.create_task(
-                    TaskHandle.submit(
-                        func=receiver,
-                        kwargs={"text": result},
-                        label=f"receiver-{i}",
-                        manager=manager,
-                        dispatcher=session,
-                    ),
-                    name=f"receiver-{i}",
-                )
-                for i, result in enumerate(results_A)
+        tasks_B = tuple(
+            TaskHandle(
+                func=receiver,
+                kwargs={"text": result},
+                label=f"receiver-{i}",
+                manager=manager,
+                dispatcher=session,
             )
+            for i, result in enumerate(results_A)
         )
 
-        results_B = [
-            asyncio.create_task(typing.cast(TaskHandle, task).result(), name=f"results-{i}")
-            for i, task in enumerate(tasks_B)
-        ]
+        results_B = [asyncio.create_task(task.result(), name=f"results-{i}") for i, task in enumerate(tasks_B)]
         # Handle results as they come in.
         return [await coro for coro in asyncio.as_completed(results_B)]
 

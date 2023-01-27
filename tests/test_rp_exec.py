@@ -358,7 +358,7 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
                 call_handle, dispatcher=dispatcher
             )
 
-            call_result: scalems.call.Result = await scalems.radical.runtime.subprocess_result_from_rp_task(
+            call_result: scalems.call.CallResult = await scalems.radical.runtime.wrapped_function_result_from_rp_task(
                 call_handle, rp_task_result
             )
 

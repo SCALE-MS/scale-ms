@@ -61,7 +61,7 @@ _ResultT = typing.TypeVar("_ResultT")
 
 
 class TaskHandle(typing.Generic[_ResultT]):
-    def __init__(self, result_future: typing.Awaitable[scalems.call.Result]):
+    def __init__(self, result_future: typing.Awaitable[scalems.call.CallResult]):
         self._result_future = result_future
 
     @classmethod
@@ -84,11 +84,11 @@ class TaskHandle(typing.Generic[_ResultT]):
         rp_task_result: scalems.radical.runtime.RPTaskResult = await scalems.radical.runtime.subprocess_to_rp_task(
             call_handle, dispatcher=dispatcher
         )
-        result_future = scalems.radical.runtime.subprocess_result_from_rp_task(call_handle, rp_task_result)
+        result_future = scalems.radical.runtime.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
         return cls(result_future)
 
     async def result(self) -> _ResultT:
-        call_result: scalems.call.Result = await self._result_future
+        call_result: scalems.call.CallResult = await self._result_future
         return call_result.return_value
 
 

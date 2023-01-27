@@ -2,8 +2,13 @@
 
 Example:
     python -m scalems.call record.json
+
+Note that this whole module is a workaround to avoid using RP raptor.
+We don't really need to reconcile the divergent notions of "Subprocess".
+But we _do_ need to formalize our serialized representation of a function call,
+and the task lifecycle and artifacts management.
 """
-__all__ = ("Result", "main", "cli", "serialize_call", "deserialize_result")
+__all__ = ("CallResult", "main", "cli", "serialize_call", "deserialize_result")
 
 import dataclasses
 import functools
@@ -12,6 +17,7 @@ import json
 # See __main__.py for the entry point executed for command line invocation.
 
 import logging
+import os
 import pathlib
 import tempfile
 import typing
@@ -26,6 +32,8 @@ logger.setLevel(logging.DEBUG)
 
 @dataclasses.dataclass
 class _Call:
+    """Record of a function call to be dispatched."""
+
     func: typing.Callable
     """Python callable.
 
@@ -64,12 +72,17 @@ class _Call:
 
 
 @dataclasses.dataclass
-class Result:
+class CallResult:
+    """Result type (container) for a dispatched function call."""
+
     return_value: typing.Optional[typing.Any] = None
     """Return value, if any.
 
     Value assumed to be round-trip serializable via *encoder* and *decoder*.
     """
+
+    exception: typing.Optional[str] = None
+    """string representation of the Exception, if any."""
 
     # Side effects
     stdout: typing.Optional[str] = None
@@ -80,9 +93,6 @@ class Result:
 
     directory: typing.Optional[str] = None
     """string-encoded URI for archive of the working directory after task execution."""
-
-    exception: typing.Optional[str] = None
-    """string representation of the Exception, if any."""
 
     # support
     decoder: str = dataclasses.field(default="dill")
@@ -139,9 +149,7 @@ class CallPack(typing.TypedDict):
 
 
 class ResultPack(typing.TypedDict):
-    """Trivially serializable representation of `scalems.call.Result`.
-
-    Pack and unpack with `scalems.pack.pack_result` and `scalems.pack.unpack_result`.
+    """Trivially serializable representation of `scalems.call.CallResult`.
 
     Serialize and deserialize with::
 
@@ -153,6 +161,9 @@ class ResultPack(typing.TypedDict):
     return_value: typing.Optional[str]
     """string-encoded return value, if any."""
 
+    exception: typing.Optional[str]
+    """string representation of the Exception, if any."""
+
     # Side effects
     stdout: typing.Optional[str]
     """string-encoded URI for file holding captured stdout."""
@@ -161,17 +172,14 @@ class ResultPack(typing.TypedDict):
     """string-encoded URI for file holding captured stderr."""
 
     directory: typing.Optional[str]
-    """string-encoded URI for archive of the working directory after task execution."""
-
-    exception: typing.Optional[str]
-    """string representation of the Exception, if any."""
+    """string-encoded URI for the working directory detected during task execution."""
 
     # support
     decoder: str
     encoder: str
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class _Subprocess:
     """Simplified Subprocess representation.
 
@@ -185,11 +193,13 @@ class _Subprocess:
     output_filenames: tuple
     executable: str
     arguments: tuple[str, ...]
+    requirements: dict = dataclasses.field(default_factory=dict)
 
 
 async def function_call_to_subprocess(
     func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager
 ) -> _Subprocess:
+    """Wrap a function call in a command line based on `scalems.call`."""
     if kwargs is None:
         kwargs = {}
     # TODO: FileStore should probably provide a new_file() method.
@@ -223,7 +233,7 @@ async def function_call_to_subprocess(
     )
 
 
-def main(call: _Call) -> Result:
+def main(call: _Call) -> CallResult:
     """Execute the packaged call.
 
     Return a packaged result.
@@ -231,14 +241,15 @@ def main(call: _Call) -> Result:
     func = call.func
     args = call.args
     kwargs = call.kwargs
+    cwd = pathlib.Path(os.getcwd())
     # TODO: execution environment
     try:
         output = func(*args, **kwargs)
     except Exception as e:
         exception = repr(e)
-        result = Result(exception=exception)
+        result = CallResult(exception=exception, directory=cwd.as_uri())
     else:
-        result = Result(return_value=output)
+        result = CallResult(return_value=output, directory=cwd.as_uri())
         # TODO: file outputs
     return result
 
@@ -257,11 +268,14 @@ def cli(*argv: str):
     result_path = pathlib.Path(argv[2])
     with open(call_path, "r") as fh:
         call: _Call = deserialize_call(fh.read())
-    result = main(call)
-    # TODO: Add output file descriptions to result before packaging.
+    result: CallResult = main(call)
     with open(result_path, "w") as fh:
         fh.write(serialize_result(result))
-    return 0
+    if result.exception is not None:
+        logging.error(result.exception)
+        return 1
+    else:
+        return 0
 
 
 # For transfer size and debuggability, let's start by serializing as little
@@ -282,6 +296,11 @@ def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = No
     """
     if kwargs is None:
         kwargs = {}
+    # This might need to be replaced with a dispatching function, for which raw serialization
+    # is only a fall-back for functions that aren't decorated/registered scalems Commands.
+    # Commands could be implemented for specific Runtime executors, or expressed in terms
+    # of importable callables with similarly expressable Input and Result types.
+    # Ref: https://github.com/SCALE-MS/scale-ms/issues/33
     serialized_callable: bytes = to_bytes(func)
     pack = CallPack(
         func=serialized_callable.hex(),
@@ -310,7 +329,7 @@ def deserialize_call(record: str) -> _Call:
     return call
 
 
-def serialize_result(result: Result) -> str:
+def serialize_result(result: CallResult) -> str:
     assert result.encoder == "dill"
     assert result.decoder == "dill"
     if result.return_value is not None:
@@ -322,19 +341,22 @@ def serialize_result(result: Result) -> str:
     else:
         exception = None
 
+    # In scalems.call.cli, we are not managing stdout and stderr redirection.
+    # If the caller is managing stdout and stderr, the caller can repackage the
+    # result with appropriate URIs.
     pack = ResultPack(
         return_value=value,
         exception=exception,
-        stdout=None,
         stderr=None,
-        directory=None,
+        stdout=None,
+        directory=result.directory,
         encoder="dill",
         decoder="dill",
     )
     return json.dumps(pack, separators=(",", ":"))
 
 
-def deserialize_result(stream: str) -> Result:
+def deserialize_result(stream: str) -> CallResult:
     pack: ResultPack = json.loads(stream)
     assert pack["encoder"] == "dill"
     assert pack["decoder"] == "dill"
@@ -347,7 +369,7 @@ def deserialize_result(stream: str) -> Result:
     if exception is not None:
         assert isinstance(exception, str)
         exception = from_hex(exception)
-    result = Result(
+    result = CallResult(
         return_value=value,
         exception=exception,
         stdout=pack.get("stdout", None),

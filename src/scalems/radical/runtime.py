@@ -138,6 +138,7 @@ import asyncio
 import collections.abc
 import contextlib
 import contextvars
+import copy
 import dataclasses
 import functools
 import io
@@ -155,6 +156,7 @@ import zipfile
 from typing import Awaitable
 
 import radical.saga
+import radical.utils
 from radical import pilot as rp
 
 import scalems.call
@@ -1702,13 +1704,19 @@ class RPTaskResult:
     knowable a priori.
     """
 
+    uid: str
+    """:py:attr:`radical.pilot.Task.uid` identifier."""
+
     task_dict: dict
     """Dictionary representation from `radical.pilot.Task.as_dict()`."""
+
+    exit_code: int
+    """Exit code of the executable task."""
 
     final_state: str
     """Final state of the `radical.pilot.Task`."""
 
-    directory: radical.saga.Url
+    directory: radical.utils.Url
     """Resource location information for the Task working directory."""
 
     directory_archive: Awaitable[scalems.store.FileReference]
@@ -1743,10 +1751,12 @@ async def subprocess_to_rp_task(
     subprocess_task_description.executable = call_handle.executable
     subprocess_task_description.arguments = list(call_handle.arguments)
     subprocess_task_description.pre_exec = list(get_pre_exec(dispatcher.configuration()))
+    subprocess_task_description.stdout = "_scalems_stdout.txt"
+    subprocess_task_description.stderr = "_scalems_stderr.txt"
 
     subprocess_task_description.input_staging = list()
     for name, ref in call_handle.input_filenames.items():
-        # TODO: Localize the files to the execution site, instead, and use the
+        # TODO: Localize the files directly to the execution site, instead, and use the
         #   (remotely valid) URI (with a COPY or LINK action).
         #   Perform transfers concurrently and await successful transfer
         #   before the submit_tasks call.
@@ -1765,37 +1775,75 @@ async def subprocess_to_rp_task(
     subprocess_task_future: asyncio.Task[rp.Task] = await scalems.radical.runtime.rp_task(subprocess_task)
 
     # TODO: We really should consider putting timeouts on all tasks.
-    subprocess_task = await subprocess_task_future
-    # Note: This coroutine may never be scheduled. That's okay, for now. In the long run, though,
-    # we should have a low-priority scheme for synchronizing file stores in the background.
-    logger.debug(f"Task {subprocess_task.uid} sandbox: {subprocess_task.task_sandbox}.")
-    archive_future = get_directory_archive(subprocess_task.task_sandbox, dispatcher=dispatcher)
+    subprocess_task: rp.Task = await subprocess_task_future
 
+    logger.debug(f"Task {subprocess_task.uid} sandbox: {subprocess_task.task_sandbox}.")
+
+    sandbox = copy.deepcopy(subprocess_task.task_sandbox)
+    if not isinstance(sandbox, radical.utils.Url):
+        logger.debug(f"Converting {repr(sandbox)} to expected Url type.")
+        sandbox = radical.utils.Url(sandbox)
+
+    archive_future = asyncio.create_task(
+        get_directory_archive(sandbox, dispatcher=dispatcher),
+        name=f"archive-{subprocess_task.uid}",
+    )
+    # In the future, we can reduce latency by separating the transfers for requested results
+    # from transfers for the full archive. (Use scalems.call._Subprocess.output_filenames.)
     result = RPTaskResult(
+        uid=subprocess_task.uid,
+        exit_code=subprocess_task.exit_code,
         task_dict=subprocess_task.description,
-        directory=subprocess_task.task_sandbox,
+        directory=sandbox,
         final_state=subprocess_task.state,
         directory_archive=archive_future,
     )
     return result
 
 
-async def subprocess_result_from_rp_task(
+async def wrapped_function_result_from_rp_task(
     subprocess: scalems.call._Subprocess, rp_task_result: RPTaskResult
-) -> scalems.call.Result:
+) -> scalems.call.CallResult:
+    if rp_task_result.final_state != rp.DONE:
+        # Note: it is possible that the executable task could fail for reasons other than a Python Exception.
+        logger.info(f"Task for {subprocess.uid} in final state {rp_task_result.final_state}.")
+        logger.debug(repr(rp_task_result))
+    # It looks like this should be encapsulated with the workflow management details
+    # of the dispatched work item or further specialized for this specific task type.
+    # It doesn't make sense that we should need both the _Subprocess and
+    # RPTaskResult objects to be passed by the caller.
     archive_ref = await rp_task_result.directory_archive
+    # TODO: Collaborate with scalems.call to agree on output filename.
     output_file = subprocess.output_filenames[0]
 
     with zipfile.ZipFile(pathlib.Path(archive_ref)) as myzip:
         with myzip.open(output_file) as fh:
-            result: scalems.call.Result = scalems.call.deserialize_result(io.TextIOWrapper(fh).read())
+            partial_result: scalems.call.CallResult = scalems.call.deserialize_result(io.TextIOWrapper(fh).read())
+    if partial_result.exception is not None:
+        assert rp_task_result.final_state != rp.DONE
+        logger.error(f"Subprocess {subprocess.uid} encountered Exception: {partial_result.exception}")
+    # The remotely packaged result was not aware of the task environment managed by RP.
+    # Update and augment the managed file details.
+    stdout = copy.deepcopy(rp_task_result.directory).set_path(
+        os.path.join(rp_task_result.directory.path, rp_task_result.task_dict["stdout"])
+    )
+    stderr = copy.deepcopy(rp_task_result.directory).set_path(
+        os.path.join(rp_task_result.directory.path, rp_task_result.task_dict["stderr"])
+    )
+
+    result = dataclasses.replace(partial_result, stdout=str(stdout), stderr=str(stderr), directory=archive_ref.as_uri())
     return result
 
 
 async def get_directory_archive(
     directory: radical.saga.Url, dispatcher: RPDispatchingExecutor
 ) -> scalems.store.FileReference:
-    """Get a local archive of a remote directory."""
+    """Get a local archive of a remote directory.
+
+    TODO:
+        Let this be absorbed into a collaboration between WorkflowManagement
+        contexts and their local and remote data stores.
+    """
     staging_directory = dispatcher.datastore.directory.joinpath(f".scalems_output_staging_{id(directory)}")
     logger.debug(f"Preparing to stage {directory} to {staging_directory}.")
 

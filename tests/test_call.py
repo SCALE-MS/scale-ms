@@ -5,6 +5,7 @@ Example:
 """
 import logging
 import os
+import urllib.parse
 from subprocess import CompletedProcess
 from subprocess import run as subprocess_run
 import sys
@@ -82,4 +83,4 @@ def test_call_cli(tmp_path):
         result: scalems.call.CallResult = scalems.call.deserialize_result(fh.read())
     completed_process: CompletedProcess = result.return_value
     assert "hello world" in completed_process.stdout.decode(encoding="utf8")
-    assert tmp_path.samefile(result.directory)
+    assert tmp_path.samefile(urllib.parse.urlparse(result.directory).path)

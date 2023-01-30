@@ -38,9 +38,9 @@ RUN apt-get update && \
         locales \
         openmpi-bin \
         openssh-server \
-        python3.8 \
-        python3.8-dev \
-        python3.8-venv \
+        python3.9 \
+        python3.9-dev \
+        python3.9-venv \
         tox \
         vim \
         wget && \
@@ -50,7 +50,7 @@ RUN locale-gen en_US.UTF-8 && \
     update-locale LANG=en_US.UTF-8
 
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 10
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 9
 
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
 
@@ -60,7 +60,7 @@ WORKDIR /home/rp
 
 ENV HOME=/home/rp
 ENV RPVENV=/home/rp/rp-venv
-RUN python3.8 -m venv $RPVENV
+RUN python3 -m venv $RPVENV
 
 RUN $RPVENV/bin/pip install --upgrade \
         pip \

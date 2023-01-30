@@ -52,17 +52,23 @@ RUN apt-get update && \
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
     apt-get install -y \
-        python3.8-dev \
         python3.9-dev \
-        python3.8-venv \
         python3.9-venv \
         python-dev-is-python3 \
         tox && \
     rm -rf /var/lib/apt/lists/*
 
+# Ubunuto:focal doesn't have python3.10 in the default repo as of this edit.
+#RUN apt-get update && \
+#    DEBIAN_FRONTEND=noninteractive \
+#    apt-get install -y \
+#        python3.10-dev \
+#        python3.10-venv && \
+#    rm -rf /var/lib/apt/lists/*
+
 RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 8
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 9
+#RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 10
 
 # Reference https://docs.docker.com/engine/examples/running_ssh_service/
 RUN mkdir /var/run/sshd

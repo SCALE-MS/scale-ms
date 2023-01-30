@@ -181,7 +181,7 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         pip --version
         pip uninstall -y radical.pilot radical.saga radical.utils scalems
-        pip install radical.pilot~=1.18.0
+        pip install radical.pilot
         pip install -r requirements-testing.txt
         pip install .
         pip install coverage pymongo pytest-cov

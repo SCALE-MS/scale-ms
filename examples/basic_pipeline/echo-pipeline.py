@@ -118,17 +118,18 @@ async def main(text, manager: scalems.workflow.WorkflowManager):
         # result = await task_handle.result()
         # print(result)
 
-        # TODO: more than 1 chain doesn't work because shutil.make_archive is not thread-safe.
-        # NUMBER_CHAINS = 2
-        NUMBER_CHAINS = 1
+        ENSEMBLE_SIZE = 10
 
+        # scalems.submit(...)
+        # TODO: Group submissions for lower overhead.
         tasks_A = tuple(
             TaskHandle(func=sender, args=(text,), label=f"sender-{i}", manager=manager, dispatcher=session)
-            for i in range(NUMBER_CHAINS)
+            for i in range(ENSEMBLE_SIZE)
         )
 
         # Localize all the results.
-        # For periodic batches, see asyncio.with()
+        # For individual tasks, see asyncio.wait_for(), which has a timeout optional kwarg.
+        # For periodic batches, see asyncio.wait()
         # For proxy access to next-available iterative chaining, use asyncio.as_completed()
         results_A = await asyncio.gather(*tuple(handle.result() for handle in tasks_A))
         print(results_A)

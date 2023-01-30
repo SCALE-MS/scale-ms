@@ -147,6 +147,7 @@ import logging
 import os
 import pathlib
 import shutil
+import tempfile
 import threading
 import typing
 import uuid
@@ -1702,6 +1703,12 @@ class RPTaskResult:
     A rp.Task is associated with additional artifacts that are not directly tied
     to the rp.Task object, such as an arbitrary number of files that are not generally
     knowable a priori.
+
+    Design note:
+        This data structure is intentionally ignorant of wrapped Python functions.
+        We should try to reconcile our multiple notions of RP task management as soon
+        as possible. We should be careful to distinguish classes for managing traditional
+        *executable* RP tasks from Python tasks managed with raptor functionality.
     """
 
     uid: str
@@ -1744,6 +1751,10 @@ async def subprocess_to_rp_task(
     Schedule a RP Task and wrap with asyncio. Subscribe a dependent asyncio.Task
     that can provide the intended result type and return it as the Future.
     Schedule a call-back to clean up temporary files.
+
+    TODO:
+        This logic should be integrated into the `WorkflowManager.submit()` stack
+        and `manage_execution` loop.
     """
     subprocess_task_description = rp.TaskDescription()
     subprocess_task_description.stage_on_error = True
@@ -1751,6 +1762,11 @@ async def subprocess_to_rp_task(
     subprocess_task_description.executable = call_handle.executable
     subprocess_task_description.arguments = list(call_handle.arguments)
     subprocess_task_description.pre_exec = list(get_pre_exec(dispatcher.configuration()))
+    # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
+    # a Python function runner, and may collide with user assumptions or native
+    # behaviors of third party tools. We will specify distinctive names for the RP
+    # output capture files in the hope of clarifying the component responsible for
+    # these files.
     subprocess_task_description.stdout = "_scalems_stdout.txt"
     subprocess_task_description.stderr = "_scalems_stderr.txt"
 
@@ -1770,20 +1786,36 @@ async def subprocess_to_rp_task(
             }
         )
 
+    # TODO: Find a better way to express these three lines.
+    # This seems like it should be a subscription by the local workflow context to the
+    # RP dispatching workflow context. Something like
+    #     supporting_task = await rp_manager.add_task(task_description)
+    #     supporting_task.add_done_callback(...)
     task_manager = dispatcher.runtime.task_manager()
-    (subprocess_task,) = await asyncio.to_thread(task_manager.submit_tasks, [subprocess_task_description])
-    subprocess_task_future: asyncio.Task[rp.Task] = await scalems.radical.runtime.rp_task(subprocess_task)
+    (submitted_task,) = await asyncio.to_thread(task_manager.submit_tasks, [subprocess_task_description])
+    subprocess_task_future: asyncio.Task[rp.Task] = await scalems.radical.runtime.rp_task(submitted_task)
 
     # TODO: We really should consider putting timeouts on all tasks.
     subprocess_task: rp.Task = await subprocess_task_future
 
     logger.debug(f"Task {subprocess_task.uid} sandbox: {subprocess_task.task_sandbox}.")
 
-    sandbox = copy.deepcopy(subprocess_task.task_sandbox)
-    if not isinstance(sandbox, radical.utils.Url):
+    sandbox: radical.saga.Url = copy.deepcopy(subprocess_task.task_sandbox)
+    if not isinstance(sandbox, radical.saga.Url):
         logger.debug(f"Converting {repr(sandbox)} to expected Url type.")
-        sandbox = radical.utils.Url(sandbox)
+        sandbox = radical.saga.Url(sandbox)
 
+    # TODO: Schedule the task to create the remote archive, separating the archive retrieval.
+    #   Get a Future for the saga URL (`done` when the archive exists remotely).
+    #   In a later implementation, get a Future[FileReference] that is non-local.
+    #   A refactoring of this wrapper can immediately schedule retrieval to support
+    #   the packaged result.
+    # Note: We need to find language to distinguish a Future that is scheduled from
+    #   an awaitable that isn't. The native Coroutine is not sufficient because Coroutines
+    #   are expected to be scheduled eventually and to be awaited at some point.
+    #   Can we allow all potential outputs to be scheduled, but just at low priority somehow?
+    #   Or can this be a formalization of our notion of "localize" as an awaitable that
+    #   changes the state of the parent object?
     archive_future = asyncio.create_task(
         get_directory_archive(sandbox, dispatcher=dispatcher),
         name=f"archive-{subprocess_task.uid}",
@@ -1817,6 +1849,8 @@ async def wrapped_function_result_from_rp_task(
     output_file = subprocess.output_filenames[0]
 
     with zipfile.ZipFile(pathlib.Path(archive_ref)) as myzip:
+        if logger.getEffectiveLevel() <= logging.DEBUG:
+            logger.debug(f"Opening ZipFile {myzip.filename}: {', '.join(myzip.namelist())}")
         with myzip.open(output_file) as fh:
             partial_result: scalems.call.CallResult = scalems.call.deserialize_result(io.TextIOWrapper(fh).read())
     if partial_result.exception is not None:
@@ -1844,14 +1878,16 @@ async def get_directory_archive(
         Let this be absorbed into a collaboration between WorkflowManagement
         contexts and their local and remote data stores.
     """
-    staging_directory = dispatcher.datastore.directory.joinpath(f".scalems_output_staging_{id(directory)}")
+    # TODO: Let FileStore tell us what directory to use.
+    staging_directory = dispatcher.datastore.directory.joinpath(f"_scalems_output_staging_{id(directory)}")
     logger.debug(f"Preparing to stage {directory} to {staging_directory}.")
+    assert not staging_directory.exists()
 
     # TODO: Don't rely on the RP Session. We should be able to do this after the
     #   Session is closed or after an interrupted Session.
     pilot = dispatcher.runtime.pilot()
     # TODO: Can we avoid serializing more than once? Such as with `rp.TARBALL`?
-    await asyncio.to_thread(
+    targets = await asyncio.to_thread(
         pilot.stage_out,
         sds=[
             {
@@ -1862,20 +1898,54 @@ async def get_directory_archive(
             }
         ],
     )
-    archive_name = dispatcher.datastore.directory.joinpath(f".scalems_output_staging_{id(directory)}")
-    # WARNING: shutil.make_archive is not threadsafe until Python 3.10.6
-    # TODO: Improve locking scheme or thread safety.
-    with dispatcher.datastore._update_lock:
-        archive_path = await asyncio.to_thread(
-            shutil.make_archive,
-            archive_name,
-            "zip",
-            root_dir=staging_directory,
-            base_dir=".",
-        )
+    while True:
+        try:
+            staging_directory.stat()
+        except FileNotFoundError:
+            logger.error(f"Waiting for {staging_directory} to appear...")
+            await asyncio.sleep(1.0)
+        else:
+            break
+    if not staging_directory.is_dir():
+        logger.error(f"Staging directory {staging_directory} is not here!")
+        logger.error(f"pilot.stage_out returned {repr(targets)}")
+        logger.error(str(os.listdir(staging_directory)))
     try:
-        file_ref = await dispatcher.datastore.add_file(scalems.file.describe_file(archive_path))
+        with tempfile.NamedTemporaryFile(mode="wb") as tmp:
+            await asyncio.to_thread(
+                write_archive, filehandle=tmp, root_dir=staging_directory, relative_to=staging_directory
+            )
+            tmp.flush()
+            archive_path = pathlib.Path(tmp.name).resolve()
+            file_ref = await dispatcher.datastore.add_file(scalems.file.describe_file(archive_path))
     finally:
         await asyncio.to_thread(shutil.rmtree, staging_directory)
-        await asyncio.to_thread(os.unlink, archive_path)
     return file_ref
+
+
+def _add_to_archive(archive: zipfile.ZipFile, source: pathlib.Path, relative_to: pathlib.Path):
+    destination = source.relative_to(relative_to)
+    if source.is_dir():
+        for path in source.iterdir():
+            _add_to_archive(archive, path, relative_to)
+    else:
+        if not source.is_file():
+            logger.warning(
+                "Directory contains unusual filesystem object. "
+                f"Attempting to write {source} to {destination} in {archive.filename}")
+        archive.write(filename=source, arcname=destination)
+
+
+def write_archive(*, filehandle, root_dir: pathlib.Path, relative_to: pathlib.Path):
+    """Write a ZipFile archive.
+
+    Args:
+        filehandle: file-like object to write the archive to
+        root_dir: Base of the directory tree to archive
+        relative_to: Path prefix to strip from *root_dir* when constructing the paths in the archive.
+    """
+    assert root_dir.is_dir()
+    with zipfile.ZipFile(filehandle, mode="w") as archive:
+        _add_to_archive(archive, source=root_dir, relative_to=relative_to)
+        if logger.getEffectiveLevel() <= logging.DEBUG:
+            logger.debug(f"Wrote to {archive.filename}: {', '.join(archive.namelist())}")

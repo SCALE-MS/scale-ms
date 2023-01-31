@@ -132,7 +132,6 @@ async def main(text, manager: scalems.workflow.WorkflowManager):
         # For periodic batches, see asyncio.wait()
         # For proxy access to next-available iterative chaining, use asyncio.as_completed()
         results_A = await asyncio.gather(*tuple(handle.result() for handle in tasks_A))
-        print(results_A)
 
         tasks_B = tuple(
             TaskHandle(

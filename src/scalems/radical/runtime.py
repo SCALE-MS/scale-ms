@@ -156,6 +156,7 @@ import weakref
 import zipfile
 from typing import Awaitable
 
+import packaging.version
 import radical.saga
 import radical.utils
 from radical import pilot as rp
@@ -1887,7 +1888,7 @@ async def get_directory_archive(
     #   Session is closed or after an interrupted Session.
     pilot = dispatcher.runtime.pilot()
     # TODO: Can we avoid serializing more than once? Such as with `rp.TARBALL`?
-    targets = await asyncio.to_thread(
+    await asyncio.to_thread(
         pilot.stage_out,
         sds=[
             {
@@ -1898,18 +1899,16 @@ async def get_directory_archive(
             }
         ],
     )
-    while True:
-        try:
-            staging_directory.stat()
-        except FileNotFoundError:
-            logger.error(f"Waiting for {staging_directory} to appear...")
-            await asyncio.sleep(1.0)
-        else:
-            break
-    if not staging_directory.is_dir():
-        logger.error(f"Staging directory {staging_directory} is not here!")
-        logger.error(f"pilot.stage_out returned {repr(targets)}")
-        logger.error(str(os.listdir(staging_directory)))
+    # Work around https://github.com/radical-cybertools/radical.pilot/issues/2823
+    if packaging.version.parse(rp.version) < packaging.version.parse("1.21"):
+        while True:
+            try:
+                staging_directory.stat()
+            except FileNotFoundError:
+                logger.error(f"Waiting for {staging_directory} to appear...")
+                await asyncio.sleep(1.0)
+            else:
+                break
     try:
         with tempfile.NamedTemporaryFile(mode="wb") as tmp:
             await asyncio.to_thread(

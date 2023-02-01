@@ -536,9 +536,7 @@ async def _get_scheduler(
     # script may crash even before it can write anything, but if it does write
     # anything, we _will_ have the output file locally.
     # TODO: Why don't we have the output files? Can we ensure output files for CANCEL?
-    td.output_staging = [
-        # TODO(#229) Write and stage output from master task.
-    ]
+    td.output_staging = []  # TODO(#229) Write and stage output from master task.
     td.stage_on_error = True
 
     td.pre_exec = list(pre_exec)
@@ -1051,11 +1049,11 @@ class RPDispatchingExecutor(RuntimeManager):
                         pre_exec=list(get_pre_exec(config)),
                         task_manager=task_manager,
                         filestore=config.datastore,
-                        scalems_env="scalems_venv",  # TODO: normalize ownership of this name.
+                        scalems_env="scalems_venv",
+                        # TODO: normalize ownership of this name.
                     ),
                     name="get-scheduler",
-                )
-                # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
+                )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         except asyncio.CancelledError as e:
             raise e
         except Exception as e:
@@ -1122,8 +1120,7 @@ class RPDispatchingExecutor(RuntimeManager):
                     # TODO(#229): Fetch actual stderr file.
                     # Note that all of the logging output goes to stderr, it seems,
                     # so we shouldn't necessarily consider it an error level event.
-                    logger.debug(runtime.scheduler.stderr)
-                # TODO(#108,#229): Receive report of work handled by Master.
+                    logger.debug(runtime.scheduler.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
 
             # Note: there are no documented exceptions or errors to check for,
             # programmatically. Some issues encountered during shutdown will be
@@ -1269,6 +1266,10 @@ def _rp_callback(
             # tmgr.unregister_callback(cb=ref, metrics='TASK_STATE',
             #                          uid=obj.uid)
             logger.debug(f"Recording final state {state} for {repr(obj)}")
+            # Consider alternatives that are easier to await for:
+            #   * use an asyncio.Event instead, and use loop.call_soon_threadsafe(<event>.set)
+            #   * insert a layer so that the RPFinalTaskState object can easily
+            #     set its own awaitable "done" status when updated
             if state == rp.states.DONE:
                 final.done.set()
             elif state == rp.states.CANCELED:
@@ -1350,10 +1351,17 @@ async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asynci
                 if final.failed.is_set():
                     logger.error(f"{task.uid} stderr: {task.stderr}")
                     logger.info(f"Failed {task.uid} working directory: {task.task_sandbox}")
-                    if logger.level <= logging.DEBUG:
+                    if logger.getEffectiveLevel() <= logging.DEBUG:
                         for key, value in task.as_dict().items():
                             logger.debug(f"    {key}: {str(value)}")
-                    raise RPTaskFailure(f"{task.uid} failed.", task=task)
+                    message = f"{task.uid} failed."
+                    if task.exit_code is not None:
+                        message += f" Exit code {task.exit_code}."
+                    if task.stderr is not None:
+                        message += f" stderr: {task.stderr}"
+                    if task.exception is not None:
+                        message += f" Exception: {task.exception}"
+                    raise RPTaskFailure(message, task=task)
                 elif final.canceled.is_set():
                     # Act as if RP called Task.cancel() on us.
                     raise asyncio.CancelledError()
@@ -1503,7 +1511,8 @@ def _describe_raptor_task(item: scalems.workflow.Task, scheduler: str, pre_exec:
     # Check docs for schema.
     # Ref: scalems_rp_master._RaptorTaskDescription
     task_description = rp.TaskDescription(
-        from_dict=dict(executable="scalems", pre_exec=pre_exec)  # This value is currently ignored, but must be set.
+        from_dict=dict(executable="scalems", pre_exec=pre_exec)
+        # This value is currently ignored, but must be set.
     )
     task_description.uid = item.uid()
     task_description.scheduler = str(scheduler)
@@ -1755,37 +1764,50 @@ async def subprocess_to_rp_task(
 
     TODO:
         This logic should be integrated into the `WorkflowManager.submit()` stack
-        and `manage_execution` loop.
+        and `manage_execution` loop. We really should have special handling for
+        wrapped function calls as distinguished from command line executables.
     """
-    subprocess_task_description = rp.TaskDescription()
-    subprocess_task_description.stage_on_error = True
-    subprocess_task_description.uid = call_handle.uid
-    subprocess_task_description.executable = call_handle.executable
-    subprocess_task_description.arguments = list(call_handle.arguments)
-    subprocess_task_description.pre_exec = list(get_pre_exec(dispatcher.configuration()))
+    subprocess_dict = dict(
+        stage_on_error=True,
+        uid=call_handle.uid,
+        executable=call_handle.executable,
+        arguments=list(call_handle.arguments),
+        pre_exec=list(get_pre_exec(dispatcher.configuration())),
+    )
+
     # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
     # a Python function runner, and may collide with user assumptions or native
     # behaviors of third party tools. We will specify distinctive names for the RP
     # output capture files in the hope of clarifying the component responsible for
     # these files.
-    subprocess_task_description.stdout = "_scalems_stdout.txt"
-    subprocess_task_description.stderr = "_scalems_stderr.txt"
+    subprocess_dict["stdout"] = "_scalems_stdout.txt"
+    subprocess_dict["stderr"] = "_scalems_stderr.txt"
 
-    subprocess_task_description.input_staging = list()
-    for name, ref in call_handle.input_filenames.items():
-        # TODO: Localize the files directly to the execution site, instead, and use the
-        #   (remotely valid) URI (with a COPY or LINK action).
-        #   Perform transfers concurrently and await successful transfer
-        #   before the submit_tasks call.
-        await ref.localize()
-        subprocess_task_description.input_staging.append(
-            {
-                "source": ref.as_uri(),
-                # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
-                "target": "task:///" + name,
-                "action": rp.TRANSFER,
-            }
-        )
+    # TODO: Localize the files directly to the execution site, instead, and use the
+    #   (remotely valid) URI (with a COPY or LINK action).
+    #   Perform transfers concurrently and await successful transfer
+    #   before the submit_tasks call.
+    await asyncio.gather(*tuple(ref.localize() for ref in call_handle.input_filenames.values()))
+    subprocess_dict["input_staging"] = [
+        {
+            "source": ref.as_uri(),
+            # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
+            "target": "task:///" + name,
+            "action": rp.TRANSFER,
+        }
+        for name, ref in call_handle.input_filenames.items()
+    ]
+
+    for param, value in call_handle.requirements.items():
+        if param in subprocess_dict:
+            raise ValueError(f"Cannot overwrite {param}. Task['{param}'] is {subprocess_dict[param]}")
+        else:
+            subprocess_dict[param] = value
+
+    try:
+        subprocess_task_description = rp.TaskDescription(from_dict=subprocess_dict).verify()
+    except radical.utils.typeddict.TDKeyError as e:
+        raise ValueError("Invalid attribute for RP TaskDescription.") from e
 
     # TODO: Find a better way to express these three lines.
     # This seems like it should be a subscription by the local workflow context to the
@@ -1845,6 +1867,8 @@ async def wrapped_function_result_from_rp_task(
     # of the dispatched work item or further specialized for this specific task type.
     # It doesn't make sense that we should need both the _Subprocess and
     # RPTaskResult objects to be passed by the caller.
+    # Also, we don't have access to the requested *outputs* in order to optimize out transfers
+    # without adding yet another argument.
     archive_ref = await rp_task_result.directory_archive
     # TODO: Collaborate with scalems.call to agree on output filename.
     output_file = subprocess.output_filenames[0]
@@ -1931,7 +1955,8 @@ def _add_to_archive(archive: zipfile.ZipFile, source: pathlib.Path, relative_to:
         if not source.is_file():
             logger.warning(
                 "Directory contains unusual filesystem object. "
-                f"Attempting to write {source} to {destination} in {archive.filename}")
+                f"Attempting to write {source} to {destination} in {archive.filename}"
+            )
         archive.write(filename=source, arcname=destination)
 
 

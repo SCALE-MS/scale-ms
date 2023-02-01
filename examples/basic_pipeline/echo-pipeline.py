@@ -32,15 +32,7 @@ import typing
 
 import scalems.radical
 import scalems.call
-
-
-verbose = os.environ.get("RADICAL_PILOT_VERBOSE", "REPORT")
-os.environ["RADICAL_PILOT_VERBOSE"] = verbose
-
-
-# Inherit from the backend parser so that `parse_known_args` can handle positional arguments the way we want.
-parser = argparse.ArgumentParser(parents=[scalems.radical.parser], add_help=False)
-parser.add_argument("-o", type=str, help="Output file name.")
+import scalems.workflow
 
 
 def sender(text: typing.Sequence[str]) -> "tuple[str, ...]":
@@ -68,15 +60,18 @@ class TaskHandle(typing.Generic[_ResultT]):
         label: str,
         manager: scalems.workflow.WorkflowManager,
         dispatcher: scalems.radical.runtime.RPDispatchingExecutor,
-        args=(),
-        kwargs=None,
+        args: tuple = (),
+        kwargs: dict = None,
+        requirements: dict = None,
     ):
         if kwargs is None:
             kwargs = {}
         task_uid = label
+        if requirements is None:
+            requirements = {}
         self._call_handle: asyncio.Task[scalems.call._Subprocess] = asyncio.create_task(
             scalems.call.function_call_to_subprocess(
-                func=func, args=args, kwargs=kwargs, label=task_uid, manager=manager
+                func=func, label=task_uid, args=args, kwargs=kwargs, manager=manager, requirements=requirements
             )
         )
         self._dispatcher = dispatcher
@@ -97,7 +92,7 @@ class TaskHandle(typing.Generic[_ResultT]):
         return result.return_value
 
 
-async def main(text, manager: scalems.workflow.WorkflowManager):
+async def main(text, manager: scalems.workflow.WorkflowManager, size: int):
     session: scalems.radical.runtime.RPDispatchingExecutor
     async with manager.dispatch() as session:
         # submit a single pipeline task to pilot job
@@ -118,13 +113,18 @@ async def main(text, manager: scalems.workflow.WorkflowManager):
         # result = await task_handle.result()
         # print(result)
 
-        ENSEMBLE_SIZE = 10
-
         # scalems.submit(...)
         # TODO: Group submissions for lower overhead.
         tasks_A = tuple(
-            TaskHandle(func=sender, args=(text,), label=f"sender-{i}", manager=manager, dispatcher=session)
-            for i in range(ENSEMBLE_SIZE)
+            TaskHandle(
+                func=sender,
+                label=f"sender-{i}",
+                manager=manager,
+                dispatcher=session,
+                args=(text,),
+                requirements={"ranks": 1, "cores_per_rank": 1},
+            )
+            for i in range(size)
         )
 
         # Localize all the results.
@@ -135,11 +135,7 @@ async def main(text, manager: scalems.workflow.WorkflowManager):
 
         tasks_B = tuple(
             TaskHandle(
-                func=receiver,
-                kwargs={"text": result},
-                label=f"receiver-{i}",
-                manager=manager,
-                dispatcher=session,
+                func=receiver, label=f"receiver-{i}", manager=manager, dispatcher=session, kwargs={"text": result}
             )
             for i, result in enumerate(results_A)
         )
@@ -150,20 +146,46 @@ async def main(text, manager: scalems.workflow.WorkflowManager):
 
 
 if __name__ == "__main__":
-    # Work around a quirk: we are using the parser that normally assumes the
+    import logging
+
+    # Inherit from the backend parser so that `parse_known_args` can handle positional arguments the way we want.
+    parser = argparse.ArgumentParser(parents=[scalems.radical.parser], add_help=False)
+    parser.add_argument("-o", type=str, help="Output file name.")
+    parser.add_argument("--size", type=int, default=10, help="Ensemble size: number of parallel pipelines.")
+
+    # Work around some quirks: we are using the parser that normally assumes the
     # backend from the command line. We can switch back to the `-m scalems.radical`
     # style invocation when we have some more updated UI tools
     # (e.g. when scalems.wait has been updated) and `main` doesn't have to be a coroutine.
     sys.argv.insert(0, __file__)
 
     config, argv = parser.parse_known_args()
+
+    level = None
+    debug = False
+    if config.log_level is not None:
+        level = logging.getLevelName(config.log_level)
+        debug = level <= logging.DEBUG
+    if level is not None:
+        character_stream = logging.StreamHandler()
+        logging.getLogger("scalems").setLevel(level)
+        logging.getLogger("asyncio").setLevel(level)
+        character_stream.setLevel(level)
+        formatter = logging.Formatter("%(asctime)s-%(name)s:%(lineno)d-%(levelname)s - %(message)s")
+        character_stream.setFormatter(formatter)
+        logging.getLogger("scalems").addHandler(character_stream)
+        logging.getLogger("asyncio").addHandler(character_stream)
+
+    verbose = os.environ.get("RADICAL_PILOT_VERBOSE", "REPORT")
+    os.environ["RADICAL_PILOT_VERBOSE"] = verbose
+
     outfile = config.o
     if not outfile:
         outfile = "stdout.txt"
 
     manager = scalems.radical.workflow_manager(asyncio.get_event_loop())
     with scalems.workflow.scope(manager, close_on_exit=True):
-        results = asyncio.run(main(argv, manager))
+        results = asyncio.run(main(argv, manager, size=config.size), debug=debug)
 
     with open(outfile, "w") as fh:
         fh.writelines(result["received"] + "\n" for result in results)

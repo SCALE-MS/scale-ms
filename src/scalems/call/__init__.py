@@ -19,8 +19,10 @@ import json
 import logging
 import os
 import pathlib
+import sys
 import tempfile
 import typing
+import warnings
 
 import dill
 
@@ -40,7 +42,7 @@ class _Call:
     Assumed to be round-trip serializable via *encoder* and *decoder*.
     """
 
-    environment: dict = dataclasses.field(default_factory=dict)
+    environment: typing.Optional[dict] = dataclasses.field(default_factory=dict)
     """Optional overrides of environment variables."""
 
     skeleton: typing.Optional[str] = None
@@ -64,6 +66,18 @@ class _Call:
     To avoid excessive data transfer, outputs (ResultPack fields)
     must be named explicitly to be included in the automatically
     generated result package.
+    """
+
+    requirements: dict[str, typing.Any] = dataclasses.field(default_factory=dict)
+    """Named run time requirements for the call.
+
+    Common requirements include numbers of MPI ranks, cores per process, or
+    descriptions of accelerator hardware (GPUs).
+
+    For the initial implementation, key/value pairs are assumed to map to
+    attribute assignments in a `radical.pilot.TaskDescription`. The information
+    is not provided directly to the function; it is for internal use.
+    (Special handling may occur in `scalems.call`.)
     """
 
     decoder: str = dataclasses.field(default="dill")
@@ -111,6 +125,12 @@ class CallPack(typing.TypedDict):
 
     """
 
+    args: list[str]
+    """List of serialized positional arguments."""
+
+    environment: typing.Optional[dict]
+    """Optional overrides of environment variables."""
+
     func: str
     """string-encoded Python callable, deserializable with *decoder*.
 
@@ -118,8 +138,28 @@ class CallPack(typing.TypedDict):
     as hexadecimal-encoded big-endian bytes.
     """
 
-    environment: typing.Optional[dict]
-    """Optional overrides of environment variables."""
+    kwargs: dict[str, str]
+    """Dictionary of key word arguments and serialized values."""
+
+    outputs: list[str]
+    """Requested outputs.
+
+    To avoid excessive data transfer, outputs (ResultPack fields other than
+    *exception*, *encoder*, and *decoder*)
+    must be named explicitly to be included in the automatically
+    generated result package.
+    """
+
+    requirements: dict[str, typing.Any]
+    """Run time requirements.
+
+    This is a copy of the run time requirements submitted with the command. It
+    is not directly available to the wrapped function, but its information may
+    be used by the `scalems.call.main` implementation.
+
+    See Also:
+        https://github.com/SCALE-MS/scale-ms/discussions/302
+    """
 
     skeleton: typing.Optional[str]
     """Optional string-encoded URI for archived skeleton of working directory files.
@@ -128,20 +168,6 @@ class CallPack(typing.TypedDict):
         With or without this file list, additional files will be created to support
         task execution. If this is a problem, we might be able to customize the RP
         task launch script to execute in a subdirectory.
-    """
-
-    args: list[str]
-    """List of serialized positional arguments."""
-
-    kwargs: dict[str, str]
-    """Dictionary of key word arguments and serialized values."""
-
-    outputs: list[str]
-    """Requested outputs.
-
-    To avoid excessive data transfer, outputs (ResultPack fields)
-    must be named explicitly to be included in the automatically
-    generated result package.
     """
 
     decoder: str
@@ -197,11 +223,14 @@ class _Subprocess:
 
 
 async def function_call_to_subprocess(
-    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager
+    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager, requirements: dict = None
 ) -> _Subprocess:
     """Wrap a function call in a command line based on `scalems.call`."""
     if kwargs is None:
-        kwargs = {}
+        kwargs = dict()
+    if requirements is None:
+        requirements = dict()
+
     # TODO: FileStore should probably provide a new_file() method.
     #   Possibly an overload to get_file_reference() for IOStreams or buffers,
     #   but requires internal support to optimize out redundant fingerprinting
@@ -211,7 +240,7 @@ async def function_call_to_subprocess(
     #   Optimization for known binary formats (with potentially local differences)
     #   could be in the form of `add_typed_data`.
     with tempfile.NamedTemporaryFile(mode="w", suffix="-input.json") as tmp_file:
-        tmp_file.write(serialize_call(func=func, args=args, kwargs=kwargs))
+        tmp_file.write(serialize_call(func=func, args=args, kwargs=kwargs, requirements=requirements))
         tmp_file.flush()
         # We can't release the temporary file until the file reference is obtained.
         file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=manager.datastore())
@@ -221,15 +250,26 @@ async def function_call_to_subprocess(
     # TODO: Collaborate with scalems.call to agree on output filename.
     output_filename = uid + "-output.json"
     executable = "python3"
+    arguments = []
+    for key, value in getattr(sys, "_xoptions", {}).items():
+        if value is True:
+            arguments.append(f"-X{key}")
+        else:
+            assert isinstance(value, str)
+            arguments.append(f"-X{key}={value}")
+
     # TODO: Validate with argparse, once scalems.call.__main__ has a real parser.
-    arguments = ("-m", "scalems.call", input_filename, output_filename)
+    if "ranks" in requirements:
+        arguments.extend(("-m", "mpi4py"))
+    arguments.extend(("-m", "scalems.call", input_filename, output_filename))
 
     return _Subprocess(
         uid=uid,
         input_filenames={input_filename: file_ref},
         output_filenames=(output_filename,),
         executable=executable,
-        arguments=arguments,
+        arguments=tuple(arguments),
+        requirements=requirements.copy(),
     )
 
 
@@ -241,16 +281,36 @@ def main(call: _Call) -> CallResult:
     func = call.func
     args = call.args
     kwargs = call.kwargs
+    outputs = [str(output) for output in call.outputs]
+    fields = [field.name for field in dataclasses.fields(CallResult)]
+    for output in outputs:
+        if output not in fields:
+            # TODO: Make sure that warnings and logs go somewhere under RP.
+            warnings.warn(f"Unrecognized output requested: {output}")
+    if "exception" not in outputs:
+        logger.debug("Adding *exception* to outputs for internal use.")
+        outputs.append("exception")
+
+    # Note: we are already running inside a RP executable Task by the time we
+    # reach this point, so we are relying on call.environment and call.skeleton
+    # to have been handled by the caller.
     cwd = pathlib.Path(os.getcwd())
-    # TODO: execution environment
+    result_fields = dict(directory=cwd.as_uri())
+
+    # Note: For RP Raptor, the MPIWorker will be providing our wrapped function
+    # with an mpi4py.MPI.Comm according to the task requirements. For this CLI
+    # utility, RP will have used an appropriate launch method, so the parallelization
+    # libraries should be able to initialize themselves from the environment.
+    # TODO: Check that *e.g. gromacs* properly detects resources as prepared by RP.
     try:
-        output = func(*args, **kwargs)
+        result_fields["return_value"] = func(*args, **kwargs)
     except Exception as e:
-        exception = repr(e)
-        result = CallResult(exception=exception, directory=cwd.as_uri())
-    else:
-        result = CallResult(return_value=output, directory=cwd.as_uri())
-        # TODO: file outputs
+        result_fields["exception"] = repr(e)
+
+    # Note: We don't have *stdout* and *stderr* at this point because
+    # they are handled by the work load manager.
+    kwargs = {key: value for key, value in result_fields.items() if key in outputs}
+    result = CallResult(**kwargs)
     return result
 
 
@@ -288,7 +348,7 @@ def from_hex(x: str):
     return dill.loads(bytes.fromhex(x))
 
 
-def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None) -> str:
+def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None, requirements: dict = None) -> str:
     """Create a serialized representation of a function call.
 
     This utility function is provided for stability while the serialization
@@ -296,6 +356,8 @@ def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = No
     """
     if kwargs is None:
         kwargs = {}
+    if requirements is None:
+        requirements = {}
     # This might need to be replaced with a dispatching function, for which raw serialization
     # is only a fall-back for functions that aren't decorated/registered scalems Commands.
     # Commands could be implemented for specific Runtime executors, or expressed in terms
@@ -308,9 +370,10 @@ def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = No
         kwargs={key: to_bytes(value).hex() for key, value in kwargs.items()},
         decoder="dill",
         encoder="dill",
-        outputs=["return_value"],
+        outputs=["return_value", "exception", "directory", "stdout", "stderr"],
         skeleton=None,
         environment=None,
+        requirements=requirements,
     )
     return json.dumps(pack, separators=(",", ":"))
 
@@ -325,7 +388,15 @@ def deserialize_call(record: str) -> _Call:
     args = tuple(from_hex(arg) for arg in record_dict["args"])
     kwargs = {key: from_hex(value) for key, value in record_dict["kwargs"].items()}
     outputs = record_dict["outputs"]
-    call = _Call(func=func, args=args, kwargs=kwargs, outputs=outputs)
+    call = _Call(
+        func=func,
+        args=args,
+        kwargs=kwargs,
+        outputs=outputs,
+        environment=record_dict.get("environment", None),
+        skeleton=record_dict.get("skeleton", None),
+        requirements=record_dict.get("requirements", None),
+    )
     return call
 
 

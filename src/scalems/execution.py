@@ -423,7 +423,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                     self._exception = e
             finally:
                 try:
-                    self.runtime_shutdown(runtime)
+                    await asyncio.to_thread(self.runtime_shutdown, runtime)
                 except asyncio.CancelledError as e:
                     cancelled_error = e
                 except Exception as e:

@@ -53,7 +53,8 @@ def test_register_venv(rp_task_manager, rp_venv):
     scriptlet += f"; {executable} -m venv {env_path} "
     scriptlet += f"; . {env_path}/bin/activate "
     scriptlet += "; python -m pip install --upgrade pip setuptools wheel "
-    scriptlet += f"; pip install radical.pilot=={rp.version}"
+    # For `devel`, the reported release is not available from pypi.
+    # scriptlet += f"; pip install radical.pilot=={rp.version}"
     command = ["bash", "-c", scriptlet]
 
     if access == "local":

@@ -122,7 +122,7 @@ async def main(text, manager: scalems.workflow.WorkflowManager, size: int):
                 manager=manager,
                 dispatcher=session,
                 args=(text,),
-                requirements={"ranks": 1, "cores_per_rank": 1},
+                requirements={"ranks": 1, "cores_per_rank": 1, "threading_type": "OpenMP"},
             )
             for i in range(size)
         )

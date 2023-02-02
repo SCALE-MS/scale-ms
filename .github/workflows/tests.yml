@@ -442,7 +442,7 @@ jobs:
           -rA -l --full-trace --log-cli-level=debug \
           tests \
           --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
-          --experimental
+          --experimental --exhaustive
     - name: Command line tests
       timeout-minutes: 3
       env:

@@ -16,6 +16,10 @@
 #     docker pull scalems/gromacs
 #     docker build -t scalems/gromacs --cache-from scalems/gromacs -f scalems-gromacs.dockerfile ..
 #
+# Warning: The `mongo:focal` base image sets the HOME environment variable to /data/db for its own purposes,
+#    which breaks the meaning of `~` when executing with `-u rp`. Explicitly use `~rp` or use `--env HOME=/home/rp`
+#    in the `docker exec` command line.
+#
 # Example usage---LAMMPS+Python only:
 #     docker run --rm -ti -u rp scalems/gromacs bash
 #     $ . ./rp-venv/bin/activate
@@ -37,9 +41,9 @@
 #
 #     docker run --rm --name scalems_test -d scalems/gromacs
 #     sleep 3
-#     docker exec -ti -u rp scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests --rp-resource=local.localhost"
-#     docker exec -ti -u rp scalems_test bash -c ". rp-venv/bin/activate && python -m scalems.radical --resource=local.localhost --venv /home/rp/rp-venv scalems/examples/basic/echo.py hi there"
-#     docker exec -ti -u rp scalems_test bash -c 'cat 0*0/stdout'
+#     docker exec -ti -u rp -e HOME=/home/rp scalems_test bash -c ". rp-venv/bin/activate && python -m pytest scalems/tests --rp-resource=local.localhost"
+#     docker exec -ti -u rp -e HOME=/home/rp scalems_test bash -c ". rp-venv/bin/activate && python -m scalems.radical --resource=local.localhost --venv /home/rp/rp-venv scalems/examples/basic/echo.py hi there"
+#     docker exec -ti -u rp -e HOME=/home/rp scalems_test bash -c 'cat 0*0/stdout'
 #     docker kill scalems_test
 
 # Prerequisite: build base image from rp-complete.dockerfile
@@ -69,11 +73,10 @@ RUN apt-get update && \
 USER rp
 
 WORKDIR /home/rp
-ENV HOME=/home/rp
 
-RUN $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
-RUN $RPVENV/bin/pip install --no-cache-dir mpi4py
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir mpi4py
 
 ARG BRANCH=release-2022
 RUN . $RPVENV/bin/activate && \
@@ -96,17 +99,17 @@ RUN . $RPVENV/bin/activate && \
                     .. && \
                 cmake --build . --target install
 
-RUN $RPVENV/bin/pip install --no-cache-dir -r ~rp/gromacs-src/python_packaging/requirements-test.txt
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir -r ~rp/gromacs-src/python_packaging/requirements-test.txt
 
 ARG GMXAPI_REF="gmxapi"
-RUN . $RPVENV/gromacs/bin/GMXRC && $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF
+RUN . $RPVENV/gromacs/bin/GMXRC && HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF
 
 COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
 # Note: RCT stack may not install correctly unless venv is actually "activated".
-RUN . $RPVENV/bin/activate && pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
+RUN . $RPVENV/bin/activate && HOME=/home/rp pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
 
 COPY --chown=rp:radical . scalems
-RUN $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
 
 # Try to update the testdata submodule if it is missing or out of date.
 # If there are files in testdata, but it is not tracked as a git submodule,
@@ -129,4 +132,3 @@ RUN cd scalems && \
 
 # Restore the user for the default entry point (the mongodb server)
 USER mongodb
-ENV HOME=/data/db

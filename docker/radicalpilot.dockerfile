@@ -35,11 +35,12 @@ RUN apt-get update && \
         wget && \
     rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && \
-    DEBIAN_FRONTEND=noninteractive \
-    apt-get -y --no-install-recommends install \
-        libmpich-dev && \
-    rm -rf /var/lib/apt/lists/*
+# Let's focus on OpenMPI for now.
+#RUN apt-get update && \
+#    DEBIAN_FRONTEND=noninteractive \
+#    apt-get -y --no-install-recommends install \
+#        libmpich-dev && \
+#    rm -rf /var/lib/apt/lists/*
 
 # Note that mpic++ can be configured with `update-alternatives` for openmpi or mpich.
 # See https://stackoverflow.com/a/66538359/5351807

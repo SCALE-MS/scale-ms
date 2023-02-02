@@ -78,7 +78,7 @@ RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptool
 RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
 RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir mpi4py
 
-ARG BRANCH=release-2022
+ARG BRANCH=release-2023
 RUN . $RPVENV/bin/activate && \
     cd ~rp && \
         git clone \
@@ -99,7 +99,7 @@ RUN . $RPVENV/bin/activate && \
                     .. && \
                 cmake --build . --target install
 
-RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir -r ~rp/gromacs-src/python_packaging/requirements-test.txt
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir -r ~rp/gromacs-src/python_packaging/gmxapi/requirements.txt
 
 ARG GMXAPI_REF="gmxapi"
 RUN . $RPVENV/gromacs/bin/GMXRC && HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF

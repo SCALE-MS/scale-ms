@@ -13,6 +13,10 @@
 #     docker pull scalems/lammps
 #     docker build -t scalems/lammps --cache-from scalems/lammps -f scalems-lammps.dockerfile ..
 #
+# Warning: The `mongo:focal` base image sets the HOME environment variable to /data/db for its own purposes,
+#    which breaks the meaning of `~` when executing with `-u rp`. Explicitly use `~rp` or use `--env HOME=/home/rp`
+#    in the `docker exec` command line.
+#
 # Example usage (Python):
 #     docker run --rm -ti scalems/lammps bash
 #     $ . ./rp-venv/bin/activate
@@ -65,14 +69,14 @@ RUN apt-get update && \
 USER rp
 
 WORKDIR /home/rp
-ENV HOME=/home/rp
 
-RUN $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
-RUN $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
-RUN $RPVENV/bin/pip install --no-cache-dir mpi4py
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir mpi4py
 
 # Patch release will have a path like lammps-27May2021
-RUN . $RPVENV/bin/activate && \
+RUN export HOME=/home/rp && \
+    . $RPVENV/bin/activate && \
     mkdir /tmp/lammps && \
     cd /tmp/lammps && \
     wget https://download.lammps.org/tars/lammps.tar.gz && \
@@ -100,10 +104,10 @@ RUN . $RPVENV/bin/activate && \
     echo 'export LD_LIBRARY_PATH=$RPVENV/lib:$LD_LIBRARY_PATH' >> $RPVENV/bin/activate
 
 COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
-RUN . $RPVENV/bin/activate && ./rp-venv/bin/pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
+RUN . $RPVENV/bin/activate && HOME=/home/rp ./rp-venv/bin/pip install --no-cache-dir --upgrade -r scalems/requirements-testing.txt
 
 COPY --chown=rp:radical . scalems
-RUN $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
 
 # Try to update the testdata submodule if it is missing or out of date.
 # If there are files in testdata, but it is not tracked as a git submodule,
@@ -111,7 +115,7 @@ RUN $RPVENV/bin/pip install --no-cache-dir --no-deps scalems/
 # a way for us to report this condition during docker build.
 # (The `echo` below will not be seen on the terminal.)
 RUN cd scalems && \
-    git submodule update --init --merge || \
+    HOME=/home/rp git submodule update --init --merge || \
         echo "testdata has untracked changes. Skipping submodule update."
 
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
@@ -126,4 +130,3 @@ RUN cd scalems && \
 
 # Restore the user for the default entry point (the mongodb server)
 USER mongodb
-ENV HOME=/data/db

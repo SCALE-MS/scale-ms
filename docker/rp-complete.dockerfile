@@ -7,16 +7,20 @@
 #     docker run --rm --name rp_test -d scalems/rp-complete
 #     # Either use '-d' with 'run' or issue the 'exec' in a separate terminal
 #     # after waiting a few seconds for the DB to be ready to accept connections.
-#     docker exec -ti -u rp rp_test bash -c "cd ~/radical.pilot && . ~/rp-venv/bin/activate && python -m pytest tests"
+#     docker exec -ti -u rp -e HOME=/home/rp rp_test bash -c "cd ~rp/radical.pilot && . ~rp/rp-venv/bin/activate && python -m pytest tests"
 #     # The examples need the venv to be activated in order to find supporting
 #     # shell scripts on the default PATH. The current working directory also
 #     # needs to be writable.
-#     docker exec -ti -u rp rp_test bash -c "cd && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
+#     docker exec -ti -u rp -e HOME=/home/rp rp_test bash -c "cd ~rp && . /home/rp/rp-venv/bin/activate && python radical.pilot/examples/00*"
 #     # If '-d' was used with 'run', you can just kill the container when done.
 #     docker kill rp_test
 #
+# Warning: The `mongo:focal` base image sets the HOME environment variable to /data/db for its own purposes,
+#    which breaks the meaning of `~` when executing with `-u rp`. Explicitly use `~rp` or use `--env HOME=/home/rp`
+#    in the `docker exec` command line.
+#
 # Optional: Specify a git ref for radical.pilot when building the image with the RPREF build arg. (Default v1.5.7)
-#     docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=master .
+#     docker build -t scalems/rp-complete -f rp-complete.dockerfile --build-arg RPREF=devel .
 #
 
 FROM mongo:focal
@@ -58,15 +62,14 @@ USER rp
 
 WORKDIR /home/rp
 
-ENV HOME=/home/rp
 ENV RPVENV=/home/rp/rp-venv
 RUN python3 -m venv $RPVENV
 
-RUN $RPVENV/bin/pip install --upgrade \
+RUN HOME=/home/rp $RPVENV/bin/pip install --upgrade \
         pip \
         setuptools \
         wheel && \
-    $RPVENV/bin/pip install --upgrade \
+    HOME=/home/rp $RPVENV/bin/pip install --upgrade \
         build \
         coverage \
         flake8 \
@@ -88,10 +91,11 @@ ARG RPREF="v1.20.1"
 #ARG RPREF="project/scalems"
 # Note: radical.pilot does not work properly with an "editable install", and
 # requires the venv to be activated in order to install properly.
-RUN git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
+RUN cd ~rp && \
+    git clone -b $RPREF --depth=3 https://github.com/radical-cybertools/radical.pilot.git && \
     . $RPVENV/bin/activate && \
-    cd ~rp/radical.pilot && \
-    pip install --no-cache-dir --no-build-isolation .
+    cd radical.pilot && \
+    HOME=/home/rp pip install --no-cache-dir --no-build-isolation .
 
 
 # Allow RADICAL Pilot to provide more useful behavior during testing,
@@ -119,4 +123,3 @@ RUN echo "export RADICAL_PILOT_DBURL=$RADICAL_PILOT_DBURL" >> /etc/profile
 RUN echo "rp\nrp" | passwd rp
 
 USER mongodb
-ENV HOME=/data/db

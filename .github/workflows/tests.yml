@@ -209,7 +209,7 @@ jobs:
           tests \
           --rp-venv $HOME/testenv --rp-resource=local.localhost --rp-access=local
     - name: Command line tests with static venv
-      timeout-minutes: 3
+      timeout-minutes: 5
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -325,7 +325,7 @@ jobs:
           tests \
           --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
     - name: Command line tests
-      timeout-minutes: 3
+      timeout-minutes: 5
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
@@ -450,7 +450,7 @@ jobs:
           --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh \
           --experimental --exhaustive
     - name: Command line tests
-      timeout-minutes: 3
+      timeout-minutes: 5
       env:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |

@@ -5,6 +5,7 @@ Example:
 """
 import logging
 import os
+import urllib.parse
 from subprocess import CompletedProcess
 from subprocess import run as subprocess_run
 import sys
@@ -34,6 +35,33 @@ def test_call_builtin_func():
     # becomes and issue for devs in other locales.
     assert "hello world" in complete_process.stdout.decode(encoding="utf8")
 
+    def local_echo(*text: str) -> tuple[str]:
+        if isinstance(text, str):
+            text = (text,)
+        if not isinstance(text, tuple) or not all(isinstance(s, str) for s in text):
+            raise ValueError("Function call requires one or more positional string arguments.")
+        return tuple(text)
+
+    try:
+        local_echo(1)
+    except ValueError as e:
+        reference_error = repr(e)
+    else:
+        reference_error = None
+    assert reference_error is not None
+
+    sample_text_tuple = ("hi", "there")
+    call = scalems.call.serialize_call(func=local_echo, args=sample_text_tuple)
+    result = scalems.call.main(scalems.call.deserialize_call(call))
+    assert result.exception is None
+    output = result.return_value
+    assert output == sample_text_tuple
+
+    call = scalems.call.serialize_call(func=local_echo, args=(1,))
+    result = scalems.call.main(scalems.call.deserialize_call(call))
+    assert result.return_value is None
+    assert result.exception == reference_error
+
 
 def test_call_cli(tmp_path):
     """Run the command line in a subprocess to confirm reasonable behavior."""
@@ -52,10 +80,7 @@ def test_call_cli(tmp_path):
     assert process.returncode == 0
     assert os.path.exists(outfile)
     with open(outfile, "r") as fh:
-        result: scalems.call.Result = scalems.call.deserialize_result(fh.read())
+        result: scalems.call.CallResult = scalems.call.deserialize_result(fh.read())
     completed_process: CompletedProcess = result.return_value
     assert "hello world" in completed_process.stdout.decode(encoding="utf8")
-    # Output files need to be resolvable to local files.
-    # stdout = process.stdout
-    # stderr = process.stderr
-    # Confirm that expected output is contained (with the proper encoding)
+    assert tmp_path.samefile(urllib.parse.urlparse(result.directory).path)

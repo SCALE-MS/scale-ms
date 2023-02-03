@@ -70,7 +70,7 @@ class OutputFile(dict):
 
 
 # TODO: input data typing.
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SubprocessInput:
     # TODO: Move input documentation to Input class docs.
     argv: typing.Sequence[str]
@@ -99,6 +99,7 @@ def _(item: SubprocessInput, *, manager: WorkflowManager, label: str = None):
             raise TypeError("Unexpected positional arguments.")
         if len(kwargs) > 0:
             raise TypeError("Unexpected key word arguments: {}".format(", ".join(kwargs.keys())))
+        # TODO: Checksum with scalems utility, don't just use native Python hash.
         uid = hash(item)
         if uid in manager.tasks:
             # TODO: Consider whether this is the correct behavior
@@ -110,7 +111,7 @@ def _(item: SubprocessInput, *, manager: WorkflowManager, label: str = None):
     return director
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class SubprocessResult:
     # file: Field(Path)
     # exitcode: Field(int)

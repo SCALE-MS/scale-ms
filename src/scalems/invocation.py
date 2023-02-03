@@ -78,6 +78,17 @@ _reentrance_guard = threading.Lock()
 
 
 def run_dispatch(work, context: scalems.workflow.WorkflowManager):
+    """Run the provided work in the execution dispatching context.
+
+    Parameters:
+        context (scalems.workflow.WorkflowManager) : an active workflow manager (with a running event loop)
+        work (typing.Callable) : An "app" function to run within the scope of an active execution dispatcher.
+
+    Initially, we assume that *work* is a `scalems.app` decorated function, though
+    this is not technically required in order to call this function directly.
+    Semantics and typing will presumably be clarified and tightened in the future.
+    """
+
     async def _dispatch(_work):
         async with context.dispatch():
             # Add work to the queue
@@ -88,6 +99,7 @@ def run_dispatch(work, context: scalems.workflow.WorkflowManager):
 
     _loop = context.loop()
     _coro = _dispatch(work)
+    # TODO: Name the task, if `work` has suitable attribute(s).
     _task = _loop.create_task(_coro)
     _result = _loop.run_until_complete(_task)
     return _result
@@ -109,9 +121,9 @@ class _ManagerT(typing.Protocol):
 
 
 def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  # noqa: C901
-    """Execute boiler plate for scalems entry point scripts.
+    """Execute boilerplate for scalems entry point scripts.
 
-    Provides consistent logic for command line invocation.
+    Provides consistent logic for command line invocation of a script with a main `scalems.app` function.
 
     Supports invocation of the following form with minimal ``backend/__main__.py``
 
@@ -120,7 +132,9 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
     See `scalems.invocation` module documentation for details about the expected *manager_factory* module
     interface.
 
-    Unrecognized command line arguments will be passed along to the called script.
+    Refer to module documentation for the execution backend for command line arguments.
+    Unrecognized command line arguments will be passed along to the called script through
+    modification to `sys.argv`.
     """
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:

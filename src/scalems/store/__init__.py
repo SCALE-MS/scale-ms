@@ -38,7 +38,6 @@ import typing
 import weakref
 
 import scalems.exceptions as _exceptions
-import scalems.unique
 from . import _lock
 from .. import file as _file
 from .. import identifiers as _identifiers
@@ -456,7 +455,9 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
 
         filename = None
         key = None
-        tmpfile_target = self.datastore.joinpath(self._tmpfile_prefix + str(scalems.unique.next_monotonic_integer()))
+        _fd, tmpfile_target = tempfile.mkstemp(prefix=self._tmpfile_prefix, dir=self.datastore)
+        os.close(_fd)
+        tmpfile_target = pathlib.Path(tmpfile_target)
         try:
             # 1. Copy the file.
             kwargs = dict(src=path, dst=tmpfile_target, follow_symlinks=False)

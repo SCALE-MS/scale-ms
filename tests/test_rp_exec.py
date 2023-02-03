@@ -353,12 +353,13 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
                 kwargs={"args": ["/bin/echo", "hello", "world"], "capture_output": True},
                 label=task_uid,
                 manager=manager,
+                requirements=None,
             )
             rp_task_result: scalems.radical.runtime.RPTaskResult = await scalems.radical.runtime.subprocess_to_rp_task(
                 call_handle, dispatcher=dispatcher
             )
 
-            call_result: scalems.call.Result = await scalems.radical.runtime.subprocess_result_from_rp_task(
+            call_result: scalems.call.CallResult = await scalems.radical.runtime.wrapped_function_result_from_rp_task(
                 call_handle, rp_task_result
             )
 

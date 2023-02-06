@@ -2,7 +2,7 @@
 SCALE-MS Framework for Adaptive Ensemble Simulations
 ====================================================
 
-Design documentaiton, API, data interchange, protocol specifications,
+Design documentation, API, data interchange, protocol specifications,
 and reference implementation
 for data flow driven molecular simulation management and analysis.
 

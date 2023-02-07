@@ -224,7 +224,7 @@ jobs:
         stdout=$(echo 0*/stdout)
         python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
         rm -rf 000*
-        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 -o final.txt hello world
+        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=4 --pilot-option gpus=0 -o final.txt hello world
         python -c "if open('final.txt', 'r').readline().rstrip() != 'hello world': assert False"
         coverage xml -o coverage2.xml
     - name: "Upload coverage to Codecov"
@@ -342,7 +342,7 @@ jobs:
         stdout=$(echo 0*/stdout)
         python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
         rm -rf 000*
-        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 -o final.txt hello world
+        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=4 --pilot-option gpus=0 -o final.txt hello world
         python -c "if open('final.txt', 'r').readline().rstrip() != 'hello world': assert False"
         coverage xml -o coverage2.xml
     - name: "Upload coverage to Codecov"
@@ -467,7 +467,7 @@ jobs:
         stdout=$(echo 0*/stdout)
         python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
         rm -rf 000*
-        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 -o final.txt hello world
+        RADICAL_LOG_LVL=DEBUG coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=4 --pilot-option gpus=0 --log-level DEBUG -o final.txt hello world
         python -c "if open('final.txt', 'r').readline().rstrip() != 'hello world': assert False"
         coverage xml -o coverage2.xml
     - name: "Upload coverage to Codecov"

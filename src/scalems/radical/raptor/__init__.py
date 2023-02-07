@@ -283,10 +283,11 @@ import zlib
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 
-try:
-    from mpi4py.MPI import Comm
-except ImportError:
-    Comm = None
+if typing.TYPE_CHECKING:
+    try:
+        from mpi4py.MPI import Comm
+    except ImportError:
+        Comm = None
 
 # TODO(Python 3.9): Remove this conditional when we require Python >= 3.9
 if sys.version_info.minor < 9:

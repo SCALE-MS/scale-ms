@@ -48,7 +48,7 @@
 
 # Prerequisite: build base image from rp-complete.dockerfile
 ARG TAG=latest
-FROM scalems/rp-complete:$TAG
+FROM scalems/rp-complete:$TAG as base
 
 USER root
 
@@ -79,13 +79,44 @@ RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir --upgrade cmake
 RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir mpi4py
 
 ARG BRANCH=release-2023
+
+FROM base as gmx_mpi
+
 RUN . $RPVENV/bin/activate && \
-    cd ~rp && \
+    cd /home/rp && \
         git clone \
             --depth=1 \
             -b $BRANCH \
             https://gitlab.com/gromacs/gromacs.git \
-            gromacs-src && \
+            gromacs-src
+
+RUN . $RPVENV/bin/activate && \
+    cd /home/rp && \
+        cd gromacs-src && \
+            pwd && \
+            rm -rf build && \
+            mkdir build && \
+            cd build && \
+                cmake -G Ninja \
+                    -DGMX_MPI=ON \
+                    -DGMX_INSTALL_LEGACY_API=ON \
+                    -DGMX_USE_RDTSCP=OFF \
+                    -DCMAKE_INSTALL_PREFIX=$RPVENV/gromacs_mpi \
+                    .. && \
+                cmake --build . --target install
+
+FROM base as gmx_tmpi
+
+RUN . $RPVENV/bin/activate && \
+    cd /home/rp && \
+        git clone \
+            --depth=1 \
+            -b $BRANCH \
+            https://gitlab.com/gromacs/gromacs.git \
+            gromacs-src
+
+RUN . $RPVENV/bin/activate && \
+    cd /home/rp && \
         cd gromacs-src && \
             pwd && \
             rm -rf build && \
@@ -99,10 +130,19 @@ RUN . $RPVENV/bin/activate && \
                     .. && \
                 cmake --build . --target install
 
-RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir -r ~rp/gromacs-src/python_packaging/gmxapi/requirements.txt
+FROM base as py
+
+COPY --from=gmx_mpi --chown=rp:radical /home/rp/gromacs-src/python_packaging/gmxapi/requirements.txt /tmp/requirements.txt
+RUN HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir -r /tmp/requirements.txt && rm /tmp/requirements.txt
+
+COPY --from=gmx_mpi --chown=rp:radical $RPVENV/gromacs_mpi $RPVENV/gromacs_mpi
+COPY --from=gmx_tmpi --chown=rp:radical $RPVENV/gromacs $RPVENV/gromacs
+
+ARG GROMACS_SUFFIX=""
+# Alternative: --build-arg GROMACS_SUFFIX="_mpi"
 
 ARG GMXAPI_REF="gmxapi"
-RUN . $RPVENV/gromacs/bin/GMXRC && HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF
+RUN . $RPVENV/gromacs$GROMACS_SUFFIX/bin/GMXRC && HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF
 
 COPY --chown=rp:radical requirements-testing.txt scalems/requirements-testing.txt
 # Note: RCT stack may not install correctly unless venv is actually "activated".

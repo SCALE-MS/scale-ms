@@ -140,6 +140,11 @@ COPY --from=gmx_tmpi --chown=rp:radical $RPVENV/gromacs $RPVENV/gromacs
 
 ARG GROMACS_SUFFIX=""
 # Alternative: --build-arg GROMACS_SUFFIX="_mpi"
+# WARNING: MPI may have limited utility in this image.
+# RP may not work right for `local` (fork-based) task launch
+# in an environment that may have imported mpi4py,
+# and there is no `sshd` for alternative launch methods.
+# See https://github.com/SCALE-MS/scale-ms/issues/312
 
 ARG GMXAPI_REF="gmxapi"
 RUN . $RPVENV/gromacs$GROMACS_SUFFIX/bin/GMXRC && HOME=/home/rp $RPVENV/bin/pip install --no-cache-dir $GMXAPI_REF

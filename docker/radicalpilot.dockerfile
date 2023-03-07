@@ -5,7 +5,7 @@
 # Example:
 #     docker build -t scalems/radicalpilot -f radicalpilot.dockerfile .
 
-FROM ubuntu:focal
+FROM ubuntu:focal as base
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
@@ -24,15 +24,21 @@ RUN locale-gen en_US.UTF-8 && \
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
-    apt-get install -y --no-install-recommends \
+    apt-get install -y --no-install-suggests --no-install-recommends \
+        cmake \
         gcc \
         git \
+        libfftw3-dev \
         libopenmpi-dev \
+        make \
+        ninja-build \
         openmpi-bin \
         openssh-server \
+        pkg-config \
         rsync \
         vim \
-        wget && \
+        wget \
+        zip && \
     rm -rf /var/lib/apt/lists/*
 
 # Let's focus on OpenMPI for now.
@@ -49,6 +55,18 @@ RUN apt-get update && \
 # mpic++.openmpi can be redirected with environment variables (e.g. OMPI_CXX=clang++ mpic++ ...).
 # It is not clear whether mpic++.mpich can be similarly configured, and it might be better
 # to do fancy tool chain manipulation through Spack instead of the Ubuntu system tools.
+
+# Reference https://docs.docker.com/engine/examples/running_ssh_service/
+RUN mkdir /var/run/sshd
+
+# SSH login fix. Otherwise user is kicked off after login
+RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
+
+ENV NOTVISIBLE "in users profile"
+RUN echo "export VISIBLE=now" >> /etc/profile
+
+EXPOSE 22
+CMD ["/usr/sbin/sshd", "-D"]
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive \
@@ -71,24 +89,70 @@ RUN update-alternatives --install /usr/bin/python python /usr/bin/python3 1
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.9 9
 #RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 10
 
-# Reference https://docs.docker.com/engine/examples/running_ssh_service/
-RUN mkdir /var/run/sshd
-
-# SSH login fix. Otherwise user is kicked off after login
-RUN sed 's@session\s*required\s*pam_loginuid.so@session optional pam_loginuid.so@g' -i /etc/pam.d/sshd
-
-ENV NOTVISIBLE "in users profile"
-RUN echo "export VISIBLE=now" >> /etc/profile
-
-EXPOSE 22
-CMD ["/usr/sbin/sshd", "-D"]
-
-
 RUN groupadd radical && useradd -g radical -s /bin/bash -m rp
+
 USER rp
 
 WORKDIR /home/rp
 RUN python3 -m venv rp-venv
+
+RUN rp-venv/bin/pip install --no-cache-dir --upgrade \
+        pip \
+        setuptools \
+        wheel && \
+    rp-venv/bin/pip install --no-cache-dir --upgrade cmake
+
+FROM base as gmx_tmpi
+
+USER rp
+WORKDIR /home/rp
+ARG BRANCH=release-2023
+RUN git clone \
+        --depth=1 \
+        -b $BRANCH \
+        https://gitlab.com/gromacs/gromacs.git \
+        gromacs-src
+RUN . rp-venv/bin/activate && \
+    cd gromacs-src && \
+        pwd && \
+        rm -rf build && \
+        mkdir build && \
+        cd build && \
+            cmake -G Ninja \
+                -DGMX_THREAD_MPI=ON \
+                -DGMX_INSTALL_LEGACY_API=ON \
+                -DGMX_USE_RDTSCP=OFF \
+                -DCMAKE_INSTALL_PREFIX=/home/rp/gromacs \
+                .. && \
+            cmake --build . --target install
+FROM base as gmx_mpi
+
+USER rp
+WORKDIR /home/rp
+ARG BRANCH=release-2023
+RUN git clone \
+        --depth=1 \
+        -b $BRANCH \
+        https://gitlab.com/gromacs/gromacs.git \
+        gromacs-src
+RUN . rp-venv/bin/activate && \
+    cd gromacs-src && \
+        pwd && \
+        rm -rf build && \
+        mkdir build && \
+        cd build && \
+            cmake -G Ninja \
+                -DGMX_MPI=ON \
+                -DGMX_INSTALL_LEGACY_API=ON \
+                -DGMX_USE_RDTSCP=OFF \
+                -DCMAKE_INSTALL_PREFIX=/home/rp/gromacs_mpi \
+                .. && \
+            cmake --build . --target install
+
+FROM base as pybase
+
+USER rp
+WORKDIR /home/rp
 
 RUN rp-venv/bin/pip install --no-cache-dir --upgrade \
         pip \
@@ -141,6 +205,14 @@ RUN mkdir ~rp/.ssh && \
     cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "localhost " $1 " " $2}' > ~/.ssh/known_hosts && \
     cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "compute " $1 " " $2}' >> ~/.ssh/known_hosts && \
     cat /etc/ssh/ssh_host_ecdsa_key.pub | awk '{print "login " $1 " " $2}' >> ~/.ssh/known_hosts
+
+# Make gromacs available.
+COPY --from=gmx_tmpi /home/rp/gromacs /home/rp/gromacs
+COPY --from=gmx_mpi /home/rp/gromacs_mpi /home/rp/gromacs_mpi
+ARG GMXAPI_REF="gmxapi"
+ARG GROMACS_SUFFIX=""
+# Alternative: --build-arg GROMACS_SUFFIX="_mpi"
+RUN . /home/rp/gromacs$GROMACS_SUFFIX/bin/GMXRC && HOME=/home/rp ~rp/rp-venv/bin/python -m pip install --no-cache-dir --upgrade $GMXAPI_REF
 
 # Ending the Dockerfile with a default CMD run as root triggers a warning
 # with Dockerfile linters, but is necessary to start the sshd.

@@ -46,6 +46,33 @@ Built-in Execution Modules include `scalems.radical` and `scalems.local`
 For command line usage, an `backend` should support interaction with the
 `scalems.invocation` module.
 
+At least temporarily, we also have a non-normative internal Execution Module
+for executing serialized function calls as shell command lines.
+
+scalems.call
+------------
+
+.. automodule:: scalems.call
+    :members:
+
+Additional internal details
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. autofunction:: function_call_to_subprocess
+
+.. autoclass:: scalems.call._Subprocess
+    :members:
+
+Collaborations
+~~~~~~~~~~~~~~
+
+.. autofunction:: scalems.radical.runtime.subprocess_to_rp_task
+
+.. autofunction:: scalems.radical.runtime.wrapped_function_result_from_rp_task
+
+.. autoclass:: scalems.radical.runtime.RPTaskResult
+    :members:
+
 Support for execution module authors: :py:mod:`scalems.invocation`
 ==================================================================
 

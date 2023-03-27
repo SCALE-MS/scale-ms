@@ -19,7 +19,6 @@ import pytest
 
 import scalems
 import scalems.call
-import scalems.compat
 import scalems.context
 import scalems.messages
 import scalems.workflow
@@ -77,8 +76,6 @@ async def test_raptor_master(pilot_description, rp_venv):
     )
 
     timeout = 180
-    to_thread = scalems.compat.get_to_thread()
-
     manager = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(manager, close_on_exit=True):
         async with manager.dispatch(params=params) as dispatcher:
@@ -96,26 +93,26 @@ async def test_raptor_master(pilot_description, rp_venv):
                 }
             )
             logger.debug(f"Submitting {str(td.as_dict())}")
-            tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
+            tasks = await asyncio.to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             hello_task = tasks[0]
             logger.debug(f"Submitted {str(hello_task.as_dict())}. Waiting...")
-            state = await to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
+            state = await asyncio.to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
             logger.debug(str(hello_task.as_dict()))
 
             td.metadata = scalems.messages.StopCommand().encode()
             td.output_staging = []
             td.uid = "task-stop"
             logger.debug(f"Submitting {str(td.as_dict())}")
-            tasks = await to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
+            tasks = await asyncio.to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
             stop_task = tasks[0]
 
             # We expect the status update -> DONE, even if self.stop() was called during result_cb for the task.
             stop_watcher = asyncio.create_task(
-                to_thread(stop_task.wait, state=rp.FINAL, timeout=timeout), name="stop-watcher"
+                asyncio.to_thread(stop_task.wait, state=rp.FINAL, timeout=timeout), name="stop-watcher"
             )
 
             scheduler_watcher = asyncio.create_task(
-                to_thread(scheduler.wait, state=rp.FINAL, timeout=timeout), name="master-watcher"
+                asyncio.to_thread(scheduler.wait, state=rp.FINAL, timeout=timeout), name="master-watcher"
             )
             # If master task fails, stop-watcher will never complete.
             done, pending = await asyncio.wait(
@@ -202,11 +199,12 @@ async def test_worker(pilot_description, rp_venv):
             task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
 
             task_manager = dispatcher.runtime.task_manager()
-            to_thread = scalems.compat.get_to_thread()
             timeout = 120
             # Submit a raptor task
             # TODO: Use scalems.radical.runtime.submit()
-            watcher = asyncio.create_task(to_thread(task_manager.submit_tasks, task_description), name="rp_submit")
+            watcher = asyncio.create_task(
+                asyncio.to_thread(task_manager.submit_tasks, task_description), name="rp_submit"
+            )
             try:
                 rp_watcher: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
             except asyncio.TimeoutError as e:

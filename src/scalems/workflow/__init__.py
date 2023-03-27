@@ -100,9 +100,7 @@ class ItemView:
 
     """
 
-    # TODO: Update once we require Python 3.9
-    # _workflow_manager: weakref.ReferenceType['WorkflowManager']
-    _workflow_manager: weakref.ReferenceType
+    _workflow_manager: weakref.ReferenceType["WorkflowManager"]
 
     def uid(self) -> bytes:
         """Get the canonical unique identifier for this task.

@@ -162,7 +162,6 @@ import radical.utils
 from radical import pilot as rp
 
 import scalems.call
-import scalems.compat
 import scalems.exceptions
 import scalems.execution
 import scalems.file
@@ -194,12 +193,6 @@ logger.debug("Importing {}".format(__name__))
 # with respect to the dispatching scope.
 _configuration = contextvars.ContextVar("_configuration")
 
-try:
-    cache = functools.cache
-except AttributeError:
-    # Note: functools.cache does not appear until Python 3.9
-    cache = functools.lru_cache(maxsize=None)
-
 
 def _parse_option(arg: str) -> tuple:
     if not isinstance(arg, str):
@@ -209,7 +202,7 @@ def _parse_option(arg: str) -> tuple:
     return tuple(arg.split("="))
 
 
-@cache
+@functools.cache
 def parser(add_help=False):
     """Get the module-specific argument parser.
 
@@ -573,20 +566,18 @@ async def _get_scheduler(
 
     task_metadata = {"uid": td.uid, "task_manager": task_manager.uid}
 
-    to_thread = scalems.compat.get_to_thread()
-
-    await asyncio.create_task(to_thread(filestore.add_task, master_identity, **task_metadata), name="add-task")
+    await asyncio.create_task(asyncio.to_thread(filestore.add_task, master_identity, **task_metadata), name="add-task")
     # filestore.add_task(master_identity, **task_metadata)
 
     logger.debug(f"Launching RP raptor scheduling. Submitting {td}.")
 
-    _task = asyncio.create_task(to_thread(task_manager.submit_tasks, td), name="submit-Master")
+    _task = asyncio.create_task(asyncio.to_thread(task_manager.submit_tasks, td), name="submit-Master")
     scheduler: rp.Task = await _task
 
     # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
     # check type.
     _task = asyncio.create_task(
-        to_thread(scheduler.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
+        asyncio.to_thread(scheduler.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
         name="check-Master-started",
     )
     await _task
@@ -603,7 +594,7 @@ async def _get_scheduler(
 
 # functools can't cache this function while Configuration is unhashable (due to
 # unhashable dict member).
-# @cache
+# @functools.cache
 def get_pre_exec(conf: Configuration) -> tuple:
     """Get the sequence of pre_exec commands for tasks on the currently configured execution target.
 
@@ -690,8 +681,6 @@ async def new_session():
         Runtime instance.
 
     """
-    to_thread = scalems.compat.get_to_thread()
-
     # Note that we cannot resolve the full _resource config until we have a Session
     # object.
     # We cannot get the default session config until after creating the Session,
@@ -712,7 +701,7 @@ async def new_session():
         # This would be a good time to `await`, if an event-loop friendly
         # Session creation function becomes available.
         session_args = dict(uid=session_id, cfg=session_config)
-        _task = asyncio.create_task(to_thread(rp.Session, (), **session_args), name="create-Session")
+        _task = asyncio.create_task(asyncio.to_thread(rp.Session, (), **session_args), name="create-Session")
         session = await _task
         runtime = Runtime(session=session)
     return runtime
@@ -818,8 +807,6 @@ async def add_pilot(runtime: Runtime, **kwargs):
     # Note: Consider fetching through the Runtime instance.
     config: Configuration = configuration()
 
-    to_thread = scalems.compat.get_to_thread()
-
     # Warning: The Pilot ID needs to be unique within the Session.
     pilot_description = {"uid": f"pilot.{str(uuid.uuid4())}"}
     pilot_description.update(config.rp_resource_params.get("PilotDescription", {}))
@@ -831,12 +818,12 @@ async def add_pilot(runtime: Runtime, **kwargs):
     pilot_description = rp.PilotDescription(pilot_description)
     logger.debug("Submitting PilotDescription {}".format(repr(pilot_description.as_dict())))
     pilot: rp.Pilot = await asyncio.create_task(
-        to_thread(pilot_manager.submit_pilots, pilot_description), name="submit_pilots"
+        asyncio.to_thread(pilot_manager.submit_pilots, pilot_description), name="submit_pilots"
     )
     logger.debug(f"Got Pilot {pilot.uid}: {pilot.as_dict()}")
     runtime.pilot(pilot)
 
-    await asyncio.create_task(to_thread(task_manager.add_pilots, pilot), name="add_pilots")
+    await asyncio.create_task(asyncio.to_thread(task_manager.add_pilots, pilot), name="add_pilots")
 
     return pilot
 
@@ -989,7 +976,6 @@ class RPDispatchingExecutor(RuntimeManager):
         # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
         # but we have not fully explored the consequences of doing so.
 
-        to_thread = scalems.compat.get_to_thread()
         try:
             #
             # Start the Session.
@@ -1010,7 +996,7 @@ class RPDispatchingExecutor(RuntimeManager):
 
             logger.debug("Launching PilotManager.")
             pilot_manager = await asyncio.create_task(
-                to_thread(rp.PilotManager, session=_runtime.session),
+                asyncio.to_thread(rp.PilotManager, session=_runtime.session),
                 name="get-PilotManager",
             )
             logger.debug("Got PilotManager {}.".format(pilot_manager.uid))
@@ -1018,7 +1004,7 @@ class RPDispatchingExecutor(RuntimeManager):
 
             logger.debug("Launching TaskManager.")
             task_manager = await asyncio.create_task(
-                to_thread(rp.TaskManager, session=_runtime.session),
+                asyncio.to_thread(rp.TaskManager, session=_runtime.session),
                 name="get-TaskManager",
             )
             logger.debug(("Got TaskManager {}".format(task_manager.uid)))

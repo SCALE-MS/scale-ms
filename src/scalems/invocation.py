@@ -257,11 +257,7 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
         _reentrance_guard.release()
 
 
-# TODO(Python 3.9): Use functools.cache instead of lru_cache when Py 3.9 is required.
-_cache = getattr(functools, "cache", functools.lru_cache(maxsize=None))
-
-
-@_cache
+@functools.cache
 def base_parser(add_help=False):
     """Get the base scalems argument parser.
 

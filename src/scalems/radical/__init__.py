@@ -37,7 +37,6 @@ See Also:
 __all__ = ["configuration", "parser", "workflow_manager"]
 
 import asyncio
-import functools
 import logging
 
 import scalems.workflow
@@ -47,12 +46,6 @@ from .runtime import parser as _runtime_parser
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
-
-try:
-    cache = functools.cache
-except AttributeError:
-    # Note: functools.cache does not appear until Python 3.9
-    cache = functools.lru_cache(maxsize=None)
 
 parser = _make_parser(__package__, parents=[_runtime_parser()])
 

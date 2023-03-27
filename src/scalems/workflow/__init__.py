@@ -698,7 +698,17 @@ class WorkflowManager:
     #     """
     #     ...
 
-    def add_item(self, task_description) -> ItemView:
+    def add_item(self, item) -> ItemView:
+        """
+        Add an item to the managed workflow.
+
+        Args:
+            item: Describe the item to be managed. (Usually a task to be submitted.)
+
+        Returns:
+            View of the managed item.
+
+        """
         if self.closed:
             raise ScopeError("WorkflowManager is closed.")
 
@@ -717,18 +727,18 @@ class WorkflowManager:
         # TODO: Replace with type-based dispatching or some normative interface test.
         from scalems.subprocess import Subprocess
 
-        if not isinstance(task_description, (Subprocess, dict)):
+        if not isinstance(item, (Subprocess, dict)):
             raise MissingImplementationError("Operation not supported.")
 
         # TODO: Generalize interface check.
-        if isinstance(task_description, Subprocess):
-            uid: bytes = task_description.uid()
+        if isinstance(item, Subprocess):
+            uid: bytes = item.uid()
             if uid in self.tasks:
                 # TODO: Consider decreasing error level to `warning`.
                 raise DuplicateKeyError("Task already present in workflow.")
-            logger.debug("Adding {} to {}".format(str(task_description), str(self)))
-            record = {"uid": uid.hex(), "type": task_description.resource_type().scoped_identifier(), "input": {}}
-            task_input = task_description.input_collection()
+            logger.debug("Adding {} to {}".format(str(item), str(self)))
+            record = {"uid": uid.hex(), "type": item.resource_type().scoped_identifier(), "input": {}}
+            task_input = item.input_collection()
             for field in dataclasses.fields(task_input):
                 name = field.name
                 try:
@@ -737,18 +747,19 @@ class WorkflowManager:
                 except AttributeError as e:
                     raise InternalError("Unexpected missing field.") from e
         else:
-            assert isinstance(task_description, dict)
-            assert "uid" in task_description
-            uid = task_description["uid"]
-            implementation_identifier = task_description.get("implementation", None)
+            # WARNING: no coverage
+            assert isinstance(item, dict)
+            assert "uid" in item
+            uid = item["uid"]
+            implementation_identifier = item.get("implementation", None)
             if not isinstance(implementation_identifier, list):
                 raise DispatchError("Bug: bad schema checking?")
 
             if uid in self.tasks:
                 # TODO: Consider decreasing error level to `warning`.
                 raise DuplicateKeyError("Task already present in workflow.")
-            logger.debug("Adding {} to {}".format(str(task_description), str(self)))
-            record = {"uid": uid.hex(), "type": tuple(implementation_identifier), "input": task_description}
+            logger.debug("Adding {} to {}".format(str(item), str(self)))
+            record = {"uid": uid.hex(), "type": tuple(implementation_identifier), "input": item}
         serialized_record = json.dumps(record, default=encode)
 
         # TODO: Make sure there are no artifacts of shallow copies that may result in

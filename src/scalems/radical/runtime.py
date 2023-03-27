@@ -1711,7 +1711,7 @@ class RPTaskResult:
     """:py:attr:`radical.pilot.Task.uid` identifier."""
 
     task_dict: dict
-    """Dictionary representation from `radical.pilot.Task.as_dict()`."""
+    """Dictionary representation from :py:func:`radical.pilot.Task.as_dict()`."""
 
     exit_code: int
     """Exit code of the executable task."""
@@ -1720,7 +1720,10 @@ class RPTaskResult:
     """Final state of the `radical.pilot.Task`."""
 
     directory: radical.utils.Url
-    """Resource location information for the Task working directory."""
+    """Resource location information for the Task working directory.
+
+    Constructed from the filesystem_endpoint. See :doc:`design/localization`.
+    """
 
     directory_archive: Awaitable[scalems.store.FileReference]
     """An archive of the task working directory.
@@ -1740,7 +1743,7 @@ class RPTaskResult:
 async def subprocess_to_rp_task(
     call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor
 ) -> RPTaskResult:
-    """Dispatch a subprocess task through the scalems.rp execution backend.
+    """Dispatch a subprocess task through the `scalems.radical` execution backend.
 
     Get a Future for a RPTaskResult (a collection representing a completed rp.Task).
 
@@ -1748,10 +1751,18 @@ async def subprocess_to_rp_task(
     that can provide the intended result type and return it as the Future.
     Schedule a call-back to clean up temporary files.
 
+    Args:
+        call_handle (scalems.call._Subprocess): result of a ``await`` on a
+            :py:func:`scalems.call.function_call_to_subprocess()`
+        dispatcher (RPDispatchingExecutor): An active execution manager.
+
     TODO:
-        This logic should be integrated into the `WorkflowManager.submit()` stack
+        This logic should be integrated into a :py:func:`WorkflowManager.submit()`
+        stack (currently :py:func:`WorkflowManager.add_item()`)
         and `manage_execution` loop. We really should have special handling for
-        wrapped function calls as distinguished from command line executables.
+        wrapped function calls as distinguished from command line executables
+        through "overloads" (dispatching) of the task submission.
+        Also, we should not be exposing the *dispatcher* to the user.
     """
     subprocess_dict = dict(
         stage_on_error=True,
@@ -1769,16 +1780,15 @@ async def subprocess_to_rp_task(
     subprocess_dict["stdout"] = "_scalems_stdout.txt"
     subprocess_dict["stderr"] = "_scalems_stderr.txt"
 
-    # TODO: Localize the files directly to the execution site, instead, and use the
-    #   (remotely valid) URI (with a COPY or LINK action).
-    #   Perform transfers concurrently and await successful transfer
-    #   before the submit_tasks call.
+    # Note: We could save wall time in the job by pre-staging files, but we are
+    # deferring that for future optimization.
+    # Ref: https://github.com/SCALE-MS/scale-ms/issues/316
     await asyncio.gather(*tuple(ref.localize() for ref in call_handle.input_filenames.values()))
     subprocess_dict["input_staging"] = [
         {
             "source": ref.as_uri(),
             # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
-            "target": "task:///" + name,
+            "target": name,
             "action": rp.TRANSFER,
         }
         for name, ref in call_handle.input_filenames.items()
@@ -1845,6 +1855,20 @@ async def subprocess_to_rp_task(
 async def wrapped_function_result_from_rp_task(
     subprocess: scalems.call._Subprocess, rp_task_result: RPTaskResult
 ) -> scalems.call.CallResult:
+    """
+
+    Once `subprocess_to_rp_task` has produced a `RPTaskResult`
+    for a `scalems.call._Subprocess`,
+    we produce a `scalems.call.CallResult` with the help of some file transfers.
+
+    Args:
+        subprocess: the result of a `scalems.call.function_call_to_subprocess`
+        rp_task_result: the result of a `subprocess_to_rp_task` for the *subprocess*
+
+    Returns:
+        localized result from :py:func:`scalems.call.function_call_to_subprocess()`
+
+    """
     if rp_task_result.final_state != rp.DONE:
         # Note: it is possible that the executable task could fail for reasons other than a Python Exception.
         logger.info(f"Task for {subprocess.uid} in final state {rp_task_result.final_state}.")

@@ -15,6 +15,7 @@ for data flow driven molecular simulation management and analysis.
     developer
     python
     glossary
+    genindex
 
 ..  samples
     srs

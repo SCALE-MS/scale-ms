@@ -7,6 +7,9 @@ A *File* is a concrete representation of a local filesystem object.
 A *FileReference* is more general. It may represent a non-local object
 (accessible by a URI). We currently use *FileReference* objects exclusively for
 resources managed by scalems. (See `scalems.store.FileStore`.)
+
+This module has minimal dependencies on other scalems implementation details so
+that it can be included easily by scalems modules without circular dependencies.
 """
 
 __all__ = (
@@ -60,13 +63,15 @@ class AbstractFileReference(typing.Protocol):
     def __fspath__(self) -> str:
         """Represent the local filesystem path, if possible.
 
+        Support `os.PathLike`.
+
         Returns:
             str: representation of the filesystem path if the referenced file is
-            available locally.
+                available locally.
 
         Raises:
             DataLocalizationError: if the file has not been transferred to the local
-            file store.
+                file store.
         """
         raise NotImplementedError
 

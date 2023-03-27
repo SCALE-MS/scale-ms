@@ -24,6 +24,7 @@ scalems.radical.runtime support module
     :exclude-members: __new__
 
 .. autoclass:: scalems.radical.runtime.Configuration
+    :undoc-members:
     :members:
 
 .. autoclass:: scalems.radical.runtime.Runtime

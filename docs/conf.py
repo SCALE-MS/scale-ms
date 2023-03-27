@@ -66,6 +66,7 @@ intersphinx_mapping = {
     "https://docs.python.org/3/": None,
     "https://radicalpilot.readthedocs.io/en/stable/": None,
     "https://radicalsaga.readthedocs.io/en/stable/": None,
+    "https://radicalutils.readthedocs.io/en/stable": None,
     "https://msgpack-python.readthedocs.io/en/latest/": None,
     "https://mpi4py.readthedocs.io/en/stable/": None,
 }

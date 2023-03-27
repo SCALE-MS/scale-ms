@@ -419,6 +419,4 @@ def executable(*args, manager: scalems.workflow.WorkflowManager = None, **kwargs
         logger.critical("Unhandled " + repr(e))
         raise
 
-    # TODO: The returned value should be a TaskView provided by the Context with
-    #       minimal state or ownership semantics.
     return task_view

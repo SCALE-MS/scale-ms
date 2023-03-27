@@ -4,7 +4,13 @@ Example:
     python -m scalems.call record.json
 
 Note that this whole module is a workaround to avoid using RP raptor.
-We don't really need to reconcile the divergent notions of "Subprocess".
+:file:`scalems/call/__main__.py` provides command line behavior for a
+`radical.pilot.Task` *executable* and *arguments*, with which we execute a
+serialized representation of a function call, pending restoration of full
+"raptor" support.
+
+We don't really need to reconcile the divergent notions of "Subprocess",
+if we can remove the need for this entry point.
 But we _do_ need to formalize our serialized representation of a function call,
 and the task lifecycle and artifacts management.
 """
@@ -225,7 +231,30 @@ class _Subprocess:
 async def function_call_to_subprocess(
     func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager, requirements: dict = None
 ) -> _Subprocess:
-    """Wrap a function call in a command line based on `scalems.call`."""
+    """
+    Wrap a function call in a command line based on `scalems.call`.
+
+    Args:
+        func: A callable Python object.
+        label: Name (prefix) for identifying tasks and artifacts.
+        args: Positional arguments for *func*.
+        kwargs: Key word arguments for *func*.
+        manager: workflow manager instance.
+        requirements: run time requirements (passed through to execution backend).
+
+    Returns:
+        Serializable representation of the executable task.
+
+    Warnings:
+        This is a temporary utility while we explore use cases and prepare to migrate
+        back to :py:mod:`radical.pilot.raptor`. A user-facing tool should return a
+        view on a workflow item, whereas this function produces even lower-level details.
+
+    See Also:
+        * :py:func:`scalems.radical.runtime.subprocess_to_rp_task()`
+        * https://github.com/SCALE-MS/scale-ms/discussions/302
+
+    """
     if kwargs is None:
         kwargs = dict()
     if requirements is None:

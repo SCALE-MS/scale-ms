@@ -1,5 +1,7 @@
 """Manage non-volatile data for SCALE-MS in a filesystem context.
 
+Implement several interfaces from `scalems.file`.
+
 The data store must be active before attempting any manipulation of the managed workflow.
 The data store must be closed by the time control returns to the interpreter after
 leaving a managed workflow scope (and releasing a WorkflowManager instance).
@@ -22,6 +24,8 @@ __all__ = (
     "FileReference",
     "FileStore",
     "FileStoreManager",
+    "FilesView",
+    "Metadata",
 )
 
 import asyncio
@@ -124,8 +128,6 @@ class FilesView(typing.Mapping[_identifiers.ResourceIdentifier, pathlib.Path]):
 class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]):
     """Handle to the SCALE-MS nonvolatile data store for a workflow context.
 
-    Not thread safe. User is responsible for serializing access, as necessary.
-
     Used as a Container, serves as a Mapping from identifiers to resource references.
 
     TODO: Consider generalizing the value type of the mapping for general Resource types, per the scalems data model.
@@ -195,7 +197,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         """Path to the metadata backing store.
 
         This is the metadata file used by scalems to track workflow state and
-        file-backed data. Its format is closely related to the scalems API level.
+        file-backed data. Its format is closely tied to the scalems API level.
         """
         if self._filepath is None:
             self._filepath = self.datastore / _metadata_filename
@@ -232,12 +234,12 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         a new FileStore for a directory that is already managed.
 
         Raises:
-            ContextError if attempting to instantiate for a directory that is already
-            managed.
+            ContextError: if attempting to instantiate for a directory that is already
+                managed.
         """
         self._directory = pathlib.Path(directory).resolve()
 
-        # TODO: Use a log file!
+        # TODO: Use file backing for journaled operations.
         self._log = []
 
         self._update_lock = threading.Lock()
@@ -345,6 +347,10 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
     def close(self):
         """Flush, shut down, and disconnect the FileStore from the managed directory.
 
+        Not robustly thread safe. User is responsible for serializing access, as necessary,
+        though ideally *close()* should be called exactly once, after the instance is no
+        longer in use.
+
         Raises:
             StaleFileStore if called on an invalid or outdated handle.
             ScopeError if called from a disallowed context, such as from a forked process.
@@ -408,6 +414,8 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
     ) -> FileReference:
         """Add a file to the file store.
 
+        Not thread safe. User is responsible for serializing access, as necessary.
+
         We require file paths to be wrapped in a special type so that we can enforce
         that some error checking is possible before the coroutine actually runs. See
 
@@ -448,6 +456,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         # that we can actually functools.singledispatchmethod on the provided object.
         if isinstance(obj, _file.AbstractFileReference):
             raise _exceptions.MissingImplementationError("AbstractFileReference input not yet supported.")
+        # Early exit check. We need to check again once we have a lock.
         if self.closed:
             raise StaleFileStore("Cannot add file to a closed FileStore.")
         path: pathlib.Path = pathlib.Path(obj)
@@ -480,6 +489,10 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
                 _name = key
             filename = self.datastore.joinpath(_name)
             with self._update_lock:
+                # Check again, now that we have the lock.
+                if self.closed:
+                    raise StaleFileStore("Cannot add file to a closed FileStore.")
+
                 if key in self._data.files:
                     raise _exceptions.DuplicateKeyError(f"FileStore is already managing a file with key {key}.")
                 if str(filename) in self._data.files.values():
@@ -497,20 +510,21 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
                 self._data.files[key] = str(filename)
 
             return FileReference(filestore=self, key=key)
+        except (_exceptions.DuplicateKeyError, StaleFileStore) as e:
+            tmpfile_target.unlink(missing_ok=True)
+            raise e
         except Exception as e:
-            if isinstance(e, (_exceptions.DuplicateKeyError, StaleFileStore)):
-                tmpfile_target.unlink(missing_ok=True)
-            else:
-                # Something went particularly wrong. Let's try to clean up as best we can.
-                logger.exception(f"Unhandled exception while trying to store {obj}")
-                if key and key in self._data.files:
-                    pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
-                    del self._data.files[key]
-                if isinstance(filename, pathlib.Path):
-                    filename.unlink(missing_ok=True)
+            # Something went particularly wrong. Let's try to clean up as best we can.
+            logger.exception(f"Unhandled exception while trying to store {obj}")
+            if key and key in self._data.files:
+                pathlib.Path(self._data.files[key]).unlink(missing_ok=True)
+                del self._data.files[key]
+            if isinstance(filename, pathlib.Path):
+                filename.unlink(missing_ok=True)
+            raise e
+        finally:
             if tmpfile_target.exists():
                 logger.warning(f"Temporary file left at {tmpfile_target}")
-            raise e
 
     @property
     def files(self) -> typing.Mapping[_identifiers.ResourceIdentifier, pathlib.Path]:
@@ -552,6 +566,11 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
 
 
 class FileReference(_file.AbstractFileReference):
+    """Provide access to a :py:class:`File <scalems.file.AbstractFile>` managed by a `FileStore`.
+
+    Implements :py:class:`~scalems.file.AbstractFileReference`.
+    """
+
     def __init__(self, filestore: FileStore, key: _identifiers.ResourceIdentifier | str):
         self._filestore: FileStore = filestore
         if key not in self._filestore.files:

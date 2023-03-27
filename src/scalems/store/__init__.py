@@ -24,6 +24,7 @@ __all__ = (
     "FileStoreManager",
 )
 
+import asyncio
 import contextvars
 import dataclasses
 import functools
@@ -41,7 +42,6 @@ import scalems.exceptions as _exceptions
 from . import _lock
 from .. import file as _file
 from .. import identifiers as _identifiers
-from .. import compat as _compat
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -451,8 +451,6 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         if self.closed:
             raise StaleFileStore("Cannot add file to a closed FileStore.")
         path: pathlib.Path = pathlib.Path(obj)
-        to_thread = _compat.get_to_thread()
-
         filename = None
         key = None
         _fd, tmpfile_target = tempfile.mkstemp(prefix=self._tmpfile_prefix, dir=self.datastore)
@@ -461,7 +459,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
         try:
             # 1. Copy the file.
             kwargs = dict(src=path, dst=tmpfile_target, follow_symlinks=False)
-            _path = await to_thread(shutil.copyfile, **kwargs)
+            _path = await asyncio.to_thread(shutil.copyfile, **kwargs)
             assert tmpfile_target == _path
             assert tmpfile_target.exists()
             # We have now secured a copy of the file. We could just schedule the remaining
@@ -471,7 +469,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
             # finished and schedule a checksum verification that localize() must wait for.
 
             # 2. Fingerprint the file.
-            checksum = await to_thread(obj.fingerprint, **{})
+            checksum = await asyncio.to_thread(obj.fingerprint, **{})
             identifier = _identifiers.ResourceIdentifier(checksum)
 
             # 3. Choose a key.
@@ -687,7 +685,7 @@ async def _get_file_reference_by_path(obj: pathlib.Path, *, filestore: FileStore
         file_ref = await filestore.add_file(_file.describe_file(obj, mode=mode))
     except _exceptions.DuplicateKeyError:
         # Return the existing fileref, if it matches the fingerprint of *obj*.
-        fingerprint = await _compat.get_to_thread()(obj.fingerprint)
+        fingerprint = await asyncio.to_thread(obj.fingerprint)
         key = _identifiers.ResourceIdentifier(fingerprint)
         file_ref = filestore.get(key)
     return file_ref

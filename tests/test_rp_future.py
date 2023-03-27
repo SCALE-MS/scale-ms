@@ -8,7 +8,6 @@ import logging
 import pytest
 
 import scalems
-import scalems.compat
 import scalems.context
 import scalems.radical
 import scalems.radical.runtime
@@ -48,8 +47,6 @@ async def test_rp_future(rp_task_manager):
 
     task.cancel()
     try:
-        # TODO: With Python 3.9, check cancellation message for how the cancellation
-        #  propagated.
         with pytest.raises(asyncio.CancelledError):
             await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:
@@ -76,17 +73,12 @@ async def test_rp_future(rp_task_manager):
     assert rp_future.cancelled()
 
     # WARNING: rp.Task.wait blocks, and may never complete. Don't do it in the event loop thread.
-    to_thread = scalems.compat.get_to_thread()
-    watcher = asyncio.create_task(to_thread(task.wait, timeout=timeout), name=f"watch_{task.uid}")
+    watcher = asyncio.create_task(asyncio.to_thread(task.wait, timeout=timeout), name=f"watch_{task.uid}")
     try:
         state = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:
         logger.exception(f"Waited more than {timeout} for {watcher}")
-        try:
-            watcher.cancel("Canceled after waiting too long.")
-        except TypeError:
-            # the *msg* argument was added to Task.cancel in Py 3.9.
-            watcher.cancel()
+        watcher.cancel("Canceled after waiting too long.")
         raise e
     else:
         assert state in rp.states.FINAL
@@ -98,7 +90,7 @@ async def test_rp_future(rp_task_manager):
 
     # Test run to completion
     task_description.uid = "test-rp-future-3"
-    watcher = asyncio.create_task(to_thread(tmgr.submit_tasks, task_description), name="rp_submit")
+    watcher = asyncio.create_task(asyncio.to_thread(tmgr.submit_tasks, task_description), name="rp_submit")
     try:
         task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
     except asyncio.TimeoutError as e:

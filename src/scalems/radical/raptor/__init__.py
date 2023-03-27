@@ -282,6 +282,9 @@ import weakref
 import zlib
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
+from collections.abc import Generator
+
+import packaging.version
 
 if typing.TYPE_CHECKING:
     try:
@@ -289,13 +292,6 @@ if typing.TYPE_CHECKING:
     except ImportError:
         Comm = None
 
-# TODO(Python 3.9): Remove this conditional when we require Python >= 3.9
-if sys.version_info.minor < 9:
-    from typing import Generator
-else:
-    from collections.abc import Generator
-
-import packaging.version
 
 # We import rp before `logging` to avoid warnings when rp monkey-patches the
 # logging module. This `try` suite helps prevent auto-code-formatters from
@@ -305,7 +301,6 @@ try:
 except (ImportError,):
     warnings.warn("RADICAL Pilot installation not found.")
 
-import scalems.compat
 import scalems.exceptions
 import scalems.radical
 import scalems.messages
@@ -327,12 +322,6 @@ logger = logging.getLogger(__name__)
 # See also
 # * https://github.com/SCALE-MS/scale-ms/discussions/261
 # * https://github.com/SCALE-MS/scale-ms/issues/255
-
-try:
-    cache = functools.cache
-except AttributeError:
-    # Note: functools.cache does not appear until Python 3.9
-    cache = functools.lru_cache(maxsize=None)
 
 
 @dataclasses.dataclass
@@ -627,7 +616,7 @@ def _(obj: MasterTaskConfiguration) -> dict:
     return dataclasses.asdict(obj)
 
 
-@cache
+@functools.cache
 def master_script() -> str:
     """Get the name of the RP raptor master script.
 
@@ -711,7 +700,7 @@ async def master_input(
         except OSError:
             logger.exception(f"Errors occurred while cleaning up {tmpdir}.")
     if isinstance(add_file_task.exception(), scalems.exceptions.DuplicateKeyError):
-        checksum = await scalems.compat.get_to_thread()(file_description.fingerprint)
+        checksum = await asyncio.to_thread(file_description.fingerprint)
         key = checksum.hex()
         # Note: the DuplicateKeyError could theoretically be the result of a
         # pre-existing file with the same internal path but a different key, but

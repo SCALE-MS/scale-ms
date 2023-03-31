@@ -11,6 +11,7 @@ Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 import asyncio
 import json
 import os
+import typing
 from subprocess import CompletedProcess
 from subprocess import run as subprocess_run
 
@@ -22,6 +23,9 @@ import scalems.call
 import scalems.context
 import scalems.messages
 import scalems.workflow
+
+if typing.TYPE_CHECKING:
+    import radical.utils as ru
 
 try:
     import radical.pilot as rp
@@ -62,7 +66,11 @@ async def test_raptor_master(pilot_description, rp_venv):
     if rp_venv is None:
         pytest.skip("This test requires a user-provided static RP venv.")
 
-    if pilot_description.access_schema == "fork":
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
         pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
 
     loop = asyncio.get_event_loop()
@@ -161,7 +169,11 @@ async def test_worker(pilot_description, rp_venv):
         # Be sure to provision the venv.
         pytest.skip("This test requires a user-provided static RP venv.")
 
-    if pilot_description.access_schema == "fork":
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
         pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
 
     loop = asyncio.get_event_loop()

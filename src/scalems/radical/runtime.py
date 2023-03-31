@@ -301,7 +301,7 @@ class Configuration:
         try:
             job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(hpc_platform_label, schema=access)
         except (TypeError, KeyError) as e:
-            raise RPConfigurationError(f'Could not resolve {access} access for {hpc_platform_label}') from e
+            raise RPConfigurationError(f"Could not resolve {access} access for {hpc_platform_label}") from e
 
         if self.enable_raptor:
             # scalems uses the RP MPIWorker, which can have problems in "local" execution modes.

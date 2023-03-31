@@ -11,6 +11,7 @@ Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 import asyncio
 import json
 import os
+import typing
 from subprocess import CompletedProcess
 from subprocess import run as subprocess_run
 
@@ -61,6 +62,9 @@ async def test_raptor_master(pilot_description, rp_venv):
     # Hopefully, this requirement is temporary.
     if rp_venv is None:
         pytest.skip("This test requires a user-provided static RP venv.")
+
+    if pilot_description.access_schema is "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
@@ -157,6 +161,9 @@ async def test_worker(pilot_description, rp_venv):
     if rp_venv is None:
         # Be sure to provision the venv.
         pytest.skip("This test requires a user-provided static RP venv.")
+
+    if pilot_description.access_schema is "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)

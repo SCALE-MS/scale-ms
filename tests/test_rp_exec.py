@@ -101,6 +101,15 @@ async def test_raptor_master(pilot_description, rp_venv):
                     "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
                 }
             )
+            if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+                hello_command_description.environment["SCALEMS_COVERAGE"] = "TRUE"
+                # TODO: Worker coverage.
+                # td.output_staging.append(
+                #     {
+                #         'source': os.path.join(scheduler.task_sandbox, 'coverage-worker.xml'),
+                #         'target': 'coverage-hello.xml',
+                #         'action': rp.TRANSFER
+                #     })
             logger.debug(f"Submitting {str(hello_command_description.as_dict())}")
             (hello_task,) = await asyncio.to_thread(
                 dispatcher.runtime.task_manager().submit_tasks, [hello_command_description]
@@ -219,6 +228,15 @@ async def test_worker(pilot_description, rp_venv):
             add_item_task_description.cpu_process_type = (rp.SERIAL,)
             add_item_task_description.mode = scalems.radical.raptor.CPI_MESSAGE
             add_item_task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
+            if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+                add_item_task_description.environment["SCALEMS_COVERAGE"] = "TRUE"
+                # TODO: Worker coverage.
+                # task_description.output_staging.append(
+                #     {
+                #         'source': os.path.join(scheduler.task_sandbox, 'coverage-worker.xml'),
+                #         'target': 'coverage-scalems-test-worker.xml',
+                #         'action': rp.TRANSFER
+                #     })
 
             task_manager = dispatcher.runtime.task_manager()
 

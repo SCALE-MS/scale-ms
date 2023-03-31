@@ -116,10 +116,12 @@ jobs:
         ls $HOME
         pwd
         ls
+        python -m coverage --version
         python -X dev -m pytest --cov=scalems --cov-report=xml tests -s
     - name: Command line tests
       run: |
         . $HOME/testenv/bin/activate
+        coverage --version
         coverage run -m scalems.local --version
         coverage run --append -m scalems.local --help
         # We clean the working directory now, but we will need better handling for
@@ -203,6 +205,7 @@ jobs:
         ls $HOME
         echo "Working directory: $(pwd)"
         ls
+        python -m coverage --version
         python -X dev -m pytest -x \
           --cov=scalems --cov-report=xml:coverage.xml \
           -rA -l --full-trace --log-cli-level=debug \
@@ -214,6 +217,7 @@ jobs:
         RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
       run: |
         . $HOME/testenv/bin/activate
+        coverage --version
         coverage run -m scalems.radical --version
         coverage run --append -m scalems.radical --help
         # We clean the working directory now, but we will need better handling for
@@ -313,6 +317,7 @@ jobs:
         ssh-add ~/.ssh/id
         . $HOME/testenv/bin/activate
         export RADICAL_LOG_LVL=DEBUG
+        python -m coverage --version
         python -c "import os; import pymongo; print('Create test entry in DB: ', pymongo.MongoClient(os.getenv('RADICAL_PILOT_DBURL')).test.test.insert_one({'x': 10}).inserted_id)"
         ulimit -n 65536
         echo "HOME=$HOME"
@@ -320,10 +325,14 @@ jobs:
         pwd
         ls
         python -X dev -m pytest -x \
-          --cov=scalems --cov-report=xml:coverage.xml \
+          --cov --cov-config=.coveragerc --cov-report=xml:coverage.xml \
           -rA -l --full-trace --log-cli-level=debug \
           tests \
           --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
+        cd scalems-remote-coverage-dir
+        coverage combine --keep
+        coverage xml --rcfile=../.coveragerc -o coverage-remote.xml
+        cd ..
     - name: Command line tests
       timeout-minutes: 5
       env:
@@ -332,6 +341,7 @@ jobs:
         eval "$(ssh-agent -s)"
         ssh-add ~/.ssh/id
         . $HOME/testenv/bin/activate
+        coverage --version
         coverage run -m scalems.radical --version
         coverage run --append -m scalems.radical --help
         # We clean the working directory now, but we will need better handling for
@@ -443,6 +453,7 @@ jobs:
         ls $HOME
         pwd
         ls
+        python -m coverage --version
         python -X dev -m pytest -x \
           --cov=scalems --cov-report=xml:coverage.xml \
           -rA -l --full-trace --log-cli-level=debug \
@@ -457,6 +468,7 @@ jobs:
         eval "$(ssh-agent -s)"
         ssh-add ~/.ssh/id
         . $HOME/testenv/bin/activate
+        coverage --version
         coverage run -m scalems.radical --version
         coverage run --append -m scalems.radical --help
         # We clean the working directory now, but we will need better handling for

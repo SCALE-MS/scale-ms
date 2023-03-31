@@ -194,12 +194,20 @@ logger.debug("Importing {}".format(__name__))
 _configuration = contextvars.ContextVar("_configuration")
 
 
+if typing.TYPE_CHECKING:
+    import radical.utils as ru
+
+
 def _parse_option(arg: str) -> tuple:
     if not isinstance(arg, str):
         raise InternalError("Bug: This function should only be called with a str.")
     if arg.count("=") != 1:
         raise argparse.ArgumentTypeError('Expected a key/value pair delimited by "=".')
     return tuple(arg.split("="))
+
+
+class RPConfigurationError(ScaleMSError):
+    """Unusable RADICAL Pilot configuration."""
 
 
 @functools.cache
@@ -282,11 +290,26 @@ class Configuration:
     # Note that the use cases for this dataclass interact with module ContextVars,
     # pending refinement.
     datastore: FileStore = None
-    # TODO: Check that the resource is defined.
     execution_target: str = "local.localhost"
     rp_resource_params: dict = dataclasses.field(default_factory=dict)
     target_venv: str = None
     enable_raptor: bool = False
+
+    def __post_init__(self):
+        hpc_platform_label = self.execution_target
+        access = self.rp_resource_params["PilotDescription"].get("access_schema")
+        try:
+            job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(hpc_platform_label, schema=access)
+        except (TypeError, KeyError) as e:
+            raise RPConfigurationError(f'Could not resolve {access} access for {hpc_platform_label}') from e
+
+        if self.enable_raptor:
+            # scalems uses the RP MPIWorker, which can have problems in "local" execution modes.
+            launch_scheme = job_endpoint.scheme
+            if launch_scheme == "fork":
+                message = f"RP Raptor MPI Worker not supported for '{launch_scheme}' launch method."
+                message += f" '{access}' access for {hpc_platform_label}: {job_endpoint}"
+                raise RPConfigurationError(message)
 
 
 class Runtime:

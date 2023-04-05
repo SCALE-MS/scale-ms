@@ -346,6 +346,7 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
     )
 
     # Test RPDispatcher context

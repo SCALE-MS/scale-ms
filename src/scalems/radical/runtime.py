@@ -1792,8 +1792,16 @@ async def subprocess_to_rp_task(
         uid=call_handle.uid,
         executable=call_handle.executable,
         arguments=list(call_handle.arguments),
-        pre_exec=list(get_pre_exec(dispatcher.configuration())),
     )
+    if configuration().enable_raptor:
+        subprocess_dict["scheduler"] = dispatcher.runtime.scheduler.uid
+        # Note: this bypasses the scalems request_cb and just uses basic rp.raptor functionality.
+        subprocess_dict["mode"] = rp.TASK_PROC
+    else:
+        # With raptor, the Worker launched with the pre_exec and individual Tasks
+        # do not get a chance to have their own pre_exec. For traditional Tasks,
+        # we need to use the configured environment initialization.
+        subprocess_dict["pre_exec"] = list(get_pre_exec(dispatcher.configuration()))
 
     # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
     # a Python function runner, and may collide with user assumptions or native
@@ -1817,6 +1825,8 @@ async def subprocess_to_rp_task(
         for name, ref in call_handle.input_filenames.items()
     ]
 
+    # We just pass the user-provided requirements through, but we have to reject
+    # any that collide with parameters we expect to generate.
     for param, value in call_handle.requirements.items():
         if param in subprocess_dict:
             raise ValueError(f"Cannot overwrite {param}. Task['{param}'] is {subprocess_dict[param]}")

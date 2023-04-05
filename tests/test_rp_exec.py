@@ -337,6 +337,13 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
     if rp_venv is None:
         pytest.skip("This test requires a user-provided static RP venv.")
 
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
+
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
     logging.getLogger("asyncio").setLevel(logging.DEBUG)

@@ -210,7 +210,7 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
     def __repr__(self):
         return str(self._repr)
 
-    def __getitem__(self, __k: _identifiers.ResourceIdentifier) -> "FileReference":
+    def __getitem__(self, __k: _identifiers.ResourceIdentifier | str) -> "FileReference":
         return FileReference(filestore=self, key=__k)
 
     def __len__(self) -> int:

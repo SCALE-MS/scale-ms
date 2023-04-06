@@ -1787,29 +1787,36 @@ async def subprocess_to_rp_task(
         through "overloads" (dispatching) of the task submission.
         Also, we should not be exposing the *dispatcher* to the user.
     """
+    # Convert filename arguments to explicit paths
+    pilot_dir: str = radical.utils.Url(dispatcher.runtime.pilot().pilot_sandbox).path
+    task_dir = os.path.join(pilot_dir, call_handle.uid)
+    cli_args = list(call_handle.arguments[:-2])
+    cli_args.append(str(os.path.join(task_dir, call_handle.arguments[-2])))
+    cli_args.append(str(os.path.join(task_dir, call_handle.arguments[-1])))
+
     subprocess_dict = dict(
         stage_on_error=True,
         uid=call_handle.uid,
         executable=call_handle.executable,
-        arguments=list(call_handle.arguments),
+        arguments=cli_args,
     )
     if configuration().enable_raptor:
         subprocess_dict["scheduler"] = dispatcher.runtime.scheduler.uid
         # Note: this bypasses the scalems request_cb and just uses basic rp.raptor functionality.
         subprocess_dict["mode"] = rp.TASK_PROC
+        # Note: For raptor, stdout and stderr are presumably up to the Worker.
     else:
         # With raptor, the Worker launched with the pre_exec and individual Tasks
         # do not get a chance to have their own pre_exec. For traditional Tasks,
         # we need to use the configured environment initialization.
         subprocess_dict["pre_exec"] = list(get_pre_exec(dispatcher.configuration()))
-
-    # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
-    # a Python function runner, and may collide with user assumptions or native
-    # behaviors of third party tools. We will specify distinctive names for the RP
-    # output capture files in the hope of clarifying the component responsible for
-    # these files.
-    subprocess_dict["stdout"] = "_scalems_stdout.txt"
-    subprocess_dict["stderr"] = "_scalems_stderr.txt"
+        # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
+        # a Python function runner, and may collide with user assumptions or native
+        # behaviors of third party tools. We will specify distinctive names for the RP
+        # output capture files in the hope of clarifying the component responsible for
+        # these files.
+        subprocess_dict["stdout"] = "_scalems_stdout.txt"
+        subprocess_dict["stderr"] = "_scalems_stderr.txt"
 
     # Note: We could save wall time in the job by pre-staging files, but we are
     # deferring that for future optimization.
@@ -1819,7 +1826,7 @@ async def subprocess_to_rp_task(
         {
             "source": ref.as_uri(),
             # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
-            "target": name,
+            "target": f"pilot:///{call_handle.uid}/{name}",
             "action": rp.TRANSFER,
         }
         for name, ref in call_handle.input_filenames.items()

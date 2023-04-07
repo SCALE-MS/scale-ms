@@ -397,6 +397,7 @@ class CpiStop(CpiCommand):
     @classmethod
     def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
         logger.debug("CPI STOP issued.")
+        # TODO: Wait for pending tasks to complete and shut down Worker(s)
         task["stderr"] = ""
         task["stdout"] = ""
         task["exit_code"] = 0
@@ -509,8 +510,9 @@ class CpiAddItem(CpiCommand):
                 kwargs={"work_item": work_item},
             )
         )
-        scalems_task = manager.submit_tasks(scalems_task_description)
-        logger.debug(f"Submitted {str(scalems_task)} in support of {str(task)}.")
+        # Note: There is no Task object returned from Master.submit_tasks()
+        manager.submit_tasks(scalems_task_description)
+        logger.debug(f"Submitted {str(scalems_task_description)} in support of {str(task)}.")
 
         # Record task metadata and track.
         task["return_value"] = scalems_task_id
@@ -1231,6 +1233,7 @@ class ScaleMSMaster(rp.raptor.Master):
         """
         # Note: At least as of RP 1.18, exceptions from result_cb() are suppressed.
         for task in tasks:
+            logger.debug(f'Result callback for {task["description"]["mode"]} task {task["uid"]}: {task}')
             mode = task["description"]["mode"]
             # Allow non-scalems work to be handled normally.
             if mode == CPI_MESSAGE:

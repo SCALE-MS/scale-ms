@@ -298,6 +298,9 @@ jobs:
         python -m pip install --upgrade pip setuptools wheel
         pip uninstall -y radical.pilot radical.saga radical.utils
         pip install --upgrade -r requirements-testing.txt
+        pip uninstall -y radical.pilot
+        pip install --upgrade --force \
+          git+https://github.com/radical-cybertools/radical.pilot.git@feature/raptor_api_2#egg=radical.pilot
         pip install .
         pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/

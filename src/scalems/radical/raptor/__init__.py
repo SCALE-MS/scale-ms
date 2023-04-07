@@ -711,7 +711,7 @@ async def master_input(
 
 
 def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequirements:
-    """Get the requirements for the work load as known to the client.
+    """Get the requirements for the work load, as known to the client.
 
     TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     """
@@ -845,11 +845,13 @@ def master():
     requirements = configuration.worker
 
     try:
-        with _master.configure_worker(requirements=requirements) as worker_submission:
-            assert os.path.isabs(worker_submission["descr"]["worker_file"])
-            assert os.path.exists(worker_submission["descr"]["worker_file"])
-            logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
-            _master.submit_workers(**worker_submission)
+        with _master.configure_worker(requirements=requirements) as configs:
+            assert len(configs) == 1
+            worker_submission: rp.TaskDescription = configs[0]
+            assert os.path.isabs(worker_submission.raptor_file)
+            assert os.path.exists(worker_submission.raptor_file)
+            logger.debug(f"Submitting {len(configs)} {worker_submission.as_dict()}")
+            _master.submit_workers(descriptions=configs)
             message = "Submitted workers: "
             message += ", ".join(_master.workers.keys())
             logger.info(message)
@@ -859,11 +861,11 @@ def master():
 
             if rp_version >= packaging.version.parse("1.21"):
                 # Make sure at least one worker comes online.
-                _master.wait(count=1)
+                _master.wait_workers(count=1)
                 logger.debug("Ready to submit raptor tasks.")
                 # Confirm all workers start successfully or produce useful error
                 #  (then release temporary file).
-                _master.wait()
+                _master.wait_workers()
             for uid, worker in _master.workers.items():
                 logger.info(f"Worker {uid} in state {worker['status']}.")
             # TODO(#253): Confirm that workers started successfully and notify client
@@ -894,16 +896,15 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     assert os.path.exists(filename)
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
     num_workers = 1
-    kwargs = dict(
+    descr = worker_description(
         named_env=requirements.named_env,
         worker_file=filename,
         pre_exec=requirements.pre_exec,
         cpu_processes=requirements.cpu_processes,
         gpus_per_process=requirements.gpus_per_process,
     )
-    descr = worker_description(**kwargs)
 
-    config = RaptorWorkerConfig(count=num_workers, descr=descr)
+    config: RaptorWorkerConfig = [descr] * num_workers
     return config
 
 
@@ -1287,39 +1288,25 @@ class WorkerDescriptionDict(typing.TypedDict):
     """
 
     cores_per_rank: typing.Optional[int]
-    environment: typing.Optional[dict]
+    environment: typing.Optional[dict[str, str]]
     gpus_per_rank: typing.Optional[int]
     named_env: typing.Optional[str]
-    pre_exec: typing.Optional[list]
+    pre_exec: typing.Optional[list[str]]
     ranks: int
-    worker_class: typing.Optional[str]
-    worker_file: typing.Optional[str]
+    raptor_class: str
+    raptor_file: str
+    mode: str  # rp.RAPTOR_WORKER
 
 
-class RaptorWorkerConfig(typing.TypedDict):
-    """Container for the raptor worker parameters.
+RaptorWorkerConfig = list[WorkerDescriptionDict]
+"""Client-specified Worker requirements.
 
-    Expanded with the ``**`` operator, serves as the arguments to
-    :py:meth:`radical.pilot.raptor.Master.submit_workers`
+Used by master script when calling `worker_description()`.
+Created internally with :py:func:`_configure_worker()`.
 
-    The *descr* member represents the *descr* parameter of
-    :py:meth:`~radical.pilot.raptor.Master.submit_workers()`,
-    pending further documentation.
-
-    Created internally with :py:func:`_configure_worker()`.
-    """
-
-    descr: WorkerDescriptionDict
-    """Client-specified Worker requirements.
-
-    Used by master script when calling `worker_description()`.
-
-    See Also:
-        :py:mod:`scalems.radical.raptor.ClientWorkerRequirements`
-    """
-
-    count: typing.Optional[int]
-    """Number of workers to launch."""
+See Also:
+    :py:mod:`scalems.radical.raptor.ClientWorkerRequirements`
+"""
 
 
 def worker_description(
@@ -1331,7 +1318,7 @@ def worker_description(
     gpus_per_process: int = None,
     pre_exec: typing.Iterable[str] = (),
     environment: typing.Optional[typing.Mapping[str, str]] = None,
-) -> WorkerDescriptionDict:
+) -> rp.TaskDescription:
     """Get a worker description for Master.submit_workers().
 
     Parameters:
@@ -1349,19 +1336,20 @@ def worker_description(
 
     The *uid* for the Worker task is defined by the Master.submit_workers().
     """
-    kwargs = dict(
+    kwargs = WorkerDescriptionDict(
         cores_per_rank=cores_per_process,
         environment=environment,
         gpus_per_rank=gpus_per_process,
         named_env=None,
         pre_exec=list(pre_exec),
         ranks=cpu_processes,
-        worker_class="ScaleMSWorker",
-        worker_file=worker_file,
+        raptor_class="ScaleMSWorker",
+        raptor_file=worker_file,
+        mode=rp.RAPTOR_WORKER,
     )
     # Avoid assumption about how default values in TaskDescription are checked or applied.
     kwargs = {key: value for key, value in kwargs.items() if value is not None}
-    descr = WorkerDescriptionDict(**kwargs)
+    descr = rp.TaskDescription(from_dict=kwargs)
     return descr
 
 

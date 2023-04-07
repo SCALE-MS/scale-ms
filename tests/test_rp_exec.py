@@ -53,10 +53,6 @@ else:
     minimum_scalems_version = client_scalems_version.base_version
 
 
-# We either need to mock a RP agent or gather coverage files from remote environments.
-# This test does not add any coverage, and only adds measurable coverage or coverage
-# granularity if we either mock a RP agent or gather coverage files from remote environments.
-@pytest.mark.xfail(reason="Needs updates for shutdown behavior of rp.raptor.Master (Discussion #289)")
 @pytest.mark.asyncio
 async def test_raptor_master(pilot_description, rp_venv):
     """Check our ability to launch and interact with a Master task."""

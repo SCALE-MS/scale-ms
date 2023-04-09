@@ -862,11 +862,11 @@ def master():
             logger.debug("Master started.")
 
             # # Make sure at least one worker comes online.
-            # _master.wait_workers(count=1)
-            # logger.debug("Ready to submit raptor tasks.")
+            _master.wait_workers(count=1)
+            logger.debug("Ready to submit raptor tasks.")
             # # Confirm all workers start successfully or produce useful error
             # #  (then release temporary file).
-            # _master.wait_workers()
+            _master.wait_workers()
             for uid, worker in _master.workers.items():
                 logger.info(f"Worker {uid} in state {worker['status']}.")
             # TODO(#253): Confirm that workers started successfully and notify client

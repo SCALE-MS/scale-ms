@@ -534,7 +534,7 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
                 raise ProtocolError("Expected a single key-value pair.")
             logger.debug(f"Processing command {repr(command)}")
 
-            # TODO: Use formal RPC protocol.
+            # TODO(#23): Use formal RPC protocol.
             if "control" in command:
                 if command["control"] == "stop":
                     logger.debug("Execution manager received stop command.")
@@ -542,6 +542,7 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
                     # obvious.
                     # Consider explicit `break` to clarify that we want to run off the end
                     # of the function.
+                    # TODO: Send a stop command to the remote executor.
                     return
                 else:
                     raise ProtocolError("Unknown command: {}".format(command["control"]))

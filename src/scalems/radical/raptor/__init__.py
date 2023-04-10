@@ -729,6 +729,7 @@ async def master_input(
         # Note: the DuplicateKeyError could theoretically be the result of a
         # pre-existing file with the same internal path but a different key, but
         # such a condition would probably represent an internal error (bug).
+        # TODO: Migrate away from container behavior of FileStore.
         return filestore[key]
     else:
         return add_file_task.result()
@@ -1210,6 +1211,7 @@ class ScaleMSMaster(rp.raptor.Master):
                 mode = task["description"]["mode"]
                 # Allow non-scalems work to be handled normally.
                 if mode != CPI_MESSAGE:
+                    logger.debug(f"Deferring {str(task)} to regular RP handling.")
                     yield task
                     continue
                 else:

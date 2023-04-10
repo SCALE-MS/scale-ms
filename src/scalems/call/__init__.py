@@ -290,6 +290,8 @@ async def function_call_to_subprocess(
     # TODO: Validate with argparse, once scalems.call.__main__ has a real parser.
     if "ranks" in requirements:
         arguments.extend(("-m", "mpi4py"))
+    # If this wrapper doesn't go away soon, we should abstract this so path arguments
+    # can be generated at the execution site.
     arguments.extend(("-m", "scalems.call", input_filename, output_filename))
 
     return _Subprocess(
@@ -324,6 +326,7 @@ def main(call: _Call) -> CallResult:
     # reach this point, so we are relying on call.environment and call.skeleton
     # to have been handled by the caller.
     cwd = pathlib.Path(os.getcwd())
+    logger.info(f"scalems.call executing {func} in working directory {cwd}")
     result_fields = dict(directory=cwd.as_uri())
 
     # Note: For RP Raptor, the MPIWorker will be providing our wrapped function
@@ -347,7 +350,21 @@ def cli(*argv: str):
     """Command line entry point.
 
     Invoke with ``python -m scalems.call <args>``
+
+    TODO: Configurable log level.
     """
+    logger.setLevel(logging.DEBUG)
+    character_stream = logging.StreamHandler()
+    character_stream.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    character_stream.setFormatter(formatter)
+    logger.addHandler(character_stream)
+
+    file_logger = logging.FileHandler("scalems.call.log")
+    file_logger.setLevel(logging.DEBUG)
+    file_logger.setFormatter(formatter)
+    logging.getLogger("scalems").addHandler(file_logger)
+
     logger.debug(f"scalems.call got args: {', '.join(str(arg) for arg in argv)}")
     # TODO: Consider an argparse parser for clarity.
     if len(argv) < 3:

@@ -1927,8 +1927,10 @@ async def subprocess_to_rp_task(
         executable=call_handle.executable,
         arguments=list(call_handle.arguments),
         pre_exec=list(get_pre_exec(dispatcher.configuration())),
+        mode=rp.TASK_EXECUTABLE,
     )
-
+    if configuration().enable_raptor:
+        subprocess_dict["scheduler"] = dispatcher.runtime.scheduler.uid
     # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
     # a Python function runner, and may collide with user assumptions or native
     # behaviors of third party tools. We will specify distinctive names for the RP
@@ -1945,12 +1947,14 @@ async def subprocess_to_rp_task(
         {
             "source": ref.as_uri(),
             # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
-            "target": name,
+            "target": f"task:///{name}",
             "action": rp.TRANSFER,
         }
         for name, ref in call_handle.input_filenames.items()
     ]
 
+    # We just pass the user-provided requirements through, but we have to reject
+    # any that collide with parameters we expect to generate.
     for param, value in call_handle.requirements.items():
         if param in subprocess_dict:
             raise ValueError(f"Cannot overwrite {param}. Task['{param}'] is {subprocess_dict[param]}")
@@ -1961,6 +1965,18 @@ async def subprocess_to_rp_task(
         subprocess_task_description = rp.TaskDescription(from_dict=subprocess_dict).verify()
     except radical.utils.typeddict.TDKeyError as e:
         raise ValueError("Invalid attribute for RP TaskDescription.") from e
+
+    task_cores = subprocess_task_description.cores_per_rank * subprocess_task_description.cpu_processes
+    rm_info = await dispatcher.runtime.resources
+    pilot_cores = rm_info["requested_cores"]
+    # TODO: Account for Worker cores.
+    if configuration().enable_raptor:
+        raptor_task: rp.Task = dispatcher.runtime.scheduler
+        raptor_cores = raptor_task.description["ranks"] * raptor_task.description["cores_per_rank"]
+    else:
+        raptor_cores = 0
+    if task_cores > (available_cores := pilot_cores - raptor_cores):
+        raise ValueError(f"Requested {task_cores} for {call_handle.uid}, but at most {available_cores} are available.")
 
     # TODO: Find a better way to express these three lines.
     # This seems like it should be a subscription by the local workflow context to the

@@ -563,19 +563,38 @@ def object_encoder(obj) -> Encodable:
 #     return obj.as_dict()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ClientWorkerRequirements:
     """Client-side details to inform worker provisioning.
 
     This structure is part of the `scalems.radical.raptor.MasterTaskConfiguration`
     provided to the master script. The master script uses this information
     when calling `worker_description()`.
+
+    Use the :py:func:`worker_requirements()` creation function for a stable interface.
     """
 
-    named_env: str
-    pre_exec: typing.Iterable[str] = ()
-    cpu_processes: int = None
-    gpus_per_process: int = None
+    cpu_processes: int
+    """Number of ranks in the Worker MPI context.
+
+    TODO: We need to account for cores-per-process.
+    """
+
+    gpus_per_process: int = 0
+    """GPUs per Worker rank.
+
+    TODO: Reconcile with upcoming support for fractional ratios.
+    """
+
+    pre_exec: tuple[str] = ()
+    """Lines of shell expressions to be evaluated before launching the worker process."""
+
+    named_env: str = None
+    """A registered virtual environment known to the raptor manager.
+
+    Warnings:
+        Not tested. Support has been delayed indefinitely.
+    """
 
 
 class _MasterTaskConfigurationDict(typing.TypedDict):
@@ -714,18 +733,24 @@ async def master_input(
         return add_file_task.result()
 
 
-def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequirements:
+def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> ClientWorkerRequirements:
     """Get the requirements for the work load, as known to the client.
 
     TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     """
-    # num_workers = 1
+    # TODO: calculate cores.
+    # rp_config = scalems.radical.configuration()
+    # pilot_description = rp_config.rp_resource_params["PilotDescription"]
+    # available_cores = pilot_description.get("cores")
+    # if not available_cores:
+    #     cores_per_node =
+    #     ...
     cores_per_worker = 1
     gpus_per_worker = 0
 
     workload_metadata = ClientWorkerRequirements(
         named_env=worker_venv,
-        pre_exec=pre_exec,
+        pre_exec=tuple(pre_exec),
         cpu_processes=cores_per_worker,
         gpus_per_process=gpus_per_worker,
     )
@@ -889,6 +914,7 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     """
     assert os.path.exists(filename)
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
+    # TODO(#302): Number of workers should be chosen after inspecting the requirements of the work load.
     num_workers = 1
     descr = worker_description(
         named_env=requirements.named_env,

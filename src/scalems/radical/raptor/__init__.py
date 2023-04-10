@@ -510,7 +510,9 @@ class CpiAddItem(CpiCommand):
                 kwargs={"work_item": work_item},
             )
         )
-        # Note: There is no Task object returned from Master.submit_tasks()
+        # Note: There is no `Task` object returned from `Master.submit_tasks()`
+        # `Task` objects are currently only available on the client side;
+        # the agent side handles task dicts---which the master will receive through the *request_cb()*.
         manager.submit_tasks(scalems_task_description)
         logger.debug(f"Submitted {str(scalems_task_description)} in support of {str(task)}.")
 

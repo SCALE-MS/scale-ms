@@ -93,6 +93,7 @@ import contextlib
 import logging
 import typing
 
+import scalems.exceptions
 from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
@@ -184,6 +185,8 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """
 
     get_edit_item: typing.Callable[[], typing.Callable]
+    """Get the function that creates a WorkflowItem editing context."""
+
     datastore: FileStore
     submitted_tasks: typing.MutableSet[asyncio.Task]
 
@@ -235,7 +238,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         self._loop: asyncio.AbstractEventLoop = loop
 
         if editor_factory is None or not callable(editor_factory):
-            raise TypeError("Provide a callable that produces an edit_item " "interface.")
+            raise TypeError("Provide a callable that produces an edit_item interface.")
         self.get_edit_item = editor_factory
 
         if datastore is None:
@@ -251,6 +254,15 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     def configuration(self) -> _BackendT:
         return self._runtime_configuration
+
+    @staticmethod
+    async def cpi(command: str, runtime):
+        """Dispatcher for CPI messages.
+
+        TODO: Return value? We probably want to be able to capture something we can
+            query for the result of the CPI message.
+        """
+        logger.debug(f"Null CPI handler received command {command}.")
 
     @staticmethod
     def runtime_shutdown(runtime):
@@ -486,6 +498,9 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
     """
     queue = executor.queue()
     updater = executor.updater()
+    # Get a reference to the runtime, since it is removed from the executor before
+    # RuntimeManager.__aexit__() shuts down this task.
+    runtime = executor.runtime
 
     # Acknowledge that the coroutine is running and will immediately begin processing
     # queue items.
@@ -513,15 +528,8 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
     #         waiter = asyncio.create_task(asyncio(wait((signal_task, queue_getter),
     #         return_when=FIRST_COMPLETED))
     #
-    while True:
-        # Note: If the function exits at this line, the queue may be missing a call
-        #  to task_done() and should not be `join()`ed. It does not seem completely
-        #  clear whether the `get()` will have completed if the task for this function
-        #  is canceled or a Task.send() or Task.throw() is used. Alternatively, we could
-        #  include the `get()` in the `try` block and catch a possible ValueError at the
-        #  task_done() call, in case we arrive there without Queue.get() having completed.
-        #  However, that could allow a Queue.join() to complete early by accident.
-        command: QueueItem = await queue.get()
+    command: QueueItem
+    while command := await queue.get():
         # Developer note: The preceding line and the following try/finally block are
         # coupled!
         # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
@@ -536,16 +544,18 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
 
             # TODO(#23): Use formal RPC protocol.
             if "control" in command:
+                logger.debug(f"Execution manager received {command['control']} command for {runtime}.")
+                try:
+                    await executor.cpi(command["control"], runtime)
+                except scalems.exceptions.ScopeError as e:
+                    logger.debug(
+                        f"Control command \"{command['control']}\" ignored due to inactive RuntimeManager.", exc_info=e
+                    )
+                    # We should probably break here, too, right?
+                    # TODO: Handle command results and take appropriate action on failures.
                 if command["control"] == "stop":
-                    logger.debug("Execution manager received stop command.")
-                    # This effectively breaks the `while True` loop, but may not be
-                    # obvious.
-                    # Consider explicit `break` to clarify that we want to run off the end
-                    # of the function.
-                    # TODO: Send a stop command to the remote executor.
-                    return
-                else:
-                    raise ProtocolError("Unknown command: {}".format(command["control"]))
+                    # End queue processing.
+                    break
             if "add_item" not in command:
                 # This will end queue processing. Tasks already submitted may still
                 # complete. Tasks subsequently added will update the static part of
@@ -575,7 +585,7 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
 
                 if task.done():
                     # Stop processing the queue if task was cancelled or errored.
-                    # TODO: Test this logical branch.
+                    # TODO: Test this logical branch or consider removing it.
                     if task.cancelled():
                         logger.info(f"Stopping queue processing after unexpected cancellation of task {task}")
                         return

@@ -9,6 +9,7 @@ Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
 """
 
 import asyncio
+import dataclasses
 import json
 import os
 import typing
@@ -21,6 +22,7 @@ import pytest
 import scalems
 import scalems.call
 import scalems.context
+import scalems.identifiers
 import scalems.messages
 import scalems.workflow
 
@@ -89,28 +91,36 @@ async def test_raptor_master(pilot_description, rp_venv):
             logger.debug(f"test_raptor_master Session is {repr(dispatcher.runtime.session)}")
 
             # Bypass the scalems machinery and submit an instruction directly to the master task.
+            # TODO: Use scalems.radical.runtime.submit()
             scheduler: rp.Task = dispatcher.runtime.scheduler
-            td = rp.TaskDescription(
+            hello_command_description = rp.TaskDescription(
                 from_dict={
                     "scheduler": scheduler.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
                     "metadata": scalems.messages.HelloCommand().encode(),
-                    "uid": "task-hello",
+                    "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
                 }
             )
-            logger.debug(f"Submitting {str(td.as_dict())}")
-            tasks = await asyncio.to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
-            hello_task = tasks[0]
+            logger.debug(f"Submitting {str(hello_command_description.as_dict())}")
+            (hello_task,) = await asyncio.to_thread(
+                dispatcher.runtime.task_manager().submit_tasks, [hello_command_description]
+            )
             logger.debug(f"Submitted {str(hello_task.as_dict())}. Waiting...")
-            state = await asyncio.to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
+            hello_state = await asyncio.to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
             logger.debug(str(hello_task.as_dict()))
 
-            td.metadata = scalems.messages.StopCommand().encode()
-            td.output_staging = []
-            td.uid = "task-stop"
-            logger.debug(f"Submitting {str(td.as_dict())}")
-            tasks = await asyncio.to_thread(dispatcher.runtime.task_manager().submit_tasks, [td])
-            stop_task = tasks[0]
+            stop_command_description = rp.TaskDescription(
+                from_dict={
+                    "scheduler": scheduler.uid,
+                    "mode": scalems.radical.raptor.CPI_MESSAGE,
+                    "metadata": scalems.messages.Control.create("stop").encode(),
+                    "uid": f"command-stop--{scalems.identifiers.EphemeralIdentifier()}",
+                }
+            )
+            logger.debug(f"Submitting {str(stop_command_description.as_dict())}")
+            (stop_task,) = await asyncio.to_thread(
+                dispatcher.runtime.task_manager().submit_tasks, [stop_command_description]
+            )
 
             # We expect the status update -> DONE, even if self.stop() was called during result_cb for the task.
             stop_watcher = asyncio.create_task(
@@ -146,14 +156,10 @@ async def test_raptor_master(pilot_description, rp_venv):
 
             assert scheduler.state == rp.DONE
 
-    assert state == rp.DONE
+    assert hello_state == rp.DONE
     assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)
     # Ref https://github.com/SCALE-MS/scale-ms/discussions/268
-    # assert task.return_value == scalems.__version__
-
-    # Note: As we refine the dispatching protocol, make sure we don't wait for STOP controls to finish.
-    #     state = await asyncio.wait_for(stop_watcher, timeout=120)
-    #     assert state in rp.states.FINAL
+    assert hello_task.return_value == dataclasses.asdict(scalems.radical.raptor.backend_version)
 
 
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
@@ -189,6 +195,7 @@ async def test_worker(pilot_description, rp_venv):
         func=print.__name__, module=print.__module__, args=["hello world"], kwargs={}, comm_arg_name=None
     )
 
+    timeout = 120
     manager = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
@@ -199,7 +206,10 @@ async def test_worker(pilot_description, rp_venv):
             logger.debug(f"Session is {repr(dispatcher.runtime.session)}")
 
             task_uid = "add_item.scalems-test-worker"
+
+            # Submit a raptor task
             # Bypass the scalems machinery and submit an instruction directly to the master task.
+            # TODO: Use scalems.radical.runtime.submit()
             scheduler: rp.Task = dispatcher.runtime.scheduler
 
             add_item_task_description = rp.TaskDescription()
@@ -211,9 +221,7 @@ async def test_worker(pilot_description, rp_venv):
             add_item_task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
 
             task_manager = dispatcher.runtime.task_manager()
-            timeout = 120
-            # Submit a raptor task
-            # TODO: Use scalems.radical.runtime.submit()
+
             submitter = asyncio.create_task(
                 asyncio.to_thread(task_manager.submit_tasks, add_item_task_description), name="rp_submit"
             )

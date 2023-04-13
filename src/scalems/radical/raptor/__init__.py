@@ -324,7 +324,7 @@ logger = logging.getLogger(__name__)
 # * https://github.com/SCALE-MS/scale-ms/issues/255
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BackendVersion:
     """Identifying information for the computing backend."""
 
@@ -418,6 +418,7 @@ class CpiHello(CpiCommand):
         task["stderr"] = ""
         task["exit_code"] = 0
         task["stdout"] = repr(backend_version)
+        # TODO: scalems object encoding.
         task["return_value"] = dataclasses.asdict(backend_version)
         logger.debug("Finalizing...")
         manager.cpi_finalize(task)

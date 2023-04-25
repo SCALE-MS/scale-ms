@@ -385,17 +385,24 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
                 manager=manager,
                 requirements=None,
             )
-            # Note: the Master (and Worker) have already started, but may not be commensurate with *requirements*.
+            # Note: the Master (and Worker) have already started, but may not be
+            # commensurate with *requirements*.
             # Resource constraints:
-            # * the Master uses one of the cores available to the Pilot, so it is not available to Tasks.
-            # * Tasks cannot span Workers, so we need to make sure that we provision a sufficiently large Worker.
+            # * the Master uses one of the cores available to the Pilot,
+            #   so it is not available to Tasks.
+            # * Tasks cannot span Workers, so we need to make sure that we
+            #   provision a sufficiently large Worker.
             # * raptor does not support the memory/disk task constraints.
             # * GPUs: gpus-per-rank is not well explored in raptor. deviations unknown.
             # * nodes: Workers may span nodes, so this shouldn't be a problem.
             # Other set-up details:
-            # * pre_exec needs to happen on the Worker, not the Task (default scalems pre_exec is already handled this way. We can add a check that user has not extended it until we can update the Worker provisioning.).
+            # * pre_exec needs to happen on the Worker, not the Task
+            #   (default scalems pre_exec is already handled this way.
+            #   We can add a check that user has not extended it until we can
+            #   update the Worker provisioning.).
             # * For 0th step, we can provision one Worker with all resources.
-            # * For immediate follow-up: Worker provisioning needs to be delayed, and carried out with respect to the work load.
+            # * For immediate follow-up: Worker provisioning needs to be delayed,
+            #   and carried out with respect to the work load.
 
             rp_task_result: scalems.radical.runtime.RPTaskResult = await scalems.radical.runtime.subprocess_to_rp_task(
                 call_handle, dispatcher=dispatcher

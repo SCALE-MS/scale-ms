@@ -19,7 +19,7 @@ from scalems.radical.raptor import ClientWorkerRequirements
 from scalems.radical.raptor import MasterTaskConfiguration
 from scalems.radical.raptor import ScaleMSMaster
 from scalems.radical.raptor import ScaleMSWorker
-from scalems.radical.raptor import WorkerDescriptionDict
+from scalems.radical.raptor import WorkerDescription
 
 try:
     import radical.pilot as rp
@@ -62,7 +62,7 @@ def test_master_configuration_details(rp_venv):
     # However, we are not currently using `named_env`. See #90.
     configuration = MasterTaskConfiguration(
         worker=ClientWorkerRequirements(
-            named_env="scalems_test_ve", pre_exec=[], cpu_processes=worker_processes, gpus_per_process=gpus_per_process
+            named_env="scalems_test_ve", cpu_processes=worker_processes, gpus_per_process=gpus_per_process
         ),
         versioned_modules=list(versioned_modules),
     )
@@ -80,10 +80,11 @@ def test_master_configuration_details(rp_venv):
 
     with pytest.warns(match="raptor.Master base class"):
         master = ScaleMSMaster(configuration)
-    with master.configure_worker(configuration.worker) as worker_config:
-        assert worker_config["count"] == num_workers
-        descr: WorkerDescriptionDict = worker_config["descr"]
-        assert descr["ranks"] == worker_processes
-        assert descr["worker_class"] == ScaleMSWorker.__name__
-        assert os.path.exists(descr["worker_file"])
-    assert not os.path.exists(descr["worker_file"])
+    with master.configure_worker(configuration.worker) as worker_configs:
+        assert len(worker_configs) == num_workers
+        for descr in worker_configs:
+            descr: WorkerDescription
+            assert descr.ranks == worker_processes
+            assert descr.raptor_class == ScaleMSWorker.__name__
+            assert os.path.exists(descr.raptor_file)
+    assert not os.path.exists(descr.raptor_file)

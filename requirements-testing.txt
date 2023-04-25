@@ -17,7 +17,7 @@ ntplib
 pylint
 pymongo<4.0
 python-hostlist
-radical.pilot>=1.20
+radical.pilot>=1.22
 setproctitle
 tox>=2.0
 # Raptor MPI worker requirements

@@ -111,7 +111,7 @@ interfaces in :py:mod:`radical.pilot.raptor`.
     :members:
     :exclude-members: __new__
 
-.. autoclass:: WorkerDescriptionDict
+.. autoclass:: WorkerDescription
     :members:
     :exclude-members: __new__
 

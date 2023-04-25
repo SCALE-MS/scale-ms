@@ -260,7 +260,7 @@ __all__ = (
     "ScaleMSWorker",
     "ScaleMSMaster",
     "ScalemsRaptorWorkItem",
-    "WorkerDescriptionDict",
+    "WorkerDescription",
     "RaptorWorkerConfig",
 )
 
@@ -324,7 +324,7 @@ logger = logging.getLogger(__name__)
 # * https://github.com/SCALE-MS/scale-ms/issues/255
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class BackendVersion:
     """Identifying information for the computing backend."""
 
@@ -397,6 +397,7 @@ class CpiStop(CpiCommand):
     @classmethod
     def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
         logger.debug("CPI STOP issued.")
+        # TODO: Wait for pending tasks to complete and shut down Worker(s)
         task["stderr"] = ""
         task["stdout"] = ""
         task["exit_code"] = 0
@@ -417,6 +418,7 @@ class CpiHello(CpiCommand):
         task["stderr"] = ""
         task["exit_code"] = 0
         task["stdout"] = repr(backend_version)
+        # TODO: scalems object encoding.
         task["return_value"] = dataclasses.asdict(backend_version)
         logger.debug("Finalizing...")
         manager.cpi_finalize(task)
@@ -509,8 +511,11 @@ class CpiAddItem(CpiCommand):
                 kwargs={"work_item": work_item},
             )
         )
-        scalems_task = manager.submit_tasks(scalems_task_description)
-        logger.debug(f"Submitted {str(scalems_task)} in support of {str(task)}.")
+        # Note: There is no `Task` object returned from `Master.submit_tasks()`
+        # `Task` objects are currently only available on the client side;
+        # the agent side handles task dicts---which the master will receive through the *request_cb()*.
+        manager.submit_tasks(scalems_task_description)
+        logger.debug(f"Submitted {str(scalems_task_description)} in support of {str(task)}.")
 
         # Record task metadata and track.
         task["return_value"] = scalems_task_id
@@ -559,19 +564,38 @@ def object_encoder(obj) -> Encodable:
 #     return obj.as_dict()
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class ClientWorkerRequirements:
     """Client-side details to inform worker provisioning.
 
     This structure is part of the `scalems.radical.raptor.MasterTaskConfiguration`
     provided to the master script. The master script uses this information
     when calling `worker_description()`.
+
+    Use the :py:func:`worker_requirements()` creation function for a stable interface.
     """
 
-    named_env: str
-    pre_exec: typing.Iterable[str] = ()
-    cpu_processes: int = None
-    gpus_per_process: int = None
+    cpu_processes: int
+    """Number of ranks in the Worker MPI context.
+
+    TODO: We need to account for cores-per-process.
+    """
+
+    gpus_per_process: int = 0
+    """GPUs per Worker rank.
+
+    TODO: Reconcile with upcoming support for fractional ratios.
+    """
+
+    pre_exec: tuple[str] = ()
+    """Lines of shell expressions to be evaluated before launching the worker process."""
+
+    named_env: str = None
+    """A registered virtual environment known to the raptor manager.
+
+    Warnings:
+        Not tested. Support has been delayed indefinitely.
+    """
 
 
 class _MasterTaskConfigurationDict(typing.TypedDict):
@@ -710,18 +734,24 @@ async def master_input(
         return add_file_task.result()
 
 
-def worker_requirements(*, pre_exec: list, worker_venv: str) -> ClientWorkerRequirements:
-    """Get the requirements for the work load as known to the client.
+def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> ClientWorkerRequirements:
+    """Get the requirements for the work load, as known to the client.
 
     TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     """
-    # num_workers = 1
+    # TODO: calculate cores.
+    # rp_config = scalems.radical.configuration()
+    # pilot_description = rp_config.rp_resource_params["PilotDescription"]
+    # available_cores = pilot_description.get("cores")
+    # if not available_cores:
+    #     cores_per_node =
+    #     ...
     cores_per_worker = 1
     gpus_per_worker = 0
 
     workload_metadata = ClientWorkerRequirements(
         named_env=worker_venv,
-        pre_exec=pre_exec,
+        pre_exec=tuple(pre_exec),
         cpu_processes=cores_per_worker,
         gpus_per_process=gpus_per_worker,
     )
@@ -845,11 +875,13 @@ def master():
     requirements = configuration.worker
 
     try:
-        with _master.configure_worker(requirements=requirements) as worker_submission:
-            assert os.path.isabs(worker_submission["descr"]["worker_file"])
-            assert os.path.exists(worker_submission["descr"]["worker_file"])
-            logger.debug(f"Submitting {worker_submission['count']} {worker_submission['descr']}")
-            _master.submit_workers(**worker_submission)
+        with _master.configure_worker(requirements=requirements) as configs:
+            assert len(configs) == 1
+            worker_submission: rp.TaskDescription = configs[0]
+            assert os.path.isabs(worker_submission.raptor_file)
+            assert os.path.exists(worker_submission.raptor_file)
+            logger.debug(f"Submitting {len(configs)} {worker_submission.as_dict()}")
+            _master.submit_workers(descriptions=configs)
             message = "Submitted workers: "
             message += ", ".join(_master.workers.keys())
             logger.info(message)
@@ -857,26 +889,16 @@ def master():
             _master.start()
             logger.debug("Master started.")
 
-            if rp_version >= packaging.version.parse("1.21"):
-                # Make sure at least one worker comes online.
-                _master.wait(count=1)
-                logger.debug("Ready to submit raptor tasks.")
-                # Confirm all workers start successfully or produce useful error
-                #  (then release temporary file).
-                _master.wait()
-            for uid, worker in _master.workers.items():
-                logger.info(f"Worker {uid} in state {worker['status']}.")
-            # TODO(#253): Confirm that workers started successfully and notify client
-            # See also https://github.com/radical-cybertools/radical.pilot/issues/2643
-            # relevant worker states _master.workers['uid']['status']
-            # * 'NEW' -> 'ACTIVE' -> 'DONE'
-            # Note: Until we integrate with ZMQ, there is not a good mechanism to provide feedback
-            # to the client that the raptor session is active, but we could add some sort of status
-            # check to the CPI.
-            # TODO(#253): Confirm workers start successfully or produce useful error, then release temporary file.
-            # Until then, we can't safely exit this `with` block until after `join`.
-            _master.join()
-            logger.debug("Master joined.")
+            # Make sure at least one worker comes online.
+            _master.wait_workers(count=1)
+            logger.debug("Ready to submit raptor tasks.")
+            # Confirm all workers start successfully or produce useful error
+            #  (then release temporary file).
+            _master.wait_workers()
+        for uid, worker in _master.workers.items():
+            logger.info(f"Worker {uid} in state {worker['status']}.")
+        _master.join()
+        logger.debug("Master joined.")
     finally:
         if sys.exc_info() != (None, None, None):
             logger.exception("Master task encountered exception.")
@@ -893,17 +915,17 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     """
     assert os.path.exists(filename)
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
+    # TODO(#302): Number of workers should be chosen after inspecting the requirements of the work load.
     num_workers = 1
-    kwargs = dict(
+    descr = worker_description(
         named_env=requirements.named_env,
         worker_file=filename,
         pre_exec=requirements.pre_exec,
         cpu_processes=requirements.cpu_processes,
         gpus_per_process=requirements.gpus_per_process,
     )
-    descr = worker_description(**kwargs)
 
-    config = RaptorWorkerConfig(count=num_workers, descr=descr)
+    config: RaptorWorkerConfig = [descr] * num_workers
     return config
 
 
@@ -1231,6 +1253,7 @@ class ScaleMSMaster(rp.raptor.Master):
         """
         # Note: At least as of RP 1.18, exceptions from result_cb() are suppressed.
         for task in tasks:
+            logger.debug(f'Result callback for {task["description"]["mode"]} task {task["uid"]}: {task}')
             mode = task["description"]["mode"]
             # Allow non-scalems work to be handled normally.
             if mode == CPI_MESSAGE:
@@ -1277,7 +1300,7 @@ class ScaleMSMaster(rp.raptor.Master):
             #                      publish=True, push=True)
 
 
-class WorkerDescriptionDict(typing.TypedDict):
+class WorkerDescription(rp.TaskDescription):
     """Worker description.
 
     See Also:
@@ -1287,39 +1310,26 @@ class WorkerDescriptionDict(typing.TypedDict):
     """
 
     cores_per_rank: typing.Optional[int]
-    environment: typing.Optional[dict]
+    environment: typing.Optional[dict[str, str]]
     gpus_per_rank: typing.Optional[int]
     named_env: typing.Optional[str]
-    pre_exec: typing.Optional[list]
+    pre_exec: typing.Optional[list[str]]
     ranks: int
-    worker_class: typing.Optional[str]
-    worker_file: typing.Optional[str]
+    raptor_class: str
+    raptor_file: str
+    mode: str  # rp.RAPTOR_WORKER
 
 
-class RaptorWorkerConfig(typing.TypedDict):
-    """Container for the raptor worker parameters.
+RaptorWorkerConfig = list[WorkerDescription]
+"""Client-specified Worker requirements.
 
-    Expanded with the ``**`` operator, serves as the arguments to
-    :py:meth:`radical.pilot.raptor.Master.submit_workers`
+Used by master script when calling `worker_description()`.
+Created internally with :py:func:`_configure_worker()`.
 
-    The *descr* member represents the *descr* parameter of
-    :py:meth:`~radical.pilot.raptor.Master.submit_workers()`,
-    pending further documentation.
+See Also:
+    :py:mod:`scalems.radical.raptor.ClientWorkerRequirements`
 
-    Created internally with :py:func:`_configure_worker()`.
-    """
-
-    descr: WorkerDescriptionDict
-    """Client-specified Worker requirements.
-
-    Used by master script when calling `worker_description()`.
-
-    See Also:
-        :py:mod:`scalems.radical.raptor.ClientWorkerRequirements`
-    """
-
-    count: typing.Optional[int]
-    """Number of workers to launch."""
+"""
 
 
 def worker_description(
@@ -1331,7 +1341,7 @@ def worker_description(
     gpus_per_process: int = None,
     pre_exec: typing.Iterable[str] = (),
     environment: typing.Optional[typing.Mapping[str, str]] = None,
-) -> WorkerDescriptionDict:
+) -> WorkerDescription:
     """Get a worker description for Master.submit_workers().
 
     Parameters:
@@ -1349,19 +1359,22 @@ def worker_description(
 
     The *uid* for the Worker task is defined by the Master.submit_workers().
     """
-    kwargs = dict(
-        cores_per_rank=cores_per_process,
-        environment=environment,
-        gpus_per_rank=gpus_per_process,
-        named_env=None,
-        pre_exec=list(pre_exec),
-        ranks=cpu_processes,
-        worker_class="ScaleMSWorker",
-        worker_file=worker_file,
-    )
-    # Avoid assumption about how default values in TaskDescription are checked or applied.
-    kwargs = {key: value for key, value in kwargs.items() if value is not None}
-    descr = WorkerDescriptionDict(**kwargs)
+    descr = WorkerDescription()
+    if cores_per_process is not None:
+        descr.cores_per_rank = cores_per_process
+    if environment is not None:
+        descr.environment = environment
+    if gpus_per_process is not None:
+        descr.gpus_per_rank = gpus_per_process
+    if named_env is not None:
+        # descr.named_env=None
+        logger.debug(f"Ignoring named_env={named_env}. Parameter is currently unused.")
+    descr.pre_exec = list(pre_exec)
+    if cpu_processes is not None:
+        descr.ranks = cpu_processes
+    descr.raptor_class = "ScaleMSWorker"
+    descr.raptor_file = worker_file
+    descr.mode = rp.RAPTOR_WORKER
     return descr
 
 

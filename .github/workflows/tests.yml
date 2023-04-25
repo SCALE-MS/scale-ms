@@ -506,8 +506,8 @@ jobs:
       run: |
         sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
         python -m pip install --upgrade pip setuptools wheel
+        pip install -r requirements-testing.txt
         pip install .
-        pip install flake8
     - name: Lint with flake8
       run: |
         flake8 src/ --count --show-source --statistics

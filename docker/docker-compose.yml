@@ -58,6 +58,8 @@ services:
     build:
       context: .
       dockerfile: ./radicalpilot.dockerfile
+      args:
+        GROMACS_SUFFIX: "_mpi"
       cache_from:
        - scalems/radicalpilot
     image: scalems/radicalpilot
@@ -68,5 +70,7 @@ services:
     build:
       context: .
       dockerfile: ./radicalpilot.dockerfile
+      args:
+        GROMACS_SUFFIX: "_mpi"
     image: scalems/radicalpilot
     restart: always

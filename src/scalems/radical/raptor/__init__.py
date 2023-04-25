@@ -260,7 +260,7 @@ __all__ = (
     "ScaleMSWorker",
     "ScaleMSMaster",
     "ScalemsRaptorWorkItem",
-    "WorkerDescriptionDict",
+    "WorkerDescription",
     "RaptorWorkerConfig",
 )
 
@@ -1300,7 +1300,7 @@ class ScaleMSMaster(rp.raptor.Master):
             #                      publish=True, push=True)
 
 
-class WorkerDescriptionDict(typing.TypedDict):
+class WorkerDescription(rp.TaskDescription):
     """Worker description.
 
     See Also:
@@ -1320,7 +1320,7 @@ class WorkerDescriptionDict(typing.TypedDict):
     mode: str  # rp.RAPTOR_WORKER
 
 
-RaptorWorkerConfig = list[WorkerDescriptionDict]
+RaptorWorkerConfig = list[WorkerDescription]
 """Client-specified Worker requirements.
 
 Used by master script when calling `worker_description()`.
@@ -1328,6 +1328,7 @@ Created internally with :py:func:`_configure_worker()`.
 
 See Also:
     :py:mod:`scalems.radical.raptor.ClientWorkerRequirements`
+
 """
 
 
@@ -1340,7 +1341,7 @@ def worker_description(
     gpus_per_process: int = None,
     pre_exec: typing.Iterable[str] = (),
     environment: typing.Optional[typing.Mapping[str, str]] = None,
-) -> rp.TaskDescription:
+) -> WorkerDescription:
     """Get a worker description for Master.submit_workers().
 
     Parameters:
@@ -1358,20 +1359,22 @@ def worker_description(
 
     The *uid* for the Worker task is defined by the Master.submit_workers().
     """
-    kwargs = WorkerDescriptionDict(
-        cores_per_rank=cores_per_process,
-        environment=environment,
-        gpus_per_rank=gpus_per_process,
-        named_env=None,
-        pre_exec=list(pre_exec),
-        ranks=cpu_processes,
-        raptor_class="ScaleMSWorker",
-        raptor_file=worker_file,
-        mode=rp.RAPTOR_WORKER,
-    )
-    # Avoid assumption about how default values in TaskDescription are checked or applied.
-    kwargs = {key: value for key, value in kwargs.items() if value is not None}
-    descr = rp.TaskDescription(from_dict=kwargs)
+    descr = WorkerDescription()
+    if cores_per_process is not None:
+        descr.cores_per_rank = cores_per_process
+    if environment is not None:
+        descr.environment = environment
+    if gpus_per_process is not None:
+        descr.gpus_per_rank = gpus_per_process
+    if named_env is not None:
+        # descr.named_env=None
+        logger.debug(f"Ignoring named_env={named_env}. Parameter is currently unused.")
+    descr.pre_exec = list(pre_exec)
+    if cpu_processes is not None:
+        descr.ranks = cpu_processes
+    descr.raptor_class = "ScaleMSWorker"
+    descr.raptor_file = worker_file
+    descr.mode = rp.RAPTOR_WORKER
     return descr
 
 

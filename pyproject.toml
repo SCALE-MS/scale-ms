@@ -49,7 +49,7 @@ scalems = [
 ]
 
 [tool.versioningit]
-default-version = "0.0.1a1.dev1+unknown"
+default-version = "0.0.1+unknown"
 
 [tool.versioningit.format]
 distance = "{base_version}+{distance}.{vcs}{rev}"

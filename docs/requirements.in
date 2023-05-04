@@ -1,0 +1,13 @@
+# Use this file to regenerate requirements.txt with
+#     pip install pip-tools
+#     pip-compile
+#
+dill
+mpi4py
+packaging
+radical.pilot>=1.22
+sphinx>=4.1
+sphinxcontrib-autoprogram
+sphinxcontrib-plantuml
+sphinx-rtd-theme
+versioningit~=2.0

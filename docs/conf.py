@@ -33,10 +33,10 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.extlinks",
     "sphinx.ext.intersphinx",
+    "sphinx.ext.napoleon",
     "sphinx.ext.todo",  # Note: todo_include_todos=True is required for directives to produce output.
     "sphinx.ext.viewcode",
     "sphinxcontrib.autoprogram",
-    "sphinxcontrib.napoleon",
     "sphinxcontrib.plantuml",
 ]
 

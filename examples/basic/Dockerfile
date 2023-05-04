@@ -6,7 +6,7 @@
 #        python -m scalems.local echo.py hi there && \
 #        ls * && cat */stdout'
 #
-# By default, the Docker image is built with scalems from the `master` branch.
+# By default, the Docker image is built with scalems from the `raptor` branch.
 # Specify the REF build argument for a specific branch or commit ID.
 # E.g. Build with
 #     docker build -t ex_basic --build-arg REF=74f20c26b1e453c958cdc678b2155da0f8d3f184 .
@@ -37,7 +37,7 @@ RUN python3 -m venv env38 && \
     . env38/bin/activate && \
     pip install --no-cache-dir --upgrade pip setuptools wheel
 
-ARG REF=master
+ARG REF=raptor
 
 RUN . $EXAMPLE/env38/bin/activate && \
     pip install --no-cache-dir --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF

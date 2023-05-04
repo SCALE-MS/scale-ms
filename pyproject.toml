@@ -35,7 +35,7 @@ test = [
 ]
 
 [project.scripts]
-scalems_rp_master = "scalems.radical.raptor:master"
+scalems_rp_master = "scalems.radical.raptor:raptor"
 
 [tool.setuptools]
 zip-safe = false

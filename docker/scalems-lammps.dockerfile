@@ -120,7 +120,7 @@ RUN cd scalems && \
 
 # The current rp and scalems packages should now be available to the rp user in /home/rp/rp-venv
 
-#ENV REF=master
+#ENV REF=raptor
 #
 #RUN . $EXAMPLE/env38/bin/activate && \
 #    pip install --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF

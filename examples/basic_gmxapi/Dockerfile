@@ -76,7 +76,7 @@ RUN . env38/bin/activate && \
     . ~/gromacs2021/bin/GMXRC && \
     pip install --no-cache-dir --upgrade gmxapi
 
-ENV REF=master
+ENV REF=raptor
 
 RUN . $EXAMPLE/env38/bin/activate && \
     pip install --no-cache-dir --upgrade scalems@git+https://github.com/SCALE-MS/scale-ms.git@$REF

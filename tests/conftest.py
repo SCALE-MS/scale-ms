@@ -118,6 +118,19 @@ def rmtmp(request):
     return choice
 
 
+@pytest.fixture(autouse=True)
+def propagate_coverage(request):
+    """Detect the activity of the pytest-cov plugin.
+
+    The COVERAGE_RUN environment variable provided by :py:mod:`coverage` is not
+    set when coverage is managed through the :py:mod:`pytest-cov` plugin. We
+    look for the presence of that pytest command line flag and set
+    SCALEMS_COVERAGE=TRUE if detected.
+    """
+    if request.config.getoption("--cov"):
+        os.environ["SCALEMS_COVERAGE"] = "TRUE"
+
+
 @contextmanager
 def _cleandir(remove_tempdir: str = "always"):
     """Context manager for a clean temporary working directory.

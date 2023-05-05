@@ -93,14 +93,18 @@ When ``COVERAGE_RUN`` or ``SCALEMS_COVERAGE`` environment variables are detected
 ``python -m coverage run --data-file=coverage_dir/.coverage --parallel-mode ...``,
 and adds an output staging directive to retrieve ``task:///coverage_dir``
 to the predictably named directory ``./scalems-remote-coverage-dir``.
-to a uniquely named local subdirectory (`f"coverage-{str(master_identity)}"`).
 The ``--parallel-mode`` option makes sure that remotely generated master task
-coverage will be uniquely named.
+coverage data file will be uniquely named.
 
-Even though the `Master.request_cb()` and `Master.result_cb()` are called in
-separate threads spawned by RP, coverage should be correct.
+Note that :py:mod:`pytest-cov` does not set the ``COVERAGE_RUN`` environment
+variable. When :command:`pytest --cov` is detected, we use a pytest fixture to
+set ``SCALEMS_COVERAGE=TRUE`` in the testing process environment.
+
+Even though the `ScaleMSRaptor.request_cb()` and `ScaleMSRaptor.result_cb()` are
+called in separate threads spawned by RP, coverage should be correct.
 
 We cannot customize the command line for launching the Worker task, so for
 coverage of the Worker and its dispatched function calls, we need to use the
 Coverage API.
-*TBD*
+These details are encapsulated in the
+:py:func:`scalems.radical.raptor.coverage_file` decorator.

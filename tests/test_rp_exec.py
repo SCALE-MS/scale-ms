@@ -90,12 +90,12 @@ async def test_raptor_master(pilot_description, rp_venv):
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"test_raptor_master Session is {repr(dispatcher.runtime.session)}")
 
-            # Bypass the scalems machinery and submit an instruction directly to the master task.
+            # Bypass the scalems machinery and submit an instruction directly to the raptor task.
             # TODO: Use scalems.radical.runtime.submit()
-            scheduler: rp.Task = dispatcher.runtime.scheduler
+            raptor: rp.Task = dispatcher.runtime.raptor
             hello_command_description = rp.TaskDescription(
                 from_dict={
-                    "scheduler": scheduler.uid,
+                    "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
                     "metadata": scalems.messages.HelloCommand().encode(),
                     "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
@@ -111,7 +111,7 @@ async def test_raptor_master(pilot_description, rp_venv):
 
             stop_command_description = rp.TaskDescription(
                 from_dict={
-                    "scheduler": scheduler.uid,
+                    "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
                     "metadata": scalems.messages.Control.create("stop").encode(),
                     "uid": f"command-stop--{scalems.identifiers.EphemeralIdentifier()}",
@@ -127,18 +127,18 @@ async def test_raptor_master(pilot_description, rp_venv):
                 asyncio.to_thread(stop_task.wait, state=rp.FINAL, timeout=timeout), name="stop-watcher"
             )
 
-            scheduler_watcher = asyncio.create_task(
-                asyncio.to_thread(scheduler.wait, state=rp.FINAL, timeout=timeout), name="master-watcher"
+            raptor_watcher = asyncio.create_task(
+                asyncio.to_thread(raptor.wait, state=rp.FINAL, timeout=timeout), name="raptor-watcher"
             )
-            # If master task fails, stop-watcher will never complete.
+            # If raptor task fails, stop-watcher will never complete.
             done, pending = await asyncio.wait(
-                (stop_watcher, scheduler_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+                (stop_watcher, raptor_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
             )
 
-            if scheduler_watcher not in done:
-                await asyncio.wait_for(scheduler_watcher, timeout=10)
-            logger.debug(f"scheduler-task state: {scheduler.state}")
-            if scheduler.state == rp.DONE and stop_watcher in pending:
+            if raptor_watcher not in done:
+                await asyncio.wait_for(raptor_watcher, timeout=10)
+            logger.debug(f"raptor-task state: {raptor.state}")
+            if raptor.state == rp.DONE and stop_watcher in pending:
                 # Waiting longer doesn't seem to help.
                 # logger.debug("Waiting a little longer for the stop task to wrap up.")
                 # await asyncio.wait_for(stop_watcher, timeout=timeout)
@@ -154,7 +154,7 @@ async def test_raptor_master(pilot_description, rp_venv):
                 stop_watcher.cancel()
             logger.debug(f"stop-task state: {stop_task.state}")
 
-            assert scheduler.state == rp.DONE
+            assert raptor.state == rp.DONE
 
     assert hello_state == rp.DONE
     assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)
@@ -165,7 +165,7 @@ async def test_raptor_master(pilot_description, rp_venv):
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_worker(pilot_description, rp_venv):
-    """Launch the master script and execute a trivial workflow."""
+    """Launch the raptor script and execute a trivial workflow."""
 
     if rp_venv is None:
         # Be sure to provision the venv.
@@ -208,12 +208,12 @@ async def test_worker(pilot_description, rp_venv):
             task_uid = "add_item.scalems-test-worker"
 
             # Submit a raptor task
-            # Bypass the scalems machinery and submit an instruction directly to the master task.
+            # Bypass the scalems machinery and submit an instruction directly to the raptor task.
             # TODO: Use scalems.radical.runtime.submit()
-            scheduler: rp.Task = dispatcher.runtime.scheduler
+            raptor: rp.Task = dispatcher.runtime.raptor
 
             add_item_task_description = rp.TaskDescription()
-            add_item_task_description.scheduler = scheduler.uid
+            add_item_task_description.raptor_id = raptor.uid
             add_item_task_description.uid = task_uid
             add_item_task_description.cpu_processes = 1
             add_item_task_description.cpu_process_type = (rp.SERIAL,)
@@ -275,7 +275,7 @@ async def test_worker(pilot_description, rp_venv):
 #     # (RCT work in progress: https://github.com/radical-cybertools/radical.pilot/tree/feature/sandboxes
 #     # slated for merge in 2021 Q2 to support `sandbox://` URIs).
 #
-#     # define a raptor.scalems master and launch it within the pilot
+#     # define a raptor.scalems raptor and launch it within the pilot
 #     pwd   = os.path.dirname(__file__)
 #     td    = rp.TaskDescription(
 #             {
@@ -288,7 +288,7 @@ async def test_worker(pilot_description, rp_venv):
 #             })
 #     scheduler = tmgr.submit_tasks(td)
 #
-#     # define raptor.scalems tasks and submit them to the master
+#     # define raptor.scalems tasks and submit them to the raptor
 #     tds = list()
 #     for i in range(2):
 #         uid  = 'scalems.%06d' % i
@@ -322,7 +322,7 @@ async def test_worker(pilot_description, rp_venv):
 #     # wait for *those* tasks to complete and report results
 #     tmgr.wait_tasks(uids=[t.uid for t in tasks])
 #
-#     # Cancel the master.
+#     # Cancel the raptor.
 #     tmgr.cancel_tasks(uids=scheduler.uid)
 #     # Cancel blocks until the task is done so the following wait it currently redundant,
 #     # but there is a ticket open to change this behavior.

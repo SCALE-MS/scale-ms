@@ -2,7 +2,7 @@
 
 Define the connective tissue for SCALE-MS tasks embedded in rp.Task arguments.
 
-Provide the RP Raptor Master and Worker details. Implement the master task
+Provide the RP Raptor and Worker details. Implement the raptor task
 script as a package entry point that we expect to be executable from the
 command line in a virtual environment where the scalems package is installed,
 without further modification to the PATH.
@@ -10,7 +10,7 @@ without further modification to the PATH.
 The client should be reasonably certain that the target environment has a
 compatible installation of RP and scalems. A rp.raptor.Master task script is
 installed with the scalems package. The script name is provide by the
-module function :py:func:`~scalems.radical.raptor.master_script()`, and will
+module function :py:func:`~scalems.radical.raptor.raptor_script()`, and will
 be resolvable on the PATH for a Python interpreter process in an
 environment that has the `scalems` package installed.
 
@@ -60,7 +60,7 @@ The following diagrams illustrate the approximate architecture of a Raptor Sessi
     note over TaskManager
      TaskDescription uses `mode=rp.RAPTOR_MASTER`.
      Task args provide details for the script
-     so that a Master can start appropriate Workers.
+     so that a Raptor can start appropriate Workers.
     end note
 
     TaskManager -> Queue: task_description
@@ -75,7 +75,7 @@ The following diagrams illustrate the approximate architecture of a Raptor Sessi
 
     'note left
     note over TaskManager
-     TaskDescription names a Master uid in *scheduler* field.
+     TaskDescription names a Raptor uid in *raptor_id* field.
     end note
 
     TaskManager -> Queue: task_description
@@ -86,9 +86,9 @@ The following diagrams illustrate the approximate architecture of a Raptor Sessi
     deactivate Queue
     ...
     TaskManager ->
-    TaskManager <-- : master task results
+    TaskManager <-- : raptor task results
 
-A "master task" is an *executable* task (*mode* = ``rp.RAPTOR_MASTER``)
+A "raptor task" is an *executable* task (*mode* = ``rp.RAPTOR_MASTER``)
 in which the script named by
 :py:data:`radical.pilot.TaskDescription.executable`
 manages the life cycle of a :py:class:`radical.pilot.raptor.Master`
@@ -97,32 +97,32 @@ As of RP 1.14, the protocol is as follows.
 
 .. uml::
 
-    title raptor master task lifetime management
+    title raptor raptor task lifetime management
 
-    participant "master task"
+    participant "raptor task"
 
-    -> "master task" : stage in
+    -> "raptor task" : stage in
 
-    create Master as master
-    "master task" -> master: create Master(cfg)
-    "master task" -> master: Master.submit_workers(descr=descr, count=n_workers)
-    "master task" -> master: Master.start()
+    create Raptor as raptor
+    "raptor task" -> raptor: create Raptor(cfg)
+    "raptor task" -> raptor: Raptor.submit_workers(descr=descr, count=n_workers)
+    "raptor task" -> raptor: Raptor.start()
     alt optional hook for self-submitting additional tasks
-    "master task" -> master: Master.submit_tasks(tasks)
+    "raptor task" -> raptor: Raptor.submit_tasks(tasks)
     end
     queue scheduler
-    scheduler -\\ master : request_cb
-    scheduler -\\ master : result_cb
-    master -> master: Master.stop() (optional)
-    "master task" -> master: Master.join()
+    scheduler -\\ raptor : request_cb
+    scheduler -\\ raptor : result_cb
+    raptor -> raptor: Raptor.stop() (optional)
+    "raptor task" -> raptor: Raptor.join()
 
-    [<-- "master task" : stage out
+    [<-- "raptor task" : stage out
 
 
 The *cfg* argument to :py:class:`radical.pilot.raptor.Master` does not currently
 appear to be required.
 
-*scalems* encodes worker requirements on the client side. The *scalems* master
+*scalems* encodes worker requirements on the client side. The *scalems* raptor
 script decodes the client-provided requirements, combines the information with
 run time details and work load inspection, and produces the WorkerDescription
 with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
@@ -139,15 +139,15 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
     RaptorWorkerConfig *--> "descr" WorkerDescription
 
     namespace scalems.radical {
-     class MasterTaskConfiguration
+     class RaptorTaskConfiguration
 
      class ClientWorkerRequirements
 
-     class ScaleMSMaster
+     class ScaleMSRaptor
 
-     ScaleMSMaster --> MasterTaskConfiguration : launches with
+     ScaleMSRaptor --> RaptorTaskConfiguration : launches with
 
-     MasterTaskConfiguration *-- ClientWorkerRequirements
+     RaptorTaskConfiguration *-- ClientWorkerRequirements
 
      ClientWorkerRequirements -right-> .RaptorWorkerConfig : worker_description()
     }
@@ -159,7 +159,7 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
      Master::submit_workers .> .RaptorWorkerConfig
     }
 
-    scalems.radical.ScaleMSMaster -up-|> radical.pilot.raptor.Master
+    scalems.radical.ScaleMSRaptor -up-|> radical.pilot.raptor.Master
 
 
 .. warning:: The data structure for *descr* may still be evolving.
@@ -185,33 +185,33 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
     activate client_runtime
     client_runtime -> client_runtime : _get_scheduler()
     activate client_runtime
-    client_runtime -> client_runtime : master_script()
-    client_runtime -> client_runtime : master_input()
+    client_runtime -> client_runtime : raptor_script()
+    client_runtime -> client_runtime : raptor_input()
     activate client_runtime
     client_runtime -> client_runtime : worker_requirements()
     activate client_runtime
 
     note over client_runtime
     TODO: Allocate Worker according to workload
-    through a separate call to the running Master.
+    through a separate call to the running Raptor.
     end note
 
     return ClientWorkerRequirements
-    return MasterTaskConfiguration
+    return RaptorTaskConfiguration
 
-    client_runtime -> client_runtime: launch Master Task
+    client_runtime -> client_runtime: launch Raptor Task
     activate client_runtime
 
     note over client_runtime, task_manager
-    We currently require a pre-existing venv for Master task.
+    We currently require a pre-existing venv for Raptor task.
     TODO(#90,#141): Allow separate venv for Worker task and Tasks.
     end note
 
-    client_runtime -> task_manager : submit master task
+    client_runtime -> task_manager : submit raptor task
     task_manager -\\ scheduler
 
     note over task_manager, scheduler
-    Master cfg is staged with TaskDescription.
+    Raptor cfg is staged with TaskDescription.
     end note
 
     deactivate client_runtime
@@ -220,7 +220,7 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
     TODO(#92,#105): Make sure the Worker starts successfully!!!
     end note
 
-    return master task
+    return raptor task
     return dispatching context
 
 
@@ -229,7 +229,7 @@ TODO
 Pass input and output objects more efficiently.
 
 Worker processes come and go,
-and are not descended from Master processes (which may not even be on the same node),
+and are not descended from Raptor processes (which may not even be on the same node),
 so we can't generally pass objects by reference or even in shared memory segments.
 However, we can use optimized ZMQ facilities for converting network messages
 directly to/from memory buffers.
@@ -250,15 +250,15 @@ from __future__ import annotations
 
 __all__ = (
     "ClientWorkerRequirements",
-    "MasterTaskConfiguration",
-    "master_script",
-    "master_input",
-    "master",
+    "RaptorConfiguration",
+    "raptor_script",
+    "raptor_input",
+    "raptor",
     "worker_requirements",
     "worker_description",
     "SoftwareCompatibilityError",
     "ScaleMSWorker",
-    "ScaleMSMaster",
+    "ScaleMSRaptor",
     "ScalemsRaptorWorkItem",
     "WorkerDescription",
     "RaptorWorkerConfig",
@@ -314,9 +314,9 @@ import logging
 logger = logging.getLogger(__name__)
 # Note that we have not restricted propagation or attached a handler, so the messages
 # to `logger` will end up going to the stderr of the process that imported this module
-# (e.g. the master task or the Worker task) and appearing in the corresponding
-# Task.stderr. This is available on the client side in the case of the master task,
-# but only to the Master itself for the worker task.
+# (e.g. the raptor task or the Worker task) and appearing in the corresponding
+# Task.stderr. This is available on the client side in the case of the raptor task,
+# but only to the Raptor itself for the worker task.
 # We should probably either add a specific LogHandler or integrate with the
 # RP logging and Component based log files.
 # See also
@@ -358,16 +358,16 @@ class CpiCommand(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         """Process the RP Task as a CPI Command.
 
-        Called in ScaleMSMaster.request_cb().
+        Called in ScaleMSRaptor.request_cb().
         """
         ...
 
     @classmethod
     @abc.abstractmethod
-    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         """Called during Master.result_cb."""
 
     @typing.final
@@ -395,7 +395,7 @@ class CpiStop(CpiCommand):
         return scalems.messages.StopCommand.__qualname__
 
     @classmethod
-    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug("CPI STOP issued.")
         # TODO: Wait for pending tasks to complete and shut down Worker(s)
         task["stderr"] = ""
@@ -404,7 +404,7 @@ class CpiStop(CpiCommand):
         manager.cpi_finalize(task)
 
     @classmethod
-    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         manager.stop()
         logger.debug(f"Finalized {str(task)}.")
 
@@ -413,7 +413,7 @@ class CpiHello(CpiCommand):
     """Provide implementation for HelloCommand in RP Raptor."""
 
     @classmethod
-    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug("CPI HELLO in progress.")
         task["stderr"] = ""
         task["exit_code"] = 0
@@ -424,7 +424,7 @@ class CpiHello(CpiCommand):
         manager.cpi_finalize(task)
 
     @classmethod
-    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug(f"Finalized {str(task)}.")
 
     @classmethod
@@ -453,7 +453,7 @@ class CpiAddItem(CpiCommand):
         )
 
     @classmethod
-    def launch(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         """Repackage a AddItem command as a rp.TaskDescription for submission to the Worker.
 
         Note that we are not describing the exact function call directly,
@@ -463,7 +463,7 @@ class CpiAddItem(CpiCommand):
         *work_item* key word argument for the RP Task.
 
         The Master.request_cb() submits individual scalems tasks with this function.
-        More complex work is deserialized and managed by ScaleMSMaster using
+        More complex work is deserialized and managed by ScaleMSRaptor using
         the `raptor_work_deserializer` function, first.
 
         See Also:
@@ -472,7 +472,7 @@ class CpiAddItem(CpiCommand):
         # submit the task and return its task ID right away,
         # then allow its result to either just be used to
         #   * trigger dependent work,
-        #   * only appear in the Master report, or
+        #   * only appear in the Raptor report, or
         #   * be available to follow-up LRO status checks.
         add_item = typing.cast(
             scalems.messages.AddItem, scalems.messages.Command.decode(task["description"]["metadata"])
@@ -501,8 +501,8 @@ class CpiAddItem(CpiCommand):
                 uid=scalems_task_id,
                 # Note that (as of this writing) *executable* is required but unused for Raptor tasks.
                 executable="scalems",
-                scheduler=manager.uid,
-                # Note we could use metadata to encode additional info for ScaleMSMaster.request_cb,
+                raptor_id=manager.uid,
+                # Note we could use metadata to encode additional info for ScaleMSRaptor.request_cb,
                 # but it is not useful for execution of the rp.TASK_FUNCTION.
                 metadata=None,
                 mode=rp.TASK_FUNCTION,
@@ -511,9 +511,9 @@ class CpiAddItem(CpiCommand):
                 kwargs={"work_item": work_item},
             )
         )
-        # Note: There is no `Task` object returned from `Master.submit_tasks()`
+        # Note: There is no `Task` object returned from `Raptor.submit_tasks()`
         # `Task` objects are currently only available on the client side;
-        # the agent side handles task dicts---which the master will receive through the *request_cb()*.
+        # the agent side handles task dicts---which the raptor will receive through the *request_cb()*.
         manager.submit_tasks(scalems_task_description)
         logger.debug(f"Submitted {str(scalems_task_description)} in support of {str(task)}.")
 
@@ -524,7 +524,7 @@ class CpiAddItem(CpiCommand):
         manager.cpi_finalize(task)
 
     @classmethod
-    def result_hook(cls, manager: ScaleMSMaster, task: TaskDictionary):
+    def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug(f"Finalized {str(task)}.")
 
     @classmethod
@@ -568,8 +568,8 @@ def object_encoder(obj) -> Encodable:
 class ClientWorkerRequirements:
     """Client-side details to inform worker provisioning.
 
-    This structure is part of the `scalems.radical.raptor.MasterTaskConfiguration`
-    provided to the master script. The master script uses this information
+    This structure is part of the `scalems.radical.raptor.RaptorTaskConfiguration`
+    provided to the raptor script. The raptor script uses this information
     when calling `worker_description()`.
 
     Use the :py:func:`worker_requirements()` creation function for a stable interface.
@@ -598,22 +598,22 @@ class ClientWorkerRequirements:
     """
 
 
-class _MasterTaskConfigurationDict(typing.TypedDict):
-    """A `MasterTaskConfiguration` encoded as a `dict`."""
+class _RaptorConfigurationDict(typing.TypedDict):
+    """A `RaptorConfiguration` encoded as a `dict`."""
 
     worker: dict  # dict-encoded ClientWorkerRequirements.
     versioned_modules: typing.List[typing.Tuple[str, str]]
 
 
 @dataclasses.dataclass
-class MasterTaskConfiguration:
-    """Input to the script responsible for the RP raptor Master.
+class RaptorConfiguration:
+    """Input to the script responsible for the RP raptor.
 
     .. todo:: Check the schema for RP.
         See https://github.com/radical-cybertools/radical.pilot/issues/2731
 
-    Produced on the client side with `master_input`. Deserialized in the
-    master task (`master`) to get a `RaptorWorkerConfig`.
+    Produced on the client side with `raptor_input`. Deserialized in the
+    raptor task (`raptor`) to get a `RaptorWorkerConfig`.
     """
 
     worker: ClientWorkerRequirements
@@ -627,26 +627,26 @@ class MasterTaskConfiguration:
     """List of name, version specifier tuples for required modules."""
 
     @classmethod
-    def from_dict(cls, obj: _MasterTaskConfigurationDict):
+    def from_dict(cls, obj: _RaptorConfigurationDict):
         """Decode from a native dict.
 
-        Support deserialization, such as from a JSON file in the master task.
+        Support deserialization, such as from a JSON file in the raptor task.
         """
         return cls(worker=ClientWorkerRequirements(**obj["worker"]), versioned_modules=list(obj["versioned_modules"]))
 
 
 @object_encoder.register
-def _(obj: MasterTaskConfiguration) -> dict:
+def _(obj: RaptorConfiguration) -> dict:
     return dataclasses.asdict(obj)
 
 
 @functools.cache
-def master_script() -> str:
-    """Get the name of the RP raptor master script.
+def raptor_script() -> str:
+    """Get the name of the RP raptor raptor script.
 
     The script to run a RP Task based on a rp.raptor.Master is installed
     with :py:mod`scalems`. Installation configures an "entry point" script
-    named ``scalems_rp_master``, but for generality this function should
+    named ``scalems_raptor``, but for generality this function should
     be used to get the entry point name.
 
     Before returning, this function confirms the availability of the entry point
@@ -655,7 +655,7 @@ def master_script() -> str:
     that the (potentially remote) entry point matches the expected API.
 
     Returns:
-        str: Installed name of the entry point wrapper for :py:func:`~scalems.radical.raptor.master()`
+        str: Installed name of the entry point wrapper for :py:func:`~scalems.radical.raptor.raptor()`
 
     """
     try:
@@ -663,20 +663,20 @@ def master_script() -> str:
         import pkg_resources
     except ImportError:
         pkg_resources = None
-    _master_script = "scalems_rp_master"
+    _raptor_script = "scalems_raptor"
     if pkg_resources is not None:
         # It is not hugely important if we cannot perform this test.
         # In reality, this should be performed at the execution site, and we can/should
         # remove the check here once we have effective API compatibility checking.
         # See https://github.com/SCALE-MS/scale-ms/issues/100
-        assert pkg_resources.get_entry_info("scalems", "console_scripts", "scalems_rp_master").name == _master_script
-    return _master_script
+        assert pkg_resources.get_entry_info("scalems", "console_scripts", "scalems_raptor").name == _raptor_script
+    return _raptor_script
 
 
-async def master_input(
+async def raptor_input(
     *, filestore: _store.FileStore, worker_pre_exec: list, worker_venv: str
 ) -> _file.AbstractFileReference:
-    """Provide the input file for a SCALE-MS Raptor Master script.
+    """Provide the input file for a SCALE-MS Raptor script.
 
     Args:
         worker_venv (str) : Directory path for the Python virtual environment in which
@@ -689,18 +689,18 @@ async def master_input(
     if not isinstance(filestore, _store.FileStore) or filestore.closed or not filestore.directory.exists():
         raise ValueError(f"{filestore} is not a usable FileStore.")
 
-    # This is the initial Worker submission. The Master may submit other workers later,
+    # This is the initial Worker submission. The Raptor may submit other workers later,
     # but we should try to make this one as usable as possible.
     task_metadata = worker_requirements(pre_exec=worker_pre_exec, worker_venv=worker_venv)
 
     # TODO(#248): Decide on how to identify the workers from the client side.
-    # We can't know the worker identity until the master task has called submit_workers()
+    # We can't know the worker identity until the raptor task has called submit_workers()
     # filestore.add_task(worker_identity, **task_metadata)
 
     # TODO(#141): Add additional dependencies that we can infer from the workflow.
     versioned_modules = (("mpi4py", "3.0.0"), ("scalems", scalems.__version__), ("radical.pilot", rp.version))
 
-    configuration = MasterTaskConfiguration(worker=task_metadata, versioned_modules=list(versioned_modules))
+    configuration = RaptorConfiguration(worker=task_metadata, versioned_modules=list(versioned_modules))
 
     # Make sure the temporary directory is on the same filesystem as the local workflow.
     tmp_base = filestore.directory
@@ -760,88 +760,88 @@ def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> 
     return workload_metadata
 
 
-parser = argparse.ArgumentParser(description="Command line entry point for RP Raptor master task.")
-parser.add_argument("file", type=str, help="Input file (JSON) for configuring ScaleMSMaster instance.")
+parser = argparse.ArgumentParser(description="Command line entry point for RP raptor task.")
+parser.add_argument("file", type=str, help="Input file (JSON) for configuring ScaleMSRaptor instance.")
 
 
-def master():
+def raptor():
     """Entry point for raptor.Master task.
 
-    This function implements the :command:`scalems_rp_master` entry point script
-    called by the RADICAL Pilot executor to provide the raptor master task.
+    This function implements the :command:`scalems_raptor` entry point script
+    called by the RADICAL Pilot executor to provide the raptor raptor task.
 
-    During installation, the `scalems` build system creates a :file:`scalems_rp_master`
+    During installation, the `scalems` build system creates a :file:`scalems_raptor`
     `entry point <https://setuptools.pypa.io/en/latest/pkg_resources.html#entry-points>`__
     script that provides command line access to this function. The Python signature
     takes no arguments because the function processes command line arguments from `sys.argv`
 
     .. uml::
 
-        title scalems raptor master task lifetime
+        title scalems raptor raptor task lifetime
         !pragma teoz true
 
         queue "RP runtime" as scheduler
 
         box execution
         box "scalems.radical" #honeydew
-        participant "master task"
-        participant ScaleMSMaster as master
+        participant "raptor task"
+        participant ScaleMSRaptor as raptor
         end box
         participant worker.py
         end box
 
-        scheduler -> "master task" : stage in
-        ?-> "master task" : scalems_rp_master
-        activate "master task"
+        scheduler -> "raptor task" : stage in
+        ?-> "raptor task" : scalems_raptor
+        activate "raptor task"
 
-        note over "master task" : "TODO: Get asyncio event loop?"
-        note over "master task" : "TODO: Initialize scalems FileStore"
+        note over "raptor task" : "TODO: Get asyncio event loop?"
+        note over "raptor task" : "TODO: Initialize scalems FileStore"
 
-        "master task" -> "master task" : from_dict
-        activate "master task"
-        return MasterTaskConfiguration
-        "master task" -> master **: create ScaleMSMaster()
+        "raptor task" -> "raptor task" : from_dict
+        activate "raptor task"
+        return RaptorTaskConfiguration
+        "raptor task" -> raptor **: create ScaleMSRaptor()
 
-        "master task" -> "master task" : with configure_worker()
-        activate "master task"
-        "master task" -> master : configure_worker()
-        activate master
-        master -> worker.py ** : with _worker_file()
-        activate master
-        master -> master : _configure_worker()
-        activate master
-        master -> master : worker_description()
-        activate master
+        "raptor task" -> "raptor task" : with configure_worker()
+        activate "raptor task"
+        "raptor task" -> raptor : configure_worker()
+        activate raptor
+        raptor -> worker.py ** : with _worker_file()
+        activate raptor
+        raptor -> raptor : _configure_worker()
+        activate raptor
+        raptor -> raptor : worker_description()
+        activate raptor
         return
         return WorkerDescription
-        deactivate master
+        deactivate raptor
         return RaptorWorkerConfig
-        'master --> "master task" : RaptorWorkerConfig
-        'deactivate master
+        'raptor --> "raptor task" : RaptorWorkerConfig
+        'deactivate raptor
 
-        "master task" -> master: submit_workers(**config)
-        "master task" -> master: start()
-        note over "master task" : "TODO: wait for worker"
+        "raptor task" -> raptor: submit_workers(**config)
+        "raptor task" -> raptor: start()
+        note over "raptor task" : "TODO: wait for worker"
 
         ...
-        scheduler -\\ master : request_cb
-        scheduler -\\ master : result_cb
+        scheduler -\\ raptor : request_cb
+        scheduler -\\ raptor : result_cb
         ...
 
-        "master task" -> master : ~__exit__
-        activate master
-        master -> master : ~__exit__
-        activate master
-        master --> master : stop worker (TODO)
-        master -> worker.py !! : delete
-        deactivate master
-        master -> master: stop() (TBD)
-        "master task" -> master: join()
-        deactivate master
-        deactivate "master task"
+        "raptor task" -> raptor : ~__exit__
+        activate raptor
+        raptor -> raptor : ~__exit__
+        activate raptor
+        raptor --> raptor : stop worker (TODO)
+        raptor -> worker.py !! : delete
+        deactivate raptor
+        raptor -> raptor: stop() (TBD)
+        "raptor task" -> raptor: join()
+        deactivate raptor
+        deactivate "raptor task"
 
-        scheduler <-- "master task" : stage out
-        deactivate "master task"
+        scheduler <-- "raptor task" : stage out
+        deactivate "raptor task"
 
     """
     # TODO: Configurable log level?
@@ -858,7 +858,7 @@ def master():
     logging.getLogger("scalems").addHandler(file_logger)
 
     if not os.environ["RP_TASK_ID"]:
-        warnings.warn("Attempting to start a Raptor Master without RP execution environment.")
+        warnings.warn("Attempting to start a Raptor without RP execution environment.")
 
     rp_version = packaging.version.parse(rp.version)
 
@@ -866,44 +866,44 @@ def master():
     if not os.path.exists(args.file):
         raise RuntimeError(f"File not found: {args.file}")
     with open(args.file, "r") as fh:
-        configuration = MasterTaskConfiguration.from_dict(json.load(fh))
+        configuration = RaptorConfiguration.from_dict(json.load(fh))
 
-    logger.info(f"Launching ScaleMSMaster task in raptor {rp_version} with {repr(dataclasses.asdict(configuration))}.")
+    logger.info(f"Launching ScaleMSRaptor task in raptor {rp_version} with {repr(dataclasses.asdict(configuration))}.")
 
-    _master = ScaleMSMaster(configuration)
-    logger.debug(f"Created {repr(_master)}.")
+    _raptor = ScaleMSRaptor(configuration)
+    logger.debug(f"Created {repr(_raptor)}.")
 
     requirements = configuration.worker
 
     try:
-        with _master.configure_worker(requirements=requirements) as configs:
+        with _raptor.configure_worker(requirements=requirements) as configs:
             assert len(configs) == 1
             worker_submission: rp.TaskDescription = configs[0]
             assert os.path.isabs(worker_submission.raptor_file)
             assert os.path.exists(worker_submission.raptor_file)
             logger.debug(f"Submitting {len(configs)} {worker_submission.as_dict()}")
-            _master.submit_workers(descriptions=configs)
+            _raptor.submit_workers(descriptions=configs)
             message = "Submitted workers: "
-            message += ", ".join(_master.workers.keys())
+            message += ", ".join(_raptor.workers.keys())
             logger.info(message)
 
-            _master.start()
-            logger.debug("Master started.")
+            _raptor.start()
+            logger.debug("Raptor started.")
 
             # Make sure at least one worker comes online.
-            _master.wait_workers(count=1)
+            _raptor.wait_workers(count=1)
             logger.debug("Ready to submit raptor tasks.")
             # Confirm all workers start successfully or produce useful error
             #  (then release temporary file).
-            _master.wait_workers()
-        for uid, worker in _master.workers.items():
+            _raptor.wait_workers()
+        for uid, worker in _raptor.workers.items():
             logger.info(f"Worker {uid} in state {worker['status']}.")
-        _master.join()
-        logger.debug("Master joined.")
+        _raptor.join()
+        logger.debug("Raptor joined.")
     finally:
         if sys.exc_info() != (None, None, None):
-            logger.exception("Master task encountered exception.")
-        logger.debug("Completed master task.")
+            logger.exception("Raptor task encountered exception.")
+        logger.debug("Completed raptor task.")
 
 
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:
@@ -952,26 +952,26 @@ def _get_module_version(module: str):
     return found_version
 
 
-class ScaleMSMaster(rp.raptor.Master):
-    """Manage a RP Raptor scheduler target.
+class ScaleMSRaptor(rp.raptor.Master):
+    """Manage a RP Raptor *raptor_id* target.
 
     Extends :py:class:`rp.raptor.Master`.
 
     We do not submit scalems tasks directly as RP Tasks from the client.
-    We encode scalems tasks as instructions to the Master task, which will be
-    decoded and translated to RP Tasks by the `ScaleMSMaster.request_cb` and
+    We encode scalems tasks as instructions to the Raptor task, which will be
+    decoded and translated to RP Tasks by the `ScaleMSRaptor.request_cb` and
     self-submitted to the `ScaleMSWorker`.
 
     Results of such tasks are only available through to the :py:func:`result_cb`.
-    The Master can translate results of generated Tasks into results for the Task
+    The Raptor can translate results of generated Tasks into results for the Task
     carrying the coded instruction, or it can produce data files to stage during or
-    after the Master task. Additionally, the Master could respond to other special
+    after the Raptor task. Additionally, the Raptor could respond to other special
     instructions (encoded in later client-originated Tasks) to query or retrieve
     generated task results.
 
     .. uml::
 
-        title raptor Master
+        title Raptor
 
         queue "Queue" as Queue
 
@@ -979,10 +979,10 @@ class ScaleMSMaster(rp.raptor.Master):
         participant Scheduler
         end box
 
-        queue "Master input queue" as master_queue
+        queue "Raptor input queue" as master_queue
 
         box "scalems.radical.raptor"
-        participant ScaleMSMaster
+        participant ScaleMSRaptor
         participant rpt.Master
         end box
 
@@ -997,16 +997,16 @@ class ScaleMSMaster(rp.raptor.Master):
 
         note over Scheduler
         Scheduler gets task from queue,
-        observes `scheduler` field and routes to Master.
+        observes `scheduler` field and routes to Raptor.
         end note
 
         Scheduler -> master_queue: task dictionary
         activate master_queue
         deactivate Scheduler
 
-        note over ScaleMSMaster, rpt.Master
+        note over ScaleMSRaptor, rpt.Master
         Back end RP queue manager
-        passes messages to Master callbacks.
+        passes messages to Raptor callbacks.
         end note
 
         rpt.Master -> master_queue: accept Task
@@ -1016,22 +1016,22 @@ class ScaleMSMaster(rp.raptor.Master):
 
         rpt.Master -> rpt.Master: _request_cb(cpi_task)
         activate rpt.Master
-        rpt.Master -> ScaleMSMaster: request_cb(cpi_task)
-        activate ScaleMSMaster
+        rpt.Master -> ScaleMSRaptor: request_cb(cpi_task)
+        activate ScaleMSRaptor
 
-        ScaleMSMaster -> ScaleMSMaster: CpiCommand.launch()
-        activate ScaleMSMaster
+        ScaleMSRaptor -> ScaleMSRaptor: CpiCommand.launch()
+        activate ScaleMSRaptor
         alt optionally process or update requests
-          ScaleMSMaster -> ScaleMSMaster: submit_tasks(scalems_tasks)
-          activate ScaleMSMaster
-          deactivate ScaleMSMaster
-          ScaleMSMaster -> ScaleMSMaster: _result_cb(cpi_task)
-          activate ScaleMSMaster
-          deactivate ScaleMSMaster
+          ScaleMSRaptor -> ScaleMSRaptor: submit_tasks(scalems_tasks)
+          activate ScaleMSRaptor
+          deactivate ScaleMSRaptor
+          ScaleMSRaptor -> ScaleMSRaptor: _result_cb(cpi_task)
+          activate ScaleMSRaptor
+          deactivate ScaleMSRaptor
         else resolve a Control message
-          ScaleMSMaster -> ScaleMSMaster: _result_cb(cpi_task)
-          activate ScaleMSMaster
-          deactivate ScaleMSMaster
+          ScaleMSRaptor -> ScaleMSRaptor: _result_cb(cpi_task)
+          activate ScaleMSRaptor
+          deactivate ScaleMSRaptor
         end
         return
 
@@ -1051,19 +1051,19 @@ class ScaleMSMaster(rp.raptor.Master):
 
         rpt.Master -> rpt.Master: _result_cb(scalems_tasks))
         activate rpt.Master
-        rpt.Master -> ScaleMSMaster: result_cb(scalems_tasks)
-        activate ScaleMSMaster
+        rpt.Master -> ScaleMSRaptor: result_cb(scalems_tasks)
+        activate ScaleMSRaptor
 
-        ScaleMSMaster -> ScaleMSMaster: CpiCommand.result_hook()
+        ScaleMSRaptor -> ScaleMSRaptor: CpiCommand.result_hook()
 
         alt optionally process or update pending requests
-        ScaleMSMaster -> ScaleMSMaster: issue#277
-        activate ScaleMSMaster
-        deactivate ScaleMSMaster
+        ScaleMSRaptor -> ScaleMSRaptor: issue#277
+        activate ScaleMSRaptor
+        deactivate ScaleMSRaptor
         end
 
-        rpt.Master <-- ScaleMSMaster
-        deactivate ScaleMSMaster
+        rpt.Master <-- ScaleMSRaptor
+        deactivate ScaleMSRaptor
 
         rpt.Master -> master_queue: send message
         activate master_queue
@@ -1072,8 +1072,8 @@ class ScaleMSMaster(rp.raptor.Master):
 
     """
 
-    def __init__(self, configuration: MasterTaskConfiguration):
-        """Initialize a SCALE-MS Raptor Master.
+    def __init__(self, configuration: RaptorConfiguration):
+        """Initialize a SCALE-MS Raptor.
 
         Verify the environment. Perform some scalems-specific set up and
         initialize the base class details.
@@ -1093,9 +1093,9 @@ class ScaleMSMaster(rp.raptor.Master):
         # expected for a RP task launched by an RP agent. However, we may still
         # want to acquire a partially-initialized instance for testing.
         try:
-            super(ScaleMSMaster, self).__init__()
+            super(ScaleMSRaptor, self).__init__()
         except KeyError:
-            warnings.warn("Master incomplete. Could not initialize raptor.Master base class.")
+            warnings.warn("Raptor incomplete. Could not initialize raptor.Master base class.")
 
         # Initialize internal state.
         # TODO: Use a scalems RuntimeManager.
@@ -1136,7 +1136,7 @@ class ScaleMSMaster(rp.raptor.Master):
             f"from {worker.__module__} import {worker.__name__}\n",
             # f'from {run_in_worker.__module__} import {run_in_worker.__name__}\n'
         ]
-        # TODO: Use the Master's FileStore to get an appropriate fast shared filesystem.
+        # TODO: Use the Raptor's FileStore to get an appropriate fast shared filesystem.
         with tempfile.TemporaryDirectory() as tmp_dir:
             filename = self.__worker_files.get(worker, None)
             if filename is None:
@@ -1148,7 +1148,7 @@ class ScaleMSMaster(rp.raptor.Master):
         del self.__worker_files[worker]
 
     def request_cb(self, tasks: typing.Sequence[TaskDictionary]) -> typing.Sequence[TaskDictionary]:
-        """Allows all incoming requests to be processed by the Master.
+        """Allows all incoming requests to be processed by the Raptor.
 
         RADICAL guarantees that :py:func:`~radical.pilot.raptor.Master.request_cb()`
         calls are made sequentially in a single thread.
@@ -1164,11 +1164,11 @@ class ScaleMSMaster(rp.raptor.Master):
         The returned list is submitted with self.submit_tasks() by the base class after the
         callback returns.
 
-        A Master may call *self.submit_tasks()* to self-submit items (e.g. instead of or in
+        A Raptor may call *self.submit_tasks()* to self-submit items (e.g. instead of or in
         addition to manipulating the returned list in *request_cb()*).
 
         It is the developer's responsibility to choose unique task IDs (uid) when crafting
-        items for Master.submit_tasks().
+        items for Raptor.submit_tasks().
         """
         try:
             # It is convenient to compartmentalize the filtering and dispatching
@@ -1180,7 +1180,7 @@ class ScaleMSMaster(rp.raptor.Master):
         except Exception as e:
             logger.exception("scalems request filter propagated an exception.")
             # TODO: Submit a clean-up task.
-            #  Use a thread or asyncio event loop controlled by the main master task thread
+            #  Use a thread or asyncio event loop controlled by the main raptor task thread
             #  to issue a cancel to all outstanding tasks and stop the workers.
             # Question: Is there a better / more appropriate way to exit cleanly on errors?
             self.stop()
@@ -1188,7 +1188,7 @@ class ScaleMSMaster(rp.raptor.Master):
             # TODO: Avoid letting an exception escape unhandled.
             # WARNING: RP 1.18 suppresses exceptions from request_cb(), but there is a note
             # indicating that exceptions will cause task failure in a future version.
-            # But the failure modes of the scalems master task are not yet well-defined.
+            # But the failure modes of the scalems raptor task are not yet well-defined.
             # See also
             # * https://github.com/SCALE-MS/scale-ms/issues/218 and
             # * https://github.com/SCALE-MS/scale-ms/issues/229
@@ -1197,10 +1197,10 @@ class ScaleMSMaster(rp.raptor.Master):
     def cpi_finalize(self, task: TaskDictionary):
         """Short-circuit the normal Raptor protocol to finalize a task.
 
-        This is an alias for Master._result_cb(), but is a public method used
+        This is an alias for Raptor._result_cb(), but is a public method used
         in the :py:class:`CpiCommand.launch` method for
         :py:class:`~scalems.messages.Control` commands, which do not
-        call :py:func:`Master.submit_tasks`.
+        call :py:func:`ScaleMSRaptor.submit_tasks`.
         """
         self._result_cb(task)
 
@@ -1238,9 +1238,9 @@ class ScaleMSMaster(rp.raptor.Master):
             except Exception as e:
                 # Exceptions here are presumably bugs in scalems or RP.
                 # Almost certainly, we should shut down after cleaning up.
-                # 1. TODO: Record error in log for ScaleMSMaster.
+                # 1. TODO: Record error in log for ScaleMSRaptor.
                 # 2. Make sure that task is resolved.
-                # 3. Trigger clean shut down of master task.
+                # 3. Trigger clean shut down of raptor task.
                 if not _finalized:
                     # TODO: Mark failed, or note exception
                     self._result_cb(task)
@@ -1251,7 +1251,7 @@ class ScaleMSMaster(rp.raptor.Master):
 
         We perform special handling for two types of tasks.
         1. Tasks submitted throughcompleted by the collaborating Worker(s).
-        2. Tasks intercepted and resolved entirely by the Master (CPI calls).
+        2. Tasks intercepted and resolved entirely by the Raptor (CPI calls).
         """
         # Note: At least as of RP 1.18, exceptions from result_cb() are suppressed.
         for task in tasks:
@@ -1325,7 +1325,7 @@ class WorkerDescription(rp.TaskDescription):
 RaptorWorkerConfig = list[WorkerDescription]
 """Client-specified Worker requirements.
 
-Used by master script when calling `worker_description()`.
+Used by raptor script when calling `worker_description()`.
 Created internally with :py:func:`_configure_worker()`.
 
 See Also:
@@ -1344,7 +1344,7 @@ def worker_description(
     pre_exec: typing.Iterable[str] = (),
     environment: typing.Optional[typing.Mapping[str, str]] = None,
 ) -> WorkerDescription:
-    """Get a worker description for Master.submit_workers().
+    """Get a worker description for ScaleMSRaptor.submit_workers().
 
     Parameters:
         cores_per_process (int, optional): See `radical.pilot.TaskDescription.cores_per_rank`
@@ -1356,10 +1356,10 @@ def worker_description(
         pre_exec (list[str]): Shell command lines for preparing the worker environment.
         worker_file (str): Standalone module from which to import ScaleMSWorker.
 
-    *worker_file* is generated for the master script by the caller.
+    *worker_file* is generated for the raptor script by the caller.
     See :py:mod:`scalems.radical.raptor`
 
-    The *uid* for the Worker task is defined by the Master.submit_workers().
+    The *uid* for the Worker task is defined by the ScaleMSRaptor.submit_workers().
     """
     descr = WorkerDescription()
     if cores_per_process is not None:
@@ -1452,7 +1452,7 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
         rp.TASK_FUNCTION mode tasks generated by scalems.
 
         This function MUST be imported and referentiable by its *__qualname__* from
-        the scope in which ScaleMSWorker methods execute. (See ScaleMSMaster._worker_file)
+        the scope in which ScaleMSWorker methods execute. (See ScaleMSRaptor._worker_file)
 
         Parameters:
             comm (mpi4py.MPI.Comm, optional): MPI communicator to be used for the task.
@@ -1481,7 +1481,7 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
 def raptor_work_deserializer(*args, **kwargs):
     """Unpack a workflow document from a Task.
 
-    When a `ScaleMSMaster.request_cb()` receives a raptor task, it uses this
+    When a `ScaleMSRaptor.request_cb()` receives a raptor task, it uses this
     function to unpack the instructions and construct a work load.
     """
     raise scalems.exceptions.MissingImplementationError
@@ -1500,7 +1500,7 @@ class ScalemsRaptorWorkItem(typing.TypedDict):
     At run time, the dispatching function (`run_in_worker`) conceivably has access
     to module scoped state, but does not have direct access to the Worker (or
     any resources other than the `mpi4py.MPI.Comm` object). Therefore, abstract
-    references to input data should be resolved at the Master in terms of the
+    references to input data should be resolved at the Raptor in terms of the
     expected Worker environment before preparing and submitting the Task.
 
     TODO: Evolve this to something sufficiently general to be a scalems.WorkItem.
@@ -1556,11 +1556,11 @@ class _RaptorTaskDescription(typing.TypedDict):
     executable: str
     """Unused by Raptor tasks."""
 
-    scheduler: str
+    raptor_id: str
     """The UID of the raptor.Master scheduler task.
 
     This field is relevant to tasks routed from client TaskManagers. It is not
-    used for tasks originating in master tasks.
+    used for tasks originating in raptor tasks.
 
     .. ref https://github.com/SCALE-MS/scale-ms/discussions/258#discussioncomment-4087870
 
@@ -1606,8 +1606,8 @@ class TaskDictionary(typing.TypedDict):
     """Task representations seen by *request_cb* and *result_cb*.
 
     Other fields may be present, but the objects in the sequences provided to
-    :py:meth:`scalems.radical.raptor.ScaleMSMaster.request_cb()` and
-    :py:meth:`scalems.radical.raptor.ScaleMSMaster.result_cb()` have the following fields.
+    :py:meth:`scalems.radical.raptor.ScaleMSRaptor.request_cb()` and
+    :py:meth:`scalems.radical.raptor.ScaleMSRaptor.result_cb()` have the following fields.
     Result fields will not be populated until the Task runs.
 
     For the expected fields, see the source code for

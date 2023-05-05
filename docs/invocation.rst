@@ -241,5 +241,5 @@ entirely from within Python.
 Such use cases are not yet well-supported in `scalems`.
 
 Refer to the
-`test suite <https://github.com/SCALE-MS/scale-ms/tree/master/tests>`__
+`test suite <https://github.com/SCALE-MS/scale-ms/tree/raptor/tests>`__
 for examples, or follow https://github.com/SCALE-MS/scale-ms/issues/82.

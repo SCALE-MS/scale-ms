@@ -42,27 +42,27 @@ scalems.radical.raptor
 .. automodule:: scalems.radical.raptor
     :no-members:
 
-master task
+raptor task
 ~~~~~~~~~~~
 
-`scalems` specialization of the "master" component in the
+`scalems` specialization of the "raptor" component in the
 :py:mod:`radical.pilot.raptor` federated scheduling protocol.
 
-.. autofunction:: master
+.. autofunction:: raptor
 
-.. autofunction:: master_script
+.. autofunction:: raptor_script
 
-.. autofunction:: master_input
+.. autofunction:: raptor_input
 
 .. autofunction:: worker_requirements
 
-.. autoclass:: MasterTaskConfiguration
+.. autoclass:: RaptorConfiguration
     :members:
 
 .. autoclass:: ClientWorkerRequirements
     :members:
 
-.. autoclass:: ScaleMSMaster
+.. autoclass:: ScaleMSRaptor
     :members:
 
 worker task
@@ -82,7 +82,7 @@ task handling
 `scalems` instructions are embedded in TaskDescriptions with the
 :py:data:`scalems.radical.raptor.CPI_MESSAGE` mode,
 using the :py:attr:`~radical.pilot.TaskDescription.metadata` field for the payload.
-Executable work is re-encoded by `ScaleMSMaster` for `ScaleMSWorker`
+Executable work is re-encoded by `ScaleMSRaptor` for `ScaleMSWorker`
 (using a `ScalemsRaptorWorkItem` in the *work_item* field of the *kwargs* of
 a ``TASK_FUNCTION`` mode Task)
 to be dispatched through `scalems` machinery in the Worker process.

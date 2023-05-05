@@ -357,8 +357,7 @@ class Runtime:
             session = session.uid
         if pilot := self._pilot:
             pilot = pilot.uid
-        if raptor_id := self.raptor:
-            raptor_id = raptor_id.uid
+        raptor_id = getattr(self.raptor, "uid", None)
         representation = f'<Runtime session:"{session}" pilot:"{pilot}" raptor:"{raptor_id}">'
         return representation
 

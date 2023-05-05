@@ -95,7 +95,7 @@ async def test_raptor_master(pilot_description, rp_venv):
             raptor: rp.Task = dispatcher.runtime.raptor
             hello_command_description = rp.TaskDescription(
                 from_dict={
-                    "raptor": raptor.uid,
+                    "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
                     "metadata": scalems.messages.HelloCommand().encode(),
                     "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
@@ -111,7 +111,7 @@ async def test_raptor_master(pilot_description, rp_venv):
 
             stop_command_description = rp.TaskDescription(
                 from_dict={
-                    "raptor": raptor.uid,
+                    "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
                     "metadata": scalems.messages.Control.create("stop").encode(),
                     "uid": f"command-stop--{scalems.identifiers.EphemeralIdentifier()}",
@@ -213,7 +213,7 @@ async def test_worker(pilot_description, rp_venv):
             raptor: rp.Task = dispatcher.runtime.raptor
 
             add_item_task_description = rp.TaskDescription()
-            add_item_task_description.raptor = raptor.uid
+            add_item_task_description.raptor_id = raptor.uid
             add_item_task_description.uid = task_uid
             add_item_task_description.cpu_processes = 1
             add_item_task_description.cpu_process_type = (rp.SERIAL,)

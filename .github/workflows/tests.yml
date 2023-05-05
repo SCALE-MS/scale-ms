@@ -330,6 +330,7 @@ jobs:
           tests \
           --rp-venv $HOME/testenv --rp-resource=local.github --rp-access=ssh
         cd scalems-remote-coverage-dir
+        cp coverage_dir/.coverage* ./
         coverage combine --keep
         coverage xml --rcfile=../.coveragerc -o coverage-remote.xml
         cd ..

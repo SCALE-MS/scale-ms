@@ -180,7 +180,6 @@ from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from .raptor import raptor_input
-from .raptor import raptor_script
 from ..store import FileStore
 from ..execution import AbstractWorkflowUpdater
 from ..execution import RuntimeManager

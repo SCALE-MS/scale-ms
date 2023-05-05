@@ -280,6 +280,7 @@ import typing
 import warnings
 import weakref
 import zlib
+from contextlib import ContextDecorator
 from importlib.machinery import ModuleSpec
 from importlib.util import find_spec
 from collections.abc import Generator
@@ -298,7 +299,7 @@ if typing.TYPE_CHECKING:
 # rearranging the import order of built-in versus third-party modules.
 try:
     import radical.pilot as rp
-except (ImportError,):
+except ImportError:
     warnings.warn("RADICAL Pilot installation not found.")
 
 import scalems.exceptions
@@ -629,6 +630,7 @@ def _(obj: RaptorConfiguration) -> dict:
     return dataclasses.asdict(obj)
 
 
+# TODO: Remove? This is effectively replaced by scalems.radical.raptor.__main__.py
 @functools.cache
 def raptor_script() -> str:
     """Get the name of the RP raptor raptor script.
@@ -751,6 +753,85 @@ def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> 
 
 parser = argparse.ArgumentParser(description="Command line entry point for RP raptor task.")
 parser.add_argument("file", type=str, help="Input file (JSON) for configuring ScaleMSRaptor instance.")
+
+
+class coverage_file(ContextDecorator):
+    """Decorator for a function to conditionally record to the named coverage data file."""
+
+    _Coverage = None
+    cov = None
+    _decorated_function = ""
+
+    def __init__(self, filename=".coverage", verbose=True):
+        self.filename = filename
+        self.verbose = verbose
+        if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+            logger.info("... testing with coverage")
+            try:
+                from coverage import Coverage
+
+                self._Coverage = Coverage
+            except ImportError:
+                warnings.warn("Code coverage reporting is not available.")
+        else:
+            logger.info("No coverage testing")
+
+    def __call__(self, func):
+        # Apply the decorator
+        assert callable(func)
+        self._decorated_function = func.__qualname__
+        # Return the decorated function.
+        return super().__call__(func)
+
+    def __enter__(self):
+        if self._Coverage is not None:
+            current_pid = os.getpid()
+            coverage_pid = os.environ.get("SCALEMS_COVERAGE_ACTIVE", None)
+            if coverage_pid is not None:
+                if int(coverage_pid) != current_pid:
+                    logger.info(f"PID {current_pid} inheriting coverage from {coverage_pid}.")
+                else:
+                    logger.info(f"{self._decorated_function}: Coverage API is already active for {current_pid}.")
+                    # warnings.warn(f'Coverage API is already active in {current_pid}. Data race may occur.')
+                    # TODO: Check whether this is a problem since result_cb() may be reentrant.
+            else:
+                coverage_pid = current_pid
+                os.environ["SCALEMS_COVERAGE_ACTIVE"] = str(current_pid)
+                logger.info(f"Starting coverage for {coverage_pid} in {os.getcwd()}")
+                filename = self.filename
+                if not os.path.isabs(filename):
+                    filename = os.path.join(".", "coverage_dir", filename)
+                self.filename = os.path.abspath(filename)
+                if not os.path.exists(os.path.dirname(filename)):
+                    os.mkdir(os.path.dirname(filename))
+
+                self.cov = self._Coverage(
+                    auto_data=True,
+                    branch=True,
+                    check_preimported=True,
+                    data_file=filename,
+                    data_suffix=self._decorated_function,
+                    messages=self.verbose,
+                    source=("scalems",),
+                )
+                self.cov.start()
+        return self
+
+    def __exit__(self, *exc):
+        if self.cov is not None:
+            current_pid = os.getpid()
+            coverage_pid_str = os.environ.get("SCALEMS_COVERAGE_ACTIVE", None)
+            if coverage_pid_str == str(current_pid):
+                logger.info(f"Saving coverage data for {self._decorated_function} to {self.filename}.")
+                self.cov.stop()
+                self.cov.save()
+                del os.environ["SCALEMS_COVERAGE_ACTIVE"]
+            else:
+                logger.info(
+                    f"Deferring coverage for {self._decorated_function} on {current_pid} to PID {coverage_pid_str}."
+                )
+            del self.cov
+        return False
 
 
 def raptor():
@@ -877,7 +958,7 @@ def raptor():
             logger.info(message)
 
             _raptor.start()
-            logger.debug("Raptor started.")
+            logger.debug(f"Raptor started in PID {os.getpid()}: {' '.join(sys.argv)}.")
 
             # Make sure at least one worker comes online.
             _raptor.wait_workers(count=1)
@@ -914,7 +995,8 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
         cpu_processes=requirements.cpu_processes,
         gpus_per_process=requirements.gpus_per_process,
     )
-
+    if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+        descr.environment = {"SCALEMS_COVERAGE": "TRUE"}
     config: RaptorWorkerConfig = [descr] * num_workers
     return config
 
@@ -1434,6 +1516,8 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
 
     """
 
+    # TODO: How to get the module logger output for the Worker task.
+    @coverage_file()
     def run_in_worker(self, *, work_item: ScalemsRaptorWorkItem, comm=None):
         """Unpack and run a task requested through RP Raptor.
 
@@ -1460,7 +1544,7 @@ class ScaleMSWorker(rp.raptor.MPIWorker):
                 kwargs[comm_arg_name] = comm
             else:
                 args.append(comm)
-        logger.debug(
+        self._log.debug(
             "Calling {func} with args {args} and kwargs {kwargs}",
             {"func": func.__qualname__, "args": repr(args), "kwargs": repr(kwargs)},
         )

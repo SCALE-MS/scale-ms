@@ -147,6 +147,7 @@ import logging
 import os
 import pathlib
 import shutil
+import sys
 import tempfile
 import threading
 import typing
@@ -179,7 +180,6 @@ from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.exceptions import ScaleMSError
 from .raptor import raptor_input
-from .raptor import raptor_script
 from ..store import FileStore
 from ..execution import AbstractWorkflowUpdater
 from ..execution import RuntimeManager
@@ -587,9 +587,40 @@ async def _get_scheduler(
     # caller.
     # td.named_env = 'scalems_env'
 
-    # This is the name that should be resolvable in an active venv for the installed
-    # raptor task entry point script
-    td.executable = raptor_script()
+    td.executable = "python3"
+    td.arguments = []
+    if os.getenv("PYTHONDEVMODE", None) == "1" or "dev" in getattr(sys, "_xoptions", {}):
+        td.arguments.extend(("-X", "dev"))
+    if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+        # TODO: Use the FileStore!
+        local_coverage_dir = pathlib.Path("scalems-remote-coverage-dir").resolve()
+        td.arguments.extend(
+            (
+                "-m",
+                "coverage",
+                "run",
+                "--parallel-mode",
+                "--source=scalems",
+                "--branch",
+                "--data-file=coverage_dir/.coverage",
+            )
+        )
+        td.environment["SCALEMS_COVERAGE"] = "TRUE"
+        td.environment["RADICAL_LOG_LVL"] = "DEBUG"
+        td.pre_exec.append("mkdir -p coverage_dir")
+        td.output_staging.extend(
+            (
+                {
+                    "source": "task:///coverage_dir",
+                    "target": local_coverage_dir.as_uri(),
+                    "action": rp.TRANSFER,
+                },
+            )
+        )
+        logger.info(f"Coverage data will be staged to {local_coverage_dir}.")
+    else:
+        logger.debug("No coverage testing")
+    td.arguments.extend(("-m", "scalems.radical.raptor"))
 
     logger.debug(f"Using {filestore}.")
 
@@ -607,7 +638,7 @@ async def _get_scheduler(
     td.input_staging = [
         {
             "source": config_file.as_uri(),
-            "target": f"{config_file_name}",
+            "target": f"task:///{config_file_name}",
             "action": rp.TRANSFER,
         }
     ]

@@ -253,6 +253,8 @@ class Task:
 
     def __init__(self, manager: "WorkflowManager", record: str):
         self._serialized_record = str(record)
+        # TODO: Establish and check the serialization scheme / JSON schema.
+        # I.e. the result type of Task.serialize()
         decoded_record = json.loads(self._serialized_record)
 
         self._uid = bytes.fromhex(decoded_record["uid"])

@@ -59,3 +59,52 @@ scripting interface behaves as expected.
     as possible about experimental features or use cases, but that would require
     either packaging the tests in some way or at least manipulating the
     PYTHONPATH and making them ``import``-able.
+
+Coverage
+========
+
+We use the Python `Coverage <https://coverage.readthedocs.io/>`__ package to
+trace test coverage.
+(For pytest tests, we use the `pytest-cov <https://pytest-cov.readthedocs.io/>`__
+pytest plugin.)
+In our GitHub Actions test pipeline, we gather coverage for both pytest suites
+and command line examples, and upload the results to
+`Codecov.io <https://app.codecov.io/gh/SCALE-MS/scale-ms>`__ for visualization
+and for feedback on pull requests.
+
+Aggregating coverage
+--------------------
+
+The ``--parallel-mode`` works pretty well to gather multiple data files, and
+codecov.io does a good job of automatically merging multiple reports received
+from a pipeline. We just have to make sure to use ``--append``
+(or ``--cov-append``) appropriately for the data files, and to create appropriately
+unique xml report files (for upload).
+
+The default ``coverage`` behavior automatically follows threads, too.
+However, for processes launched by RADICAL Pilot, we need to take extra steps
+to run coverage and gather results.
+
+Gathering remote coverage
+-------------------------
+
+When ``COVERAGE_RUN`` or ``SCALEMS_COVERAGE`` environment variables are detected,
+:py:mod:`scalems.radical.runtime` modifies the Master TaskDescription to include
+``python -m coverage run --data-file=coverage_dir/.coverage --parallel-mode ...``,
+and adds an output staging directive to retrieve ``task:///coverage_dir``
+to the predictably named directory ``./scalems-remote-coverage-dir``.
+The ``--parallel-mode`` option makes sure that remotely generated master task
+coverage data file will be uniquely named.
+
+Note that :py:mod:`pytest-cov` does not set the ``COVERAGE_RUN`` environment
+variable. When :command:`pytest --cov` is detected, we use a pytest fixture to
+set ``SCALEMS_COVERAGE=TRUE`` in the testing process environment.
+
+Even though the `ScaleMSRaptor.request_cb()` and `ScaleMSRaptor.result_cb()` are
+called in separate threads spawned by RP, coverage should be correct.
+
+We cannot customize the command line for launching the Worker task, so for
+coverage of the Worker and its dispatched function calls, we need to use the
+Coverage API.
+These details are encapsulated in the
+:py:func:`scalems.radical.raptor.coverage_file` decorator.

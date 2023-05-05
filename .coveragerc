@@ -1,6 +1,7 @@
 [run]
 branch = True
 source = scalems
+concurrency = thread
 
 [report]
 # Regexes for lines to exclude from consideration
@@ -27,12 +28,18 @@ exclude_lines =
     # Don't complain if non-runnable code isn't run:
     if 0:
     if __name__ == .__main__.:
+    if typing.TYPE_CHECKING:
     raise NotImplementedError
     \.\.\.
+
+    # Don't complain if non-coverable code isn't run:
+    if self._Coverage is not None:
+    if self.cov is not None:
+
+    # Ignore some error handling we hope to never trigger or isn't worth testing:
+    except ImportError:
 
 ignore_errors = True
 
 omit =
     */scalems/_version.py
-    # We don't currently have a way to get coverage results for these installed scripts.
-    */scalems/radical/raptor.py

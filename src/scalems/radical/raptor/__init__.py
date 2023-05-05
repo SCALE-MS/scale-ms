@@ -441,17 +441,6 @@ class CpiAddItem(CpiCommand):
     TBD: Data objects, references to existing data, completed tasks.
     """
 
-    def __init__(self, add_item: scalems.messages.AddItem):
-        encoded_item = add_item.encoded_item
-        item_dict = json.loads(encoded_item)
-        self.work_item = ScalemsRaptorWorkItem(
-            func=item_dict["func"],
-            module=item_dict["module"],
-            args=item_dict["args"],
-            kwargs=item_dict["kwargs"],
-            comm_arg_name=item_dict.get("comm_arg_name", None),
-        )
-
     @classmethod
     def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         """Repackage a AddItem command as a rp.TaskDescription for submission to the Worker.

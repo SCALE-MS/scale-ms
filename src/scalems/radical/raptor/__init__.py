@@ -299,7 +299,7 @@ if typing.TYPE_CHECKING:
 # rearranging the import order of built-in versus third-party modules.
 try:
     import radical.pilot as rp
-except (ImportError,):
+except ImportError:
     warnings.warn("RADICAL Pilot installation not found.")
 
 import scalems.exceptions

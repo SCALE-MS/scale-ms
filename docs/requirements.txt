@@ -68,7 +68,7 @@ radical-utils==1.33.0
     #   radical-saga
 regex==2023.5.5
     # via radical-utils
-requests==2.30.0
+requests==2.31.0
     # via
     #   apache-libcloud
     #   sphinx
@@ -107,8 +107,6 @@ sphinxcontrib-qthelp==1.0.3
     # via sphinx
 sphinxcontrib-serializinghtml==1.1.5
     # via sphinx
-tomli==2.0.1
-    # via versioningit
 urllib3==2.0.2
     # via requests
 versioningit==2.2.0

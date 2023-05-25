@@ -45,12 +45,14 @@ ConcreteClass --|> AbstractBase: "is a"
 
 AbstractBase --() providedInterface
 
-Participant --(( requiredInterface
-
 ConcreteClass ..|> Interface: "implements a"
 
 Client ..> Interface: "depends on"
 }
+
+class Participant
+
+Participant --(( requiredInterface
 
 package package {
 package package.subpackage {
@@ -92,12 +94,4 @@ json StructuredData {
    "size":"Large",
    "color": ["Red", "Green"]
 }
-@enduml
-
-@startuml
-'see https://plantuml.com/sequence-diagram
-Alice ->> Bob: asynchronous message
-Alice -> Bob: message
-Alice <--Bob: response
-Alice <<--Bob: asynchronous response
 @enduml

@@ -43,10 +43,12 @@ See Also:
 
     autoactivate on
 
-    client_workflowmanager -> client_executor: async with executor
+    client_workflowmanager -> client_workflowmanager: async with executor
+    client_workflowmanager -> client_executor: ~__aenter__()
     activate client_workflowmanager
-    client_executor -> RuntimeManager: ~__aenter__()
+    client_executor -> RuntimeManager: ~__aenter__() base class method
     RuntimeManager -> client_executor: runtime_configuration()
+    return
     RuntimeManager -> client_executor: runtime_startup()
 
     client_executor -> : rp.Session()
@@ -70,17 +72,21 @@ See Also:
     return
 
     group ref [scalems.radical.raptor]
-    client_executor -> client_executor: get_scheduler()
+    client_executor -> client_executor: get_raptor()
     return
     end
 
-    client_executor -> client_runtime: set scheduler
+    client_executor -> client_runtime: set raptor
     return
 
-    client_executor -> scalems.execution **: create_task(manage_execution)
+    client_executor ->> scalems.execution **: create_task(manage_execution)
     client_executor -> scalems.execution: await runner_started
-    RuntimeManager <-- client_executor: set runner_task
-    deactivate client_executor
+    RuntimeManager <-- client_executor: asyncio.Task
+    RuntimeManager -> RuntimeManager: set runner_task
+    return
+    RuntimeManager --> client_executor: self
+    client_workflowmanager <-- client_executor: RuntimeManager
+    client_workflowmanager --> client_workflowmanager: as manager
     deactivate RuntimeManager
 
     client_workflowmanager -> client_workflowmanager #gray: async with dispatcher
@@ -91,35 +97,51 @@ See Also:
 
     == Shut down runtime ==
 
-    client_executor -> RuntimeManager: ~__aexit__()
+    client_workflowmanager -> client_executor: ~__aexit__()
+    client_executor -> RuntimeManager: ~__aexit__() base class method
+    RuntimeManager ->> scalems.execution: enqueue a stop control message
+    deactivate scalems.execution
     RuntimeManager -> RuntimeManager: await runner_task
+    note right
+        drain the queue
+    end note
     RuntimeManager <-- scalems.execution
     deactivate RuntimeManager
-    RuntimeManager -> client_executor: runtime_shutdown()
+    RuntimeManager ->> client_executor: runtime_shutdown()
 
     client_runtime <- client_executor
     return session
     client_runtime <- client_executor
-    return scheduler
-    group Cancel Master task [if scheduler is not None]
-    client_runtime <- client_executor
-    return task_manager
-    client_executor -> : task_manager.cancel_tasks()
-    return
-    client_runtime <- client_executor
-    return scheduler
-    client_executor -> : runtime.raptor.wait()
-    return
+    return raptor
+
+    group Finalize Raptor task [if raptor is not None]
+        group Give Raptor some time to shut down [if raptor.state not in FINAL]
+            client_executor -> : runtime.raptor.wait(timeout=60)
+        end
+        group Forcibly cancel Raptor task [if raptor.state not in FINAL]
+            client_runtime <- client_executor
+            return task_manager
+            client_executor -> : task_manager.cancel_tasks()
+            return
+            client_runtime <- client_executor
+            return raptor
+            client_executor -> : runtime.raptor.wait()
+            return
+        end
     end
+
     client_executor -> : session.close()
     return
 
+    RuntimeManager -> RuntimeManager: await runtime_shutdown()
+
     client_executor -> client_runtime !!
-    deactivate client_executor
-    deactivate RuntimeManager
+    RuntimeManager <<-- client_executor
+    RuntimeManager --> RuntimeManager
+    RuntimeManager --> client_executor
 
     client_workflowmanager <-- client_executor: leave executor context
-    deactivate client_workflowmanager
+    client_workflowmanager --> client_workflowmanager
 
 """
 

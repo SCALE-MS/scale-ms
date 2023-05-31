@@ -1960,7 +1960,7 @@ async def subprocess_to_rp_task(
         mode=rp.TASK_EXECUTABLE,
     )
     if configuration().enable_raptor:
-        subprocess_dict["raptor"] = dispatcher.runtime.raptor.uid
+        subprocess_dict["raptor_id"] = dispatcher.runtime.raptor.uid
     # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
     # a Python function runner, and may collide with user assumptions or native
     # behaviors of third party tools. We will specify distinctive names for the RP

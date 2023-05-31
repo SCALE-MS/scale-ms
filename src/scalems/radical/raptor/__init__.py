@@ -139,15 +139,15 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
     RaptorWorkerConfig *--> "descr" WorkerDescription
 
     namespace scalems.radical {
-     class RaptorTaskConfiguration
+     class RaptorConfiguration
 
      class ClientWorkerRequirements
 
      class ScaleMSRaptor
 
-     ScaleMSRaptor --> RaptorTaskConfiguration : launches with
+     ScaleMSRaptor --> RaptorConfiguration : launches with
 
-     RaptorTaskConfiguration *-- ClientWorkerRequirements
+     RaptorConfiguration *-- ClientWorkerRequirements
 
      ClientWorkerRequirements -right-> .RaptorWorkerConfig : worker_description()
     }
@@ -197,7 +197,7 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
     end note
 
     return ClientWorkerRequirements
-    return RaptorTaskConfiguration
+    return RaptorConfiguration
 
     client_runtime -> client_runtime: launch Raptor Task
     activate client_runtime
@@ -558,7 +558,7 @@ def object_encoder(obj) -> Encodable:
 class ClientWorkerRequirements:
     """Client-side details to inform worker provisioning.
 
-    This structure is part of the `scalems.radical.raptor.RaptorTaskConfiguration`
+    This structure is part of the `scalems.radical.raptor.RaptorConfiguration`
     provided to the raptor script. The raptor script uses this information
     when calling `worker_description()`.
 
@@ -869,7 +869,7 @@ def raptor():
 
         "raptor task" -> "raptor task" : from_dict
         activate "raptor task"
-        return RaptorTaskConfiguration
+        return RaptorConfiguration
         "raptor task" -> raptor **: create ScaleMSRaptor()
 
         "raptor task" -> "raptor task" : with configure_worker()

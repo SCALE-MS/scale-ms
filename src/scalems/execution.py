@@ -30,9 +30,9 @@ to illustrate the workflow execution.
     participant WorkflowManager as client_workflowmanager
     participant Queuer
     end box
-    box "SCALE-MS RP adapter" #linen
-    participant scalems.radical
-    participant Executor as client_executor
+    box "SCALE-MS execution backend" #linen
+    participant scalems.radical <<execution module>>
+    participant RPDispatchingExecutor as client_executor <<RuntimeManager>>
     end box
 
     autoactivate on
@@ -42,7 +42,10 @@ to illustrate the workflow execution.
     scalems.radical -> scalems.Runtime: scalems.invocation.run(workflow_manager)
     scalems.Runtime -> scalems.radical: configuration()
     return
-    scalems.Runtime -> scalems.radical: workflow_manager()
+    scalems.Runtime -> scalems.radical: workflow_manager(loop)
+    note left
+        Initialize with event loop
+    end note
     scalems.radical -> client_workflowmanager **: <<create>>
     scalems.Runtime <-- scalems.radical:
 
@@ -62,9 +65,13 @@ to illustrate the workflow execution.
 
     client_workflowmanager -> client_executor: async with executor
     activate client_workflowmanager #lightgray
+    client_workflowmanager -> Queuer: async with dispatcher
+    activate client_workflowmanager #darkgray
 
     ...Dispatch work. See `manage_execution`...
 
+    client_workflowmanager <-- Queuer
+    deactivate client_workflowmanager
     client_workflowmanager <-- client_executor: leave executor context
     deactivate client_workflowmanager
     scalems.Runtime <-- client_workflowmanager: end dispatching context

@@ -19,6 +19,19 @@ to get the implementing *module*.
 
 .. py:currentmodule:: <module>
 
+An execution back end :py:mod:`<module>` supports this invocation model by
+implementing a ``__main__`` method that passes a WorkflowManager creation function
+to `scalems.invocation.run`.
+For example, in the `scalems.local` module,
+:file:`scalems/local/__main__.py` contains::
+
+    if __name__ == '__main__':
+        sys.exit(scalems.invocation.run(scalems.local.workflow_manager))
+
+:py:func:`scalems.local.workflow_manager` composes a `scalems.workflow.WorkflowManager`
+with an appropriate *executor_factory* and other details for the `scalems.local`
+execution backend.
+
 Required Attributes
 ~~~~~~~~~~~~~~~~~~~
 Execution back-end modules (modules providing a *manager_factory*) *MUST* provide
@@ -47,6 +60,47 @@ the following module attribute(s) for hooks in `run()`
     If present in *module*, `run()` calls ``module.configuration(args)``,
     where *args* is a :py:class:`argparse.Namespace` object created by the
     module's *parser*.
+
+.. uml::
+
+    title Execution back ends with scalems.invocation
+
+    participant "workflow script" as script
+    box "SCALE-MS framework" #honeydew
+    participant "SCALE-MS API" as scalems.Runtime
+    participant WorkflowManager as client_workflowmanager
+    end box
+    box "SCALE-MS execution backend" #linen
+    participant scalems.radical <<execution module>>
+    end box
+
+    autoactivate on
+
+    -> scalems.radical: python -m scalems.radical ...
+
+    scalems.radical -> scalems.Runtime: scalems.invocation.run(workflow_manager)
+    scalems.Runtime -> scalems.radical: configuration()
+    return
+    scalems.Runtime -> scalems.radical: workflow_manager(loop)
+    note left
+        Initialize with event loop
+    end note
+    scalems.radical -> client_workflowmanager **: <<create>>
+    activate client_workflowmanager
+    scalems.Runtime <-- scalems.radical:
+
+    scalems.Runtime -> script: <<runpy>>
+    return @scalems.app
+
+    scalems.Runtime -> scalems.Runtime: run_dispatch(work, context)
+
+    ...Manage run time and dispatch work....
+
+    scalems.Runtime --> scalems.Runtime: loop.run_until_complete()
+    scalems.Runtime --> scalems.radical: SystemExit.code
+    destroy client_workflowmanager
+    deactivate scalems.Runtime
+    <-- scalems.radical: sys.exit
 
 """
 import argparse
@@ -241,6 +295,9 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
                         logger.exception("Unhandled exception in scalems runner calling dispatch(): " + str(e))
                         raise e
                     finally:
+                        # Warning: This assumes that the `manager` is done with the event loop
+                        # by the end of `run_dispatch`, but this may not be enforced.
+                        # We may need to rearrange things or strengthen the protocol.
                         loop.close()
                     assert loop.is_closed()
 

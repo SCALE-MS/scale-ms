@@ -1,6 +1,6 @@
 [run]
 branch = True
-source = scalems,examples
+source = scalems
 concurrency = thread
 
 [report]

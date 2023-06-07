@@ -13,5 +13,3 @@ Example:
     docker build -t example .
     docker run --rm -ti ex1 bash -c \
         'cd $EXAMPLE && . env38/bin/activate && python -m scalems.local echo.py hi there && ls * && cat */stdout'
-    docker run --rm -ti example bash -c \
-        'cd $EXAMPLE && . env38/bin/activate && python echo_detail.py hi there && ls */*txt'

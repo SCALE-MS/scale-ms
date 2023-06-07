@@ -128,11 +128,21 @@ jobs:
         # output data with #292. This and the output check below will need to be
         # further updated soon.
         rm -rf 000*
-        coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
+        coverage run --source=scalems,examples --append -m scalems.local --log-level=info examples/basic/echo.py hi there
         coverage xml -o coverage-cli.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
-        (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
-        (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
+        pushd examples/lammps_files/simple_lammps
+        # These scripts are currently only used to validate our understanding
+        # of environment preparation and the lammps python interface.
+        # They produce no test coverage data for the scalems package at this time.
+        #coverage run --rcfile=${GITHUB_WORKSPACE}/.coveragerc lammps_from_python.py
+        #mpirun -np 2 coverage run -p --rcfile=${GITHUB_WORKSPACE}/.coveragerc lammps_from_python_parallel.py
+        python lammps_from_python.py
+        mpirun -np 2 python lammps_from_python_parallel.py
+        # coverage combine
+        # coverage xml -o coverage-lammps.xml
+        popd
+        [ -x examples/lammps_files/simple_lammps/coverage-lammps.xml ] && cp examples/lammps_files/simple_lammps/coverage-lammps.xml ./ || true
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v3
@@ -224,11 +234,11 @@ jobs:
         # output data with #292. This and the output check below will need to be
         # further updated soon.
         rm -rf 000*
-        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+        coverage run --source=scalems,examples --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         stdout=$(echo 0*/stdout)
         python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
         rm -rf 000*
-        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=4 --pilot-option gpus=0 -o final.txt hello world
+        coverage run --source=scalems,examples --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=local --pilot-option cores=4 --pilot-option gpus=0 -o final.txt hello world
         python -c "if open('final.txt', 'r').readline().rstrip() != 'hello world': assert False"
         coverage xml -o coverage2.xml
     - name: "Upload coverage to Codecov"
@@ -349,11 +359,11 @@ jobs:
         # output data with #292. This and the output check below will need to be
         # further updated soon.
         rm -rf 000*
-        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+        coverage run --source=scalems,examples --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         stdout=$(echo 0*/stdout)
         python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
         rm -rf 000*
-        coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=4 --pilot-option gpus=0 -o final.txt hello world
+        coverage run --source=scalems,examples --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=4 --pilot-option gpus=0 -o final.txt hello world
         python -c "if open('final.txt', 'r').readline().rstrip() != 'hello world': assert False"
         coverage xml -o coverage2.xml
     - name: "Upload coverage to Codecov"
@@ -476,11 +486,11 @@ jobs:
         # output data with #292. This and the output check below will need to be
         # further updated soon.
         rm -rf 000*
-        coverage run --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
+        coverage run --source=scalems,examples --append -m scalems.radical --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=1 --pilot-option gpus=0 examples/basic/echo.py hello world
         stdout=$(echo 0*/stdout)
         python -c "if open('${stdout}', 'r').readline().rstrip() != 'hello world': assert False"
         rm -rf 000*
-        RADICAL_LOG_LVL=DEBUG coverage run --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=4 --pilot-option gpus=0 --log-level DEBUG -o final.txt hello world
+        RADICAL_LOG_LVL=DEBUG coverage run --source=scalems,examples --append examples/basic_pipeline/echo-pipeline.py --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=4 --pilot-option gpus=0 --log-level DEBUG -o final.txt hello world
         python -c "if open('final.txt', 'r').readline().rstrip() != 'hello world': assert False"
         coverage xml -o coverage2.xml
     - name: "Upload coverage to Codecov"

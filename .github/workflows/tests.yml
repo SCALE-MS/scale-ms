@@ -142,7 +142,7 @@ jobs:
         # coverage combine
         # coverage xml -o coverage-lammps.xml
         popd
-        [ -x examples/lammps_files/simple_lammps/coverage-lammps.xml ] && cp examples/lammps_files/simple_lammps/coverage-lammps.xml ./
+        [ -x examples/lammps_files/simple_lammps/coverage-lammps.xml ] && cp examples/lammps_files/simple_lammps/coverage-lammps.xml ./ || true
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v3

@@ -131,8 +131,13 @@ jobs:
         coverage run --append -m scalems.local --log-level=info examples/basic/echo.py hi there
         coverage xml -o coverage-cli.xml
         python -c 'if open("0000000000000000000000000000000000000000000000000000000000000000/stdout", "r").readline().rstrip() != "hi there": assert False'
-        (cd examples/lammps_files/simple_lammps && python lammps_from_python.py)
-        (cd examples/lammps_files/simple_lammps && mpirun -np 2 python lammps_from_python_parallel.py)
+        pushd examples/lammps_files/simple_lammps
+        coverage run --rcfile=${GITHUB_WORKSPACE}/.coveragerc --append lammps_from_python.py
+        mpirun -np 2 coverage run -p --rcfile=${GITHUB_WORKSPACE}/.coveragerc --append lammps_from_python_parallel.py
+        coverage combine
+        coverage xml -o coverage-lammps.xml
+        popd
+        cp examples/lammps_files/simple_lammps/coverage-lammps.xml ./
     - name: "Upload coverage to Codecov"
       continue-on-error: true
       uses: codecov/codecov-action@v3

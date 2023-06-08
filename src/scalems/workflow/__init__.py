@@ -216,6 +216,55 @@ class Task:
         fulfilled, which seem very pluggable.
     """
 
+    # We don't currently have a use for a stand-alone Task.
+    # We use the async context manager and the exception() method.
+    # def __await__(self):
+    #     """Implement the asyncio task represented by this object."""
+    #     # Note that this is not a native coroutine object; we cannot `await`
+    #     # The role of object.__await__() is to return an iterator that will be
+    #     # run to exhaustion in the context of an event loop.
+    #     # We assume that most of the asyncio activity happens through the
+    #     # async context mananager behavior and other async member functions.
+    #     # If we choose to `await instance` at all, we need a light-weight
+    #     # iteration we can perform to surrender control of the event loop,
+    #     # and then just do some sort of tidying or reporting that doesn't fit well
+    #     # into __aexit__(), such as the ability to return a value.
+    #
+    #     # # Note: We can't do this without first wait on some sort of Done event...
+    #     # failures = []
+    #     # for t in self.rp_tasks:
+    #     #     logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
+    #     #     if t.state != rp.states.DONE or t.exit_code != 0:
+    #     #         logger.error(f'RP Task unsuccessful: {repr(t)}')
+    #     #         failures.append(t)
+    #     # if len(failures) > 0:
+    #     #     warnings.warn('Unsuccessful tasks: ' + ', '.join([repr(t) for t in
+    #     failures]))
+    #
+    #     yield
+    #     if self._exception:
+    #         raise self._exception
+    #
+    #     # # If we want to provide a "Future-like" interface, we should support the
+    #     callback
+    #     # # protocols and implement the following generator function.
+    #     # if not self.done():
+    #     #     self._asyncio_future_blocking = True
+    #     #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio
+    #     .isfuture
+    #     #
+    #     #     yield self  # This tells Task to wait for completion.
+    #     # if not self.done():
+    #     #     raise RuntimeError("The dispatcher task was not 'await'ed.")
+    #     # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
+    #     # to be raised upon exit from the generator."
+    #     # The Task works like a `result = yield from awaitable` expression.
+    #     # The iterator (generator) yields until exhausted,
+    #     # then raises StopIteration with the value returned in by the generator
+    #     function.
+    #     # return self.result()  # May raise too.
+    #     # # Otherwise, the only allowed value from the iterator is None.
+
     def result(self):
         if not self.done():
             raise InvalidStateError("Called result() on a Task that is not done.")
@@ -1088,55 +1137,6 @@ class Queuer:
 
     def exception(self) -> typing.Union[None, Exception]:
         return self._exception
-
-    # We don't currently have a use for a stand-alone Task.
-    # We use the async context manager and the exception() method.
-    # def __await__(self):
-    #     """Implement the asyncio task represented by this object."""
-    #     # Note that this is not a native coroutine object; we cannot `await`
-    #     # The role of object.__await__() is to return an iterator that will be
-    #     # run to exhaustion in the context of an event loop.
-    #     # We assume that most of the asyncio activity happens through the
-    #     # async context mananager behavior and other async member functions.
-    #     # If we choose to `await instance` at all, we need a light-weight
-    #     # iteration we can perform to surrender control of the event loop,
-    #     # and then just do some sort of tidying or reporting that doesn't fit well
-    #     # into __aexit__(), such as the ability to return a value.
-    #
-    #     # # Note: We can't do this without first wait on some sort of Done event...
-    #     # failures = []
-    #     # for t in self.rp_tasks:
-    #     #     logger.info('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-    #     #     if t.state != rp.states.DONE or t.exit_code != 0:
-    #     #         logger.error(f'RP Task unsuccessful: {repr(t)}')
-    #     #         failures.append(t)
-    #     # if len(failures) > 0:
-    #     #     warnings.warn('Unsuccessful tasks: ' + ', '.join([repr(t) for t in
-    #     failures]))
-    #
-    #     yield
-    #     if self._exception:
-    #         raise self._exception
-    #
-    #     # # If we want to provide a "Future-like" interface, we should support the
-    #     callback
-    #     # # protocols and implement the following generator function.
-    #     # if not self.done():
-    #     #     self._asyncio_future_blocking = True
-    #     #     # ref https://docs.python.org/3/library/asyncio-future.html#asyncio
-    #     .isfuture
-    #     #
-    #     #     yield self  # This tells Task to wait for completion.
-    #     # if not self.done():
-    #     #     raise RuntimeError("The dispatcher task was not 'await'ed.")
-    #     # Ref PEP-0380: "return expr in a generator causes StopIteration(expr)
-    #     # to be raised upon exit from the generator."
-    #     # The Task works like a `result = yield from awaitable` expression.
-    #     # The iterator (generator) yields until exhausted,
-    #     # then raises StopIteration with the value returned in by the generator
-    #     function.
-    #     # return self.result()  # May raise too.
-    #     # # Otherwise, the only allowed value from the iterator is None.
 
 
 _shared_scope_lock = threading.RLock()

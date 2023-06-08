@@ -911,8 +911,10 @@ async def add_pilot(runtime: Runtime, **kwargs):
 
     # Warning: The Pilot ID needs to be unique within the Session.
     pilot_description = {"uid": f"pilot.{str(uuid.uuid4())}"}
-    pilot_description.update(config.rp_resource_params.get("PilotDescription", {}))
+    pilot_description.update(config.rp_resource_params.get("PilotDescription", (("exit_on_error", False),)))
     pilot_description.update({"resource": config.execution_target})
+    if pilot_description.get("exit_on_error", True):
+        warnings.warn("Failing to set PilotDescription.exit_on_error to False may prevent clean shut down.")
 
     # TODO: Pilot venv (#90, #94).
     # Currently, Pilot venv must be specified in the JSON file for resource
@@ -1083,6 +1085,28 @@ class RPDispatchingExecutor(RuntimeManager):
             DispatchError: if task dispatching could not be set up.
             asyncio.CancelledError: if parent `asyncio.Task` is cancelled while executing.
 
+        Note:
+            **Signal handling**
+
+            RP is known to use IPC signals in several cases. We believe that the
+            client environment should only experience an internally triggered
+            SIGINT in a single code path, and the behavior can be suppressed by
+            setting the Pilot's :py:attr:`~radical.pilot.PilotDescription.exit_on_error`
+            attribute to `False`.
+
+            We could use
+            `loop.add_signal_handler() <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.add_signal_handler>`__
+            to convert to an exception that we can raise in an appropriate task, but this
+            is probably unnecessary. Moreover, with Python 3.11, we get a sensible
+            signal handling behavior (for SIGINT) with :py:class:`asyncio.Runner`.
+            Per https://docs.python.org/3/library/asyncio-runner.html#handling-keyboard-interruption,
+            we can just make sure that our run time resources will be properly
+            shut down in the event of a :py:class:`asyncio.CancelledError`, including
+            sending appropriate calls to the `radical.pilot` framework.
+
+            See Also:
+                https://github.com/SCALE-MS/randowtal/issues/1
+
         TODO: More concurrency.
             The rp.Pilot and raptor task can be separately awaited, and we should allow
             input data staging to begin as soon as we have enough run time details to do it.
@@ -1106,19 +1130,6 @@ class RPDispatchingExecutor(RuntimeManager):
         #   * We need to be able to schedule RP Task callbacks in the same process as the
         #     asyncio event loop in order to handle Futures for RP tasks.
         # See https://github.com/SCALE-MS/randowtal/issues/2
-
-        # TODO: RP triggers SIGINT in various failure modes.
-        #  We should use loop.add_signal_handler() to convert to an exception
-        #  that we can raise in an appropriate task. However, we should make sure that we
-        #  account for the signal handling that RP expects to be able to do.
-        #  See https://github.com/SCALE-MS/randowtal/issues/1
-        #  We should also make sure that scalems and RP together handle keyboard interrupts
-        #  as a user would expect.
-        # Note that PilotDescription can use `'exit_on_error': False` to suppress the SIGINT,
-        # but we have not fully explored the consequences of doing so.
-        # Note also that RP Task.cancel() issues a SIGTERM in Task processes,
-        # which we would normally be even more cautious about trapping, so we should
-        # avoid explicitly or implicitly allowing Task.cancel().
 
         try:
             #

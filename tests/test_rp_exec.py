@@ -1,4 +1,4 @@
-"""Dispatch scalems.exec through RADICAL Pilot.
+"""Execute through RADICAL Pilot.
 
 For testing purposes, the RP dispatching can use a Docker container to
 encapsulate the details of the RP-enabled environment, such as the required
@@ -6,6 +6,10 @@ MongoDB instance and RADICAL_PILOT_DBURL environment variable.
 Refer to the repository directories ``docker`` and ``.github/workflows``.
 
 Note: ``export RADICAL_LOG_LVL=DEBUG`` to enable RP debugging output.
+
+**A note on SIGINT:**
+We use *exit_on_error=False* in the PilotDescription to avoid RP injecting a
+SIGINT in the interpreter process.
 """
 
 import asyncio
@@ -43,8 +47,6 @@ import logging
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
-
-# TODO: Catch sigint from RP and apply our own timeout.
 
 pytestmark = pytest.mark.skipif(condition=rp is None, reason="These tests require RADICAL Pilot.")
 

@@ -957,8 +957,10 @@ async def get_pilot_resources(pilot: rp.Pilot):
         return rm_info.copy()
 
 
-class RPDispatchingExecutor(scalems.execution.RuntimeManager):
+class RPDispatchingExecutor(scalems.execution.RuntimeManager[Configuration]):
     """Client side manager for work dispatched through RADICAL Pilot.
+
+    Extends :py:class:`scalems.execution.RuntimeManager`
 
     Configuration points:
 
@@ -966,7 +968,14 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
     * pilot config
     * session config?
 
-    Extends :py:class:`scalems.execution.RuntimeManager`
+    We try to wrap rp UI calls in separate threads. Note, though, that
+
+    * The rp.Session needs to be created in the root thread to be able to correctly
+      manage signal handlers and subprocesses, and
+    * We need to be able to schedule RP Task callbacks in the same process as the
+      asyncio event loop in order to handle Futures for RP tasks.
+
+    See https://github.com/SCALE-MS/randowtal/issues/2
     """
 
     runtime: "scalems.radical.runtime.Runtime"
@@ -1122,13 +1131,6 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
         config: Configuration = configuration()
 
         # TODO: Check that we have a FileStore.
-
-        # We try to wrap rp UI calls in separate threads. Note, though, that
-        #   * The rp.Session needs to be created in the root thread to be able to correctly
-        #     manage signal handlers and subprocesses, and
-        #   * We need to be able to schedule RP Task callbacks in the same process as the
-        #     asyncio event loop in order to handle Futures for RP tasks.
-        # See https://github.com/SCALE-MS/randowtal/issues/2
 
         try:
             #

@@ -368,7 +368,7 @@ def _new_pilot(session: rp.Session, pilot_manager: rp.PilotManager, pilot_descri
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
-        pilot = pilot_manager.submit_pilots(rp.PilotDescription(pilot_description))
+        pilot = pilot_manager.submit_pilots([rp.PilotDescription(pilot_description)])[0]
     return pilot
 
 

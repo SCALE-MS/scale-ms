@@ -1095,7 +1095,8 @@ class RPDispatchingExecutor(RuntimeManager):
             attribute to `False`.
 
             We could use
-            `loop.add_signal_handler() <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.add_signal_handler>`__
+            `loop.add_signal_handler()
+            <https://docs.python.org/3/library/asyncio-eventloop.html#asyncio.loop.add_signal_handler>`__
             to convert to an exception that we can raise in an appropriate task, but this
             is probably unnecessary. Moreover, with Python 3.11, we get a sensible
             signal handling behavior (for SIGINT) with :py:class:`asyncio.Runner`.

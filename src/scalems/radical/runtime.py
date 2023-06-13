@@ -190,7 +190,6 @@ import scalems.execution
 import scalems.file
 import scalems.invocation
 import scalems.messages
-import scalems.radical
 import scalems.radical.raptor
 import scalems.store
 import scalems.subprocess
@@ -204,7 +203,6 @@ from scalems.exceptions import ScaleMSError
 from .raptor import raptor_input
 from ..store import FileStore
 from ..execution import AbstractWorkflowUpdater
-from ..execution import RuntimeManager
 from ..identifiers import EphemeralIdentifier
 from ..identifiers import TypeIdentifier
 
@@ -959,7 +957,7 @@ async def get_pilot_resources(pilot: rp.Pilot):
         return rm_info.copy()
 
 
-class RPDispatchingExecutor(RuntimeManager):
+class RPDispatchingExecutor(scalems.execution.RuntimeManager):
     """Client side manager for work dispatched through RADICAL Pilot.
 
     Configuration points:

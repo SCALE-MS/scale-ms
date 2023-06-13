@@ -297,13 +297,9 @@ if typing.TYPE_CHECKING:
 # We import rp before `logging` to avoid warnings when rp monkey-patches the
 # logging module. This `try` suite helps prevent auto-code-formatters from
 # rearranging the import order of built-in versus third-party modules.
-try:
-    import radical.pilot as rp
-except ImportError:
-    warnings.warn("RADICAL Pilot installation not found.")
+import radical.pilot as rp
 
 import scalems.exceptions
-import scalems.radical
 import scalems.messages
 import scalems.file as _file
 import scalems.store as _store

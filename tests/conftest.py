@@ -296,7 +296,7 @@ def _new_session():
 
 def _new_runtime():
     session = _new_session()
-    runtime = scalems.radical.runtime.Runtime(session)
+    runtime = scalems.radical.runtime.RuntimeSession(session)
     return runtime
 
 
@@ -373,13 +373,13 @@ def _new_pilot(session: rp.Session, pilot_manager: rp.PilotManager, pilot_descri
 
 
 @pytest.fixture(scope="session")
-def rp_runtime(pilot_description) -> scalems.radical.runtime.Runtime:
+def rp_runtime(pilot_description) -> scalems.radical.runtime.RuntimeSession:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
-        runtime: scalems.radical.runtime.Runtime = _new_runtime()
+        runtime: scalems.radical.runtime.RuntimeSession = _new_runtime()
         try:
             yield runtime
         finally:
@@ -387,7 +387,7 @@ def rp_runtime(pilot_description) -> scalems.radical.runtime.Runtime:
         assert runtime.session.closed
 
 
-def _check_pilot_manager(runtime: scalems.radical.runtime.Runtime):
+def _check_pilot_manager(runtime: scalems.radical.runtime.RuntimeSession):
     # Caller should destroy and recreate Pilot if this call has to replace PilotManager.
     session = runtime.session
     original_pilot_manager: rp.PilotManager = runtime.pilot_manager()
@@ -406,7 +406,7 @@ def _check_pilot_manager(runtime: scalems.radical.runtime.Runtime):
         runtime.pilot_manager(pilot_manager)
 
 
-def _check_pilot(runtime: scalems.radical.runtime.Runtime, pilot_description: rp.PilotDescription, venv):
+def _check_pilot(runtime: scalems.radical.runtime.RuntimeSession, pilot_description: rp.PilotDescription, venv):
     pilot_manager = runtime.pilot_manager()
     pilot = runtime.pilot()
     _check_pilot_manager(runtime=runtime)
@@ -436,7 +436,7 @@ def _check_pilot(runtime: scalems.radical.runtime.Runtime, pilot_description: rp
         assert pilot is runtime.pilot()
 
 
-def _check_task_manager(runtime: scalems.radical.runtime.Runtime, pilot_description: rp.PilotDescription, venv):
+def _check_task_manager(runtime: scalems.radical.runtime.RuntimeSession, pilot_description: rp.PilotDescription, venv):
     task_manager = runtime.task_manager()
     original_pilot = runtime.pilot()
     _check_pilot(runtime=runtime, pilot_description=pilot_description, venv=venv)
@@ -456,14 +456,14 @@ def _check_task_manager(runtime: scalems.radical.runtime.Runtime, pilot_descript
 
 
 @pytest.fixture(scope="function")
-def rp_pilot_manager(rp_runtime: scalems.radical.runtime.Runtime):
+def rp_pilot_manager(rp_runtime: scalems.radical.runtime.RuntimeSession):
     _check_pilot_manager(runtime=rp_runtime)
     yield rp_runtime.pilot_manager()
 
 
 @pytest.fixture(scope="function")
 def rp_pilot(
-    rp_runtime: scalems.radical.runtime.Runtime,
+    rp_runtime: scalems.radical.runtime.RuntimeSession,
     rp_pilot_manager: rp.PilotManager,
     pilot_description: rp.PilotDescription,
     rp_venv,
@@ -476,7 +476,7 @@ def rp_pilot(
 
 
 @pytest.fixture(scope="function")
-def rp_task_manager(rp_runtime: scalems.radical.runtime.Runtime, pilot_description, rp_venv):
+def rp_task_manager(rp_runtime: scalems.radical.runtime.RuntimeSession, pilot_description, rp_venv):
     _check_task_manager(runtime=rp_runtime, pilot_description=pilot_description, venv=rp_venv)
     task_manager: rp.TaskManager = rp_runtime.task_manager()
     yield task_manager

@@ -23,11 +23,11 @@ scalems.radical.runtime support module
     :member-order: bysource
     :exclude-members: __new__
 
-.. autoclass:: scalems.radical.runtime.Configuration
+.. autoclass:: scalems.radical.runtime.RuntimeConfiguration
     :undoc-members:
     :members:
 
-.. autoclass:: scalems.radical.runtime.Runtime
+.. autoclass:: scalems.radical.runtime.RuntimeSession
     :members:
 
 .. autofunction:: scalems.radical.runtime.rp_task

@@ -46,7 +46,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
+logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
 pytestmark = pytest.mark.skipif(condition=rp is None, reason="These tests require RADICAL Pilot.")
 
@@ -64,8 +64,6 @@ async def test_rp_future(rp_task_manager):
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
     should appropriately yield when the rp.Task is not finished.
     """
-    import radical.pilot as rp
-
     timeout = 120
 
     tmgr = rp_task_manager
@@ -172,7 +170,6 @@ async def test_raptor_master(pilot_description, rp_venv):
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
     params = scalems.radical.runtime.Configuration(
@@ -282,7 +279,6 @@ async def test_worker(pilot_description, rp_venv):
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     params = scalems.radical.runtime.Configuration(
         execution_target=pilot_description.resource,
@@ -459,7 +455,6 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
 
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
-    logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
     params = scalems.radical.runtime.Configuration(

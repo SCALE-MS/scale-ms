@@ -30,7 +30,7 @@ Invocation:
 # Note: Even though `from scalems import *` is generally discouraged, the __all__ module attribute is useful
 # to document the intended public interface *and* to indicate sort order for tools like
 # https://www.sphinx-doc.org/en/master/usage/extensions/autodoc.html#directive-automodule
-__all__ = [
+__all__ = (
     # core UI
     "app",
     # tools / commands
@@ -42,18 +42,17 @@ __all__ = [
     "__version__",
     # core API
     "ScriptEntryPoint",
-]
+)
 
 import abc
 import functools
-import logging
 import typing
 
 from ._version import __version__
 from .subprocess import executable
 from .workflow import get_scope
+from .logger import logger
 
-logger = logging.getLogger(__name__)
 logger.debug("Imported {}".format(__name__))
 
 

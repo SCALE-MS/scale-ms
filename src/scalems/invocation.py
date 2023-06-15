@@ -113,6 +113,7 @@ import threading
 import typing
 
 import scalems.exceptions
+import scalems.execution
 import scalems.workflow
 from scalems import ScriptEntryPoint
 
@@ -144,7 +145,7 @@ def run_dispatch(work, context: scalems.workflow.WorkflowManager):
     """
 
     async def _dispatch(_work):
-        async with context.dispatch():
+        async with scalems.execution.dispatch(context):
             # Add work to the queue
             _work()
         # Return an iterable of results.
@@ -254,6 +255,7 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
         #     should we effectively reimplement asyncio.run through scalems.run, or
         #     should we think about
         #     [ast.PyCF_ALLOW_TOP_LEVEL_AWAIT](https://docs.python.org/3/whatsnew/3.8.html#builtins)
+        # See also: https://docs.python.org/3/library/asyncio-runner.html
 
         # Execute the script in the current process.
         # TODO: Can we support mixing invocation with pytest?

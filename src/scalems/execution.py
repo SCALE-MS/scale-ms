@@ -99,6 +99,7 @@ import asyncio
 import contextlib
 import logging
 import typing
+import weakref
 
 import scalems.exceptions
 from scalems.exceptions import APIError
@@ -108,6 +109,7 @@ from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
 from scalems.messages import QueueItem
 from scalems.store import FileStore
+from scalems.workflow import Queuer
 from scalems.workflow import Task
 
 logger = logging.getLogger(__name__)
@@ -332,7 +334,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     @abc.abstractmethod
     def updater(self) -> AbstractWorkflowUpdater:
         """Initialize a WorkflowUpdater for the configured runtime."""
-        # TODO: Convert from an abstract method to a registration pattern.
+        # TODO(#335): Convert from an abstract method to a registration pattern.
         ...
 
     async def __aenter__(self):
@@ -359,8 +361,9 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                                 logger.warning("Runner task stopped unusually early, but did not raise an exception.")
                     self._queue_runner_task = runner_task
 
-                # Note: it would probably be most useful to return something with a
-                # WorkflowManager interface...
+                # The returned object needs to provide a Runtime interface for use
+                # by the Executor (per scalems.execution.executor()), which is
+                # not necessarily `self`.
                 return self
             except Exception as e:
                 self._exception = e
@@ -456,6 +459,159 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # TODO: Catch internal exceptions for useful logging and user-friendliness.
         if exc_type is not None:
             return False
+
+
+@contextlib.asynccontextmanager
+async def dispatch(workflow_manager, dispatcher: "Queuer" = None, params=None):
+    """Enter the execution dispatching state.
+
+    Attach to a dispatching executor, then provide a scope for concurrent activity.
+    This is also the scope during which the RADICAL Pilot Session exists.
+
+    Provide the executor with any currently-managed work in a queue.
+    While the context manager is active, new work added to the queue will be picked up
+    by the executor. When the context manager is exited, new work will resume
+    queuing locally and the remote tasks will be resolved, then the dispatcher
+    will be disconnected.
+
+    Currently, we tie the lifetime of the dispatcher to this context manager.
+    When leaving the `with` block, we trigger the executor to clean-up and wait for
+    its task to complete.
+    We may choose some other relationship in the future.
+
+    Args:
+        dispatcher: A queue processor that will subscribe to the add_item hook to
+        feed the executor.
+        params: a parameters object relevant to the execution back-end
+
+    .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
+
+    """
+    if workflow_manager.closed:
+        raise scalems.exceptions.ScopeError("WorkflowManager is closed.")
+
+    # 1. Bind a new executor to its queue.
+    # 2. Bind a dispatcher to the executor.
+    # 3. Enter executor context.
+    # 4. Enter dispatcher context.
+    #         # 1. (While blocking event loop in UI thread) Install a hook
+    #              for the queuer to catch new calls to add_item (the
+    #              dispatcher_queue).
+    #         # 2. Get snapshot of current workflow state with which to initialize
+    #              the executor. (Unblock.)
+    #         # 3. Spool workflow snapshot to executor.
+    #         # 4. Start dispatcher queue runner.
+    #         # 5. Yield.
+    # 5. Exit dispatcher context.
+    # 6. Exit executor context.
+    # TODO: Add lock context for WorkflowManager event hooks
+    #  rather than assume the UI and event loop are always in the same thread.
+
+    executor = workflow_manager._executor_factory(manager=workflow_manager, params=params)
+
+    # Avoid race conditions while checking for a running dispatcher.
+    # TODO: Clarify dispatcher state machine and remove/replace assertions.
+    # Warning: The dispatching protocol is immature.
+    # Initially, we don't expect contention for the lock,
+    # and if there is contention, it probably represents
+    # an unintended race condition or systematic dead-lock.
+    assert not workflow_manager._dispatcher_lock.locked()
+    async with workflow_manager._dispatcher_lock:
+        # Dispatching state may be reentrant, but it does not make sense to
+        # re-enter through this call structure.
+        if workflow_manager._dispatcher is not None:
+            raise ProtocolError(f"Already dispatching through {repr(workflow_manager._dispatcher)}.")
+        if dispatcher is None:
+            dispatcher = Queuer(
+                source=workflow_manager,
+                command_queue=executor.queue(),
+                dispatcher_lock=workflow_manager._dispatcher_lock,
+            )
+            workflow_manager._dispatcher = dispatcher
+        else:
+            workflow_manager._dispatcher = weakref.proxy(dispatcher)
+
+    try:
+        # Manage scope of executor operation with a context manager.
+        # RP does not yet use an event loop, but we can use async context manager
+        # for future compatibility with asyncio management of network connections,
+        # etc.
+        #
+        # Note: the executor owns a rp.Session during operation.
+        async with executor as dispatching_session:
+            # Note: *executor* (sms.execution.RuntimeManager) returns itself when
+            # "entered", then we yield it below. Now that RuntimeManager is
+            # fairly normalized, we could pass the dispatcher to a (new)
+            # context manager member function
+            # and let the RuntimeManager handle all of this *dispatcher* logic.
+            # The WorkflowManager could pass itself as a simpler interface
+            # * to the Queuer for the `subscribe` add_item hook and
+            # * to the RuntimeManager to provide a WorkflowEditor.edit_item.
+            # E.g.
+            #     @asynccontextmanager
+            #     async def RuntimeManager.manage(
+            #       dispatcher: Queuer,
+            #       subscriber: WorkflowEditor))
+            # Consider also the similarity of RuntimeManager-WorkflowManager-Queuer
+            # to a Model-View-Controller.
+            async with dispatcher:
+                # We can surrender control here and leave the executor and
+                # dispatcher tasks active while evaluating a `with` block suite
+                # for the `dispatch` context manager.
+                yield dispatching_session
+                # When leaving the `with` suite, Queuer.__aexit__ sends a *stop*
+                # command to the queue.
+            # The *stop* command will be picked up by sms.execution.manage_execution()
+            # (as the RuntimeManager's *runner_task*), which will be awaited in
+            # RuntimeManager.__exit__().
+
+    except Exception as e:
+        logger.exception("Unhandled exception while in dispatching context.")
+        raise e
+
+    finally:
+        # Warning: The dispatching protocol is immature.
+        # Initially, we don't expect contention for the lock,
+        # and if there is contention, it probably represents
+        # an unintended race condition or systematic dead-lock.
+        # TODO: Clarify dispatcher state machine and remove/replace assertions.
+        #       Be on the look-out for nested context managers and usage in
+        #       `finally` blocks.
+        assert not workflow_manager._dispatcher_lock.locked()
+        async with workflow_manager._dispatcher_lock:
+            workflow_manager._dispatcher = None
+
+        dispatcher_exception = dispatcher.exception()
+        if dispatcher_exception:
+            if isinstance(dispatcher_exception, asyncio.CancelledError):
+                logger.info("Dispatching queue processor cancelled.")
+            else:
+                assert not isinstance(dispatcher_exception, asyncio.CancelledError)
+                logger.exception("Queuer encountered exception.", exc_info=dispatcher_exception)
+        else:
+            if not dispatcher.queue().empty():
+                logger.error(
+                    "Queuer finished while items remain in dispatcher queue. "
+                    "Approximate size: {}".format(dispatcher.queue().qsize())
+                )
+
+        executor_exception = executor.exception()
+        if executor_exception:
+            if isinstance(executor_exception, asyncio.CancelledError):
+                logger.info("Executor cancelled.")
+            else:
+                assert not isinstance(executor_exception, asyncio.CancelledError)
+                logger.exception("Executor task finished with exception", exc_info=executor_exception)
+        else:
+            if not executor.queue().empty():
+                # TODO: Handle non-empty queue.
+                # There are various reasons that the queue might not be empty and
+                # we should clean up properly instead of bailing out or compounding
+                # exceptions.
+                # TODO: Check for extraneous extra *stop* commands.
+                logger.error("Bug: Executor left tasks in the queue without raising an exception.")
+
+        logger.debug("Exiting {} dispatch context.".format(type(workflow_manager).__name__))
 
 
 async def manage_execution(executor: RuntimeManager, *, processing_state: asyncio.Event):

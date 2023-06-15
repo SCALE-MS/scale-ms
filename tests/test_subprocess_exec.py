@@ -10,6 +10,7 @@ import logging
 import pytest
 
 import scalems.context
+import scalems.execution
 import scalems.local
 import scalems.workflow
 from scalems.subprocess import executable
@@ -41,7 +42,7 @@ async def test_executable_local(cleandir):
         # scalems.run(cmd)
         # TODO: Remove Session.run() from public interface (use scalems.run())
         # await context.run()
-        async with context.dispatch():
+        async with scalems.execution.dispatch(context):
             ...
         result = cmd.result()  # type: scalems.subprocess.SubprocessResult
         assert result.stdout.name == "stdout.txt"
@@ -58,7 +59,7 @@ async def test_executable_local(cleandir):
         # cmd.result()
         # TODO(#82): Enable scalems.run()
         # scalems.run(cmd)
-        async with context.dispatch():
+        async with scalems.execution.dispatch(context):
             # TODO: Input type checking.
             cmd = executable(("/bin/echo", "hello", "world"), stdout="stdout.txt")
             assert isinstance(cmd, scalems.workflow.ItemView)

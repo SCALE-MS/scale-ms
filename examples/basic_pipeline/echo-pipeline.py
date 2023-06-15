@@ -32,6 +32,7 @@ import typing
 
 import scalems.radical
 import scalems.call
+import scalems.execution
 import scalems.workflow
 
 
@@ -94,7 +95,7 @@ class TaskHandle(typing.Generic[_ResultT]):
 
 async def main(text, manager: scalems.workflow.WorkflowManager, size: int):
     session: scalems.radical.runtime.RPDispatchingExecutor
-    async with manager.dispatch() as session:
+    async with scalems.execution.dispatch(manager) as session:
         # submit a single pipeline task to pilot job
         # task_handle = await TaskHandle.submit(
         #     func=sender,

@@ -15,7 +15,7 @@ jobs:
     timeout-minutes: 15
     strategy:
       matrix:
-        python-version: [3.9, "3.10"]
+        python-version: ["3.9", "3.11"]
     env:
       LAMMPSVER: 20201029
       LAMMPSHASH: da9b6ecb5dc20c7614b9a2ef65903225654badfead9feb8937f1fbc6b4c9838e
@@ -166,7 +166,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.10"]
 
     steps:
     - uses: actions/checkout@v3
@@ -275,7 +275,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.9"]
 
     steps:
     - name: Prepare ssh
@@ -400,7 +400,7 @@ jobs:
 
     strategy:
       matrix:
-        python-version: ["3.10"]
+        python-version: ["3.11"]
 
     steps:
     - name: Prepare ssh
@@ -516,7 +516,7 @@ jobs:
     timeout-minutes: 4
     strategy:
       matrix:
-        python-version: [3.9]
+        python-version: ["3.11"]
 
     steps:
     - uses: actions/checkout@v3

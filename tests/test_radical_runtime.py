@@ -7,7 +7,7 @@ import pytest
 import radical.pilot as rp
 
 from scalems.exceptions import APIError
-from scalems.radical.runtime import Runtime
+from scalems.radical.runtime import RuntimeSession
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -23,7 +23,7 @@ def test_runtime_normal_instance(rp_task_manager, pilot_description):
 
         session: rp.Session = rp_task_manager.session
 
-        state = Runtime(session=session)
+        state = RuntimeSession(session=session)
 
         state.task_manager(rp_task_manager)
 
@@ -54,7 +54,7 @@ def test_runtime_normal_uid(rp_task_manager, pilot_description):
 
         session: rp.Session = rp_task_manager.session
 
-        state = Runtime(session=session)
+        state = RuntimeSession(session=session)
 
         state.task_manager(rp_task_manager.uid)
 
@@ -86,7 +86,7 @@ def test_runtime_bad_uid(pilot_description):
         session = rp.Session()
 
         with session:
-            state = Runtime(session=session)
+            state = RuntimeSession(session=session)
 
             with pytest.raises(ValueError):
                 state.task_manager("spam")
@@ -133,7 +133,7 @@ def test_runtime_mismatch(pilot_description):
         session = rp.Session()
 
         with session:
-            state = Runtime(session=session)
+            state = RuntimeSession(session=session)
 
             with pytest.raises(APIError):
                 state.task_manager(original_tmgr)

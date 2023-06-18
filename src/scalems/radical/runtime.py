@@ -37,7 +37,7 @@ See Also:
     participant "runner task" as scalems.execution
     end box
     box "SCALE-MS RP adapter" #linen
-    participant Runtime as client_runtime
+    participant RuntimeSession as client_runtime
     participant Executor as client_executor
     end box
 
@@ -151,8 +151,8 @@ __all__ = (
     "configuration",
     "executor_factory",
     "parser",
-    "Configuration",
-    "Runtime",
+    "RuntimeConfiguration",
+    "RuntimeSession",
 )
 
 import argparse
@@ -296,15 +296,15 @@ def parser(add_help=False):
 
 
 @dataclasses.dataclass(frozen=True)
-class Configuration:
+class RuntimeConfiguration:
     """Module configuration information.
 
     See also:
         * :py:func:`scalems.radical.configuration`
         * :py:data:`scalems.radical.runtime.parser`
-        * :py:class:`scalems.radical.runtime.Runtime`
+        * :py:class:`scalems.radical.runtime.RuntimeSession`
 
-    .. todo:: Consider merging with module Runtime state container.
+    .. todo:: Consider merging with module RuntimeSession state container.
 
     """
 
@@ -333,14 +333,14 @@ class Configuration:
                 raise RPConfigurationError(message)
 
 
-class Runtime:
+class RuntimeSession:
     """Container for scalems.radical runtime state data.
 
     Note:
         This class is almost exclusively a container. Lifetime management is assumed
         to be handled externally.
 
-    .. todo:: Let `scalems.radical.runtime.Configuration` holds the run time invariant.
+    .. todo:: Let `scalems.radical.runtime.RuntimeConfiguration` holds the run time invariant.
         And let this become more than a container, explicitly encapsulating
         the responsibilities of `RPDispatchingExecutor.runtime_startup()`
         and `RPDispatchingExecutor.runtime_shutdown()`.
@@ -378,13 +378,13 @@ class Runtime:
         if pilot := self._pilot:
             pilot = pilot.uid
         raptor_id = getattr(self.raptor, "uid", None)
-        representation = f'<Runtime session:"{session}" pilot:"{pilot}" raptor:"{raptor_id}">'
+        representation = f'<RuntimeSession "{session}" pilot:"{pilot}" raptor:"{raptor_id}">'
         return representation
 
     def reset(self, session: rp.Session):
         """Reset the runtime state.
 
-        Close any existing resources and revert to a new Runtime state containing only
+        Close any existing resources and revert to a new RuntimeSession state containing only
         the provided *session*.
         """
         if not isinstance(session, rp.Session) or session.closed:
@@ -695,7 +695,7 @@ async def _get_scheduler(
 # functools can't cache this function while Configuration is unhashable (due to
 # unhashable dict member).
 # @functools.cache
-def get_pre_exec(conf: Configuration) -> tuple:
+def get_pre_exec(conf: RuntimeConfiguration) -> tuple:
     """Get the sequence of pre_exec commands for tasks on the currently configured execution target.
 
     Warning:
@@ -713,7 +713,7 @@ def get_pre_exec(conf: Configuration) -> tuple:
 
 
 @functools.singledispatch
-def _set_configuration(*args, **kwargs) -> Configuration:
+def _set_configuration(*args, **kwargs) -> RuntimeConfiguration:
     """Initialize or retrieve the module configuration.
 
     This module and the RADICAL infrastructure have various stateful aspects
@@ -733,13 +733,13 @@ def _set_configuration(*args, **kwargs) -> Configuration:
     # Not thread-safe
     if _configuration.get(None):
         raise APIError(f"configuration() cannot accept arguments when {__name__} is already configured.")
-    c = Configuration(*args, **kwargs)
+    c = RuntimeConfiguration(*args, **kwargs)
     _configuration.set(c)
     return _configuration.get()
 
 
 @_set_configuration.register
-def _(config: Configuration) -> Configuration:
+def _(config: RuntimeConfiguration) -> RuntimeConfiguration:
     # Not thread-safe
     if _configuration.get(None):
         raise APIError(f"configuration() cannot accept arguments when {__name__} is already configured.")
@@ -748,7 +748,7 @@ def _(config: Configuration) -> Configuration:
 
 
 @_set_configuration.register
-def _(namespace: argparse.Namespace) -> Configuration:
+def _(namespace: argparse.Namespace) -> RuntimeConfiguration:
     rp_resource_params = {
         "PilotDescription": {
             "access_schema": namespace.access,
@@ -765,7 +765,7 @@ def _(namespace: argparse.Namespace) -> Configuration:
     else:
         logger.debug("RP Raptor disabled.")
 
-    config = Configuration(
+    config = RuntimeConfiguration(
         execution_target=namespace.resource,
         target_venv=namespace.venv,
         rp_resource_params=rp_resource_params,
@@ -778,7 +778,7 @@ async def new_session():
     """Start a new RADICAL Pilot Session.
 
     Returns:
-        Runtime instance.
+        RuntimeSession instance.
 
     """
     # Note that we cannot resolve the full _resource config until we have a Session
@@ -803,7 +803,7 @@ async def new_session():
         session_args = dict(uid=session_id, cfg=session_config)
         _task = asyncio.create_task(asyncio.to_thread(rp.Session, (), **session_args), name="create-Session")
         session = await _task
-        runtime = Runtime(session=session)
+        runtime = RuntimeSession(session=session)
     return runtime
 
 
@@ -890,8 +890,8 @@ class _PilotDescriptionProxy(rp.PilotDescription):
                 yield key, normalize(hint, value)
 
 
-async def add_pilot(runtime: Runtime, **kwargs):
-    """Get a new rp.Pilot and add it to the Runtime instance."""
+async def add_pilot(runtime: RuntimeSession, **kwargs):
+    """Get a new rp.Pilot and add it to the RuntimeSession instance."""
     if kwargs:
         message = (
             f"scalems.radical.runtime.add_pilot() version {scalems.__version__} "
@@ -902,10 +902,10 @@ async def add_pilot(runtime: Runtime, **kwargs):
     pilot_manager = runtime.pilot_manager()
     task_manager = runtime.task_manager()
     if not pilot_manager or not task_manager:
-        raise ProtocolError(f"Runtime {runtime} is not ready to use.")
+        raise ProtocolError(f"RuntimeSession {runtime} is not ready to use.")
 
-    # Note: Consider fetching through the Runtime instance.
-    config: Configuration = configuration()
+    # Note: Consider fetching through the RuntimeSession instance.
+    config: RuntimeConfiguration = configuration()
 
     # Warning: The Pilot ID needs to be unique within the Session.
     pilot_description = {"uid": f"pilot.{str(uuid.uuid4())}"}
@@ -957,8 +957,10 @@ async def get_pilot_resources(pilot: rp.Pilot):
         return rm_info.copy()
 
 
-class RPDispatchingExecutor(scalems.execution.RuntimeManager):
+class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguration]):
     """Client side manager for work dispatched through RADICAL Pilot.
+
+    Extends :py:class:`scalems.execution.RuntimeManager`
 
     Configuration points:
 
@@ -966,10 +968,17 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
     * pilot config
     * session config?
 
-    Extends :py:class:`scalems.execution.RuntimeManager`
+    We try to wrap rp UI calls in separate threads. Note, though, that
+
+    * The rp.Session needs to be created in the root thread to be able to correctly
+      manage signal handlers and subprocesses, and
+    * We need to be able to schedule RP Task callbacks in the same process as the
+      asyncio event loop in order to handle Futures for RP tasks.
+
+    See https://github.com/SCALE-MS/randowtal/issues/2
     """
 
-    runtime: "scalems.radical.runtime.Runtime"
+    runtime: "scalems.radical.runtime.RuntimeSession"
     """See `scalems.execution.RuntimeManager.runtime`"""
 
     def __init__(
@@ -978,7 +987,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
         editor_factory: typing.Callable[[], typing.Callable] = None,
         datastore: FileStore = None,
         loop: asyncio.AbstractEventLoop,
-        configuration: Configuration,
+        configuration: RuntimeConfiguration,
         dispatcher_lock=None,
     ):
         """Create a client side execution manager.
@@ -1055,7 +1064,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
             configuration_dict["execution_target"] = self._runtime_configuration.execution_target
         configuration_dict["datastore"] = self.datastore
 
-        c = Configuration(**configuration_dict)
+        c = RuntimeConfiguration(**configuration_dict)
 
         token = _configuration.set(c)
         try:
@@ -1119,16 +1128,9 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
             until we absolutely have to (presumably when exiting the dispatching context).
 
         """
-        config: Configuration = configuration()
+        config: RuntimeConfiguration = configuration()
 
         # TODO: Check that we have a FileStore.
-
-        # We try to wrap rp UI calls in separate threads. Note, though, that
-        #   * The rp.Session needs to be created in the root thread to be able to correctly
-        #     manage signal handlers and subprocesses, and
-        #   * We need to be able to schedule RP Task callbacks in the same process as the
-        #     asyncio event loop in order to handle Futures for RP tasks.
-        # See https://github.com/SCALE-MS/randowtal/issues/2
 
         try:
             #
@@ -1141,7 +1143,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
             # We could choose another approach and change our assumptions, if appropriate.
             logger.debug("Entering RP dispatching context. Waiting for rp.Session.")
 
-            _runtime: Runtime = await new_session()
+            _runtime: RuntimeSession = await new_session()
             # At some point soon, we need to track Session ID for the workflow metadata.
             session_id = _runtime.session.uid
             # Do we want to log this somewhere?
@@ -1225,7 +1227,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
         return runner_task
 
     @staticmethod
-    async def cpi(command: str, runtime: Runtime):
+    async def cpi(command: str, runtime: RuntimeSession):
         """Send a control command to the raptor scheduler.
 
         Implements :py:func:`scalems.execution.RuntimeManager.cpi()`
@@ -1280,7 +1282,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
         return command_watcher
 
     @staticmethod
-    def runtime_shutdown(runtime: Runtime):
+    def runtime_shutdown(runtime: RuntimeSession):
         """Manage tear down of the RADICAL Pilot Session and resources.
 
         Several aspects of the RP runtime interface use blocking calls.
@@ -1293,7 +1295,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
         if session is None:
             raise scalems.exceptions.APIError(f"No Session in {runtime}.")
         if session.closed:
-            logger.error("Runtime Session is already closed?!")
+            logger.error("RuntimeSession is already closed?!")
         else:
             if runtime.raptor is not None:
                 # Note: The __aexit__ for the RuntimeManager makes sure that a `stop`
@@ -1341,13 +1343,13 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager):
                 logger.debug(f"Session {session.uid} closed.")
             else:
                 logger.error(f"Session {session.uid} not closed!")
-        logger.debug("Runtime shut down.")
+        logger.debug("RuntimeSession shut down.")
 
     def updater(self) -> "WorkflowUpdater":
         return WorkflowUpdater(executor=self)
 
 
-def configuration(*args, **kwargs) -> Configuration:
+def configuration(*args, **kwargs) -> RuntimeConfiguration:
     """Get (and optionally set) the RADICAL runtime configuration.
 
     With no arguments, returns the current configuration. If a configuration has
@@ -1365,7 +1367,7 @@ def configuration(*args, **kwargs) -> Configuration:
     if len(args) > 0:
         _set_configuration(*args, **kwargs)
     elif len(kwargs) > 0:
-        _set_configuration(Configuration(**kwargs))
+        _set_configuration(RuntimeConfiguration(**kwargs))
     elif _configuration.get(None) is None:
         # No config is set yet. Generate with module parser.
         namespace, _ = parser.parse_known_args()
@@ -1373,7 +1375,7 @@ def configuration(*args, **kwargs) -> Configuration:
     return _configuration.get()
 
 
-def executor_factory(manager: scalems.workflow.WorkflowManager, params: Configuration = None):
+def executor_factory(manager: scalems.workflow.WorkflowManager, params: RuntimeConfiguration = None):
     if params is not None:
         _set_configuration(params)
     params = configuration()

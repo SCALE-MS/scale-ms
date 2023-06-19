@@ -42,7 +42,7 @@ async def test_executable_local(cleandir):
         # scalems.run(cmd)
         # TODO: Remove Session.run() from public interface (use scalems.run())
         # await context.run()
-        async with scalems.execution.dispatch(context):
+        async with scalems.execution.dispatch(context, executor_factory=scalems.local.executor_factory):
             ...
         result = cmd.result()  # type: scalems.subprocess.SubprocessResult
         assert result.stdout.name == "stdout.txt"
@@ -59,7 +59,7 @@ async def test_executable_local(cleandir):
         # cmd.result()
         # TODO(#82): Enable scalems.run()
         # scalems.run(cmd)
-        async with scalems.execution.dispatch(context):
+        async with scalems.execution.dispatch(context, executor_factory=scalems.local.executor_factory):
             # TODO: Input type checking.
             cmd = executable(("/bin/echo", "hello", "world"), stdout="stdout.txt")
             assert isinstance(cmd, scalems.workflow.ItemView)

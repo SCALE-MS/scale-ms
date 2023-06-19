@@ -419,19 +419,12 @@ class WorkflowManager:
     """
 
     tasks: TaskMap
-    _executor_factory: typing.Callable
-    """Factory for a RuntimeManager or subclass.
-
-    TODO: Resolve circular reference between `execution` and `workflow` modules.
-    """
 
     # TODO: Consider a threading.Lock for editing permissions.
     # TODO: Consider asyncio.Lock instances for non-thread-safe state updates during
     #  execution and dispatching.
 
-    def __init__(
-        self, *, loop: asyncio.AbstractEventLoop, executor_factory, directory: typing.Union[str, os.PathLike] = None
-    ):
+    def __init__(self, *, loop: asyncio.AbstractEventLoop, directory: typing.Union[str, os.PathLike] = None):
         """
         The event loop for the program should be launched in the root thread,
         preferably early in the application launch.
@@ -441,8 +434,6 @@ class WorkflowManager:
 
         Args:
             loop: event loop, such as from asyncio.new_event_loop()
-            executor_factory: Implementation-specific callable to get a run time work
-                manager.
             directory: Filesystem path for the workflow file store.
         """
         # We are moving towards a composed rather than a derived WorkflowManager Context.
@@ -454,12 +445,6 @@ class WorkflowManager:
             raise ProtocolError("Event loop does not appear to be ready to use.")
         logger.debug(f"{repr(self)} acquired event loop {repr(loop)} at loop time {loop.time()}.")
         self._asyncio_event_loop = loop
-
-        if not callable(executor_factory):
-            raise TypeError("*executor_factory* argument must be a callable.")
-        # TODO: Resolve circular reference between `execution` and `workflow` modules.
-        # self._executor_factory: ExecutorFactory = executor_factory
-        self._executor_factory = executor_factory
 
         # Basic Context implementation details
         # TODO: Tasks should only writable within a WorkflowEditor context.

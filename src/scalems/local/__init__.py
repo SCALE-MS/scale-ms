@@ -42,7 +42,7 @@ def workflow_manager(loop: asyncio.AbstractEventLoop):
 
     There is no implicit OS level multithreading or multiprocessing.
     """
-    return _workflow.WorkflowManager(loop=loop, executor_factory=executor_factory)
+    return _workflow.WorkflowManager(loop=loop)
 
 
 class _ExecutionContext:

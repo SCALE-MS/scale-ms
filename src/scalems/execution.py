@@ -190,7 +190,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     A RuntimeManager is instantiated within the scope of the
     `scalems.workflow.WorkflowManager.dispatch` context manager using the
-    :py:meth:`scalems.workflow.WorkflowManager._executor_factory`.
+    *executor_factory* provided to `scalems.execution.dispatch`.
     """
 
     get_edit_item: typing.Callable[[], typing.Callable]
@@ -462,7 +462,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
 
 @contextlib.asynccontextmanager
-async def dispatch(workflow_manager, dispatcher: "Queuer" = None, params=None):
+async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" = None, params=None):
     """Enter the execution dispatching state.
 
     Attach to a dispatching executor, then provide a scope for concurrent activity.
@@ -480,8 +480,10 @@ async def dispatch(workflow_manager, dispatcher: "Queuer" = None, params=None):
     We may choose some other relationship in the future.
 
     Args:
+        executor_factory: Implementation-specific callable to get a run time work
+            manager.
         dispatcher: A queue processor that will subscribe to the add_item hook to
-        feed the executor.
+            feed the executor.
         params: a parameters object relevant to the execution back-end
 
     .. todo:: Clarify re-entrance policy, thread-safety, etcetera, and enforce.
@@ -507,7 +509,7 @@ async def dispatch(workflow_manager, dispatcher: "Queuer" = None, params=None):
     # TODO: Add lock context for WorkflowManager event hooks
     #  rather than assume the UI and event loop are always in the same thread.
 
-    executor = workflow_manager._executor_factory(manager=workflow_manager, params=params)
+    executor = executor_factory(manager=workflow_manager, params=params)
 
     # Avoid race conditions while checking for a running dispatcher.
     # TODO: Clarify dispatcher state machine and remove/replace assertions.
@@ -768,11 +770,3 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
         finally:
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             queue.task_done()
-
-
-# TODO: Resolve circular reference between `execution` and `workflow` modules.
-# class ExecutorFactory(typing.Protocol[_BackendT]):
-#     def __call__(self,
-#                  manager: WorkflowManager,
-#                  params: typing.Optional[_BackendT] = None) -> RuntimeManager[_BackendT]:
-#         ...

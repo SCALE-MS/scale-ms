@@ -15,16 +15,20 @@ exclude_lines =
     if args\.pycharm
 
     # Don't complain if tests don't hit defensive assertion code:
-    raise AssertionError
-    raise .*MissingImplementationError
-    raise RuntimeError
-    raise .*APIError
-    raise .*InternalError
-    raise NotImplemented
-    raise argparse.ArgumentTypeError
-    except Exception
-    except BaseException
     deprecated
+    except BaseException
+    except Exception
+    logger.exception
+    logger.error
+    raise argparse.ArgumentTypeError
+    raise .*APIError
+    raise AssertionError
+    raise .*DispatchError
+    raise .*InternalError
+    raise .*MissingImplementationError
+    raise NotImplemented
+    raise .*ProtocolError
+    raise RuntimeError
 
     # Don't complain if non-runnable code isn't run:
     if 0:

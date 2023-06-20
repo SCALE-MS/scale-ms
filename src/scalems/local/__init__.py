@@ -42,7 +42,7 @@ def workflow_manager(loop: asyncio.AbstractEventLoop):
 
     There is no implicit OS level multithreading or multiprocessing.
     """
-    return _workflow.WorkflowManager(loop=loop, executor_factory=executor_factory)
+    return _workflow.WorkflowManager(loop=loop)
 
 
 class _ExecutionContext:
@@ -209,10 +209,7 @@ def executor_factory(manager: _workflow.WorkflowManager, params=None):
     if params is not None:
         raise TypeError("This factory does not accept a Configuration object.")
     executor = LocalExecutor(
-        editor_factory=weakref.WeakMethod(manager.edit_item),
-        datastore=manager.datastore(),
-        loop=manager.loop(),
-        dispatcher_lock=manager._dispatcher_lock,
+        editor_factory=weakref.WeakMethod(manager.edit_item), datastore=manager.datastore(), loop=manager.loop()
     )
     return executor
 
@@ -221,26 +218,14 @@ class LocalExecutor(_execution.RuntimeManager):
     """Client side manager for work dispatched locally."""
 
     def __init__(
-        self,
-        *,
-        editor_factory=None,
-        datastore: FileStore = None,
-        loop: asyncio.AbstractEventLoop,
-        configuration=None,
-        dispatcher_lock=None,
+        self, *, editor_factory=None, datastore: FileStore = None, loop: asyncio.AbstractEventLoop, configuration=None
     ):
         """Create a client side execution manager.
 
         Initialization and deinitialization occurs through
         the Python (async) context manager protocol.
         """
-        super().__init__(
-            editor_factory=editor_factory,
-            datastore=datastore,
-            loop=loop,
-            configuration=configuration,
-            dispatcher_lock=dispatcher_lock,
-        )
+        super().__init__(editor_factory=editor_factory, datastore=datastore, loop=loop, configuration=configuration)
 
     def updater(self) -> WorkflowUpdater:
         return WorkflowUpdater(runtime=self)

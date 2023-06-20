@@ -32,6 +32,7 @@ import typing
 
 import scalems.radical
 import scalems.call
+import scalems.execution
 import scalems.workflow
 
 
@@ -92,9 +93,9 @@ class TaskHandle(typing.Generic[_ResultT]):
         return result.return_value
 
 
-async def main(text, manager: scalems.workflow.WorkflowManager, size: int):
+async def main(text, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, size: int):
     session: scalems.radical.runtime.RPDispatchingExecutor
-    async with manager.dispatch() as session:
+    async with scalems.execution.dispatch(workflow_manager, executor_factory=executor_factory) as session:
         # submit a single pipeline task to pilot job
         # task_handle = await TaskHandle.submit(
         #     func=sender,
@@ -119,7 +120,7 @@ async def main(text, manager: scalems.workflow.WorkflowManager, size: int):
             TaskHandle(
                 func=sender,
                 label=f"sender-{i}",
-                manager=manager,
+                manager=workflow_manager,
                 dispatcher=session,
                 args=(text,),
                 requirements={"ranks": 2, "cores_per_rank": 2, "threading_type": "OpenMP"},
@@ -135,7 +136,11 @@ async def main(text, manager: scalems.workflow.WorkflowManager, size: int):
 
         tasks_B = tuple(
             TaskHandle(
-                func=receiver, label=f"receiver-{i}", manager=manager, dispatcher=session, kwargs={"text": result}
+                func=receiver,
+                label=f"receiver-{i}",
+                manager=workflow_manager,
+                dispatcher=session,
+                kwargs={"text": result},
             )
             for i, result in enumerate(results_A)
         )
@@ -183,9 +188,17 @@ if __name__ == "__main__":
     if not outfile:
         outfile = "stdout.txt"
 
-    manager = scalems.radical.workflow_manager(asyncio.get_event_loop())
-    with scalems.workflow.scope(manager, close_on_exit=True):
-        results = asyncio.run(main(argv, manager, size=config.size), debug=debug)
+    workflow_manager = scalems.radical.workflow_manager(asyncio.get_event_loop())
+    with scalems.workflow.scope(workflow_manager, close_on_exit=True):
+        results = asyncio.run(
+            main(
+                argv,
+                workflow_manager=workflow_manager,
+                executor_factory=scalems.radical.executor_factory,
+                size=config.size,
+            ),
+            debug=debug,
+        )
 
     with open(outfile, "w") as fh:
         fh.writelines(result["received"] + "\n" for result in results)

@@ -21,16 +21,14 @@ to get the implementing *module*.
 
 An execution back end :py:mod:`<module>` supports this invocation model by
 implementing a ``__main__`` method that passes a WorkflowManager creation function
-to `scalems.invocation.run`.
+and an *executor_factory* to `scalems.invocation.run`.
 For example, in the `scalems.local` module,
 :file:`scalems/local/__main__.py` contains::
 
     if __name__ == '__main__':
-        sys.exit(scalems.invocation.run(scalems.local.workflow_manager))
-
-:py:func:`scalems.local.workflow_manager` composes a `scalems.workflow.WorkflowManager`
-with an appropriate *executor_factory* and other details for the `scalems.local`
-execution backend.
+        sys.exit(scalems.invocation.run(
+            manager_factory=scalems.local.workflow_manager,
+            executor_factory=scalems.local.executor_factory))
 
 Required Attributes
 ~~~~~~~~~~~~~~~~~~~
@@ -113,6 +111,7 @@ import threading
 import typing
 
 import scalems.exceptions
+import scalems.execution
 import scalems.workflow
 from scalems import ScriptEntryPoint
 
@@ -131,11 +130,12 @@ _reentrance_guard = threading.Lock()
 # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
 
 
-def run_dispatch(work, context: scalems.workflow.WorkflowManager):
+def run_dispatch(work, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory):
     """Run the provided work in the execution dispatching context.
 
     Parameters:
-        context (scalems.workflow.WorkflowManager) : an active workflow manager (with a running event loop)
+        executor_factory: Implementation-specific callable to get a run time work manager.
+        workflow_manager (scalems.workflow.WorkflowManager) : an active workflow manager (with a running event loop)
         work (typing.Callable) : An "app" function to run within the scope of an active execution dispatcher.
 
     Initially, we assume that *work* is a `scalems.app` decorated function, though
@@ -144,14 +144,14 @@ def run_dispatch(work, context: scalems.workflow.WorkflowManager):
     """
 
     async def _dispatch(_work):
-        async with context.dispatch():
+        async with scalems.execution.dispatch(workflow_manager, executor_factory=executor_factory):
             # Add work to the queue
             _work()
         # Return an iterable of results.
         # for task in context.tasks: ...
         ...
 
-    _loop = context.loop()
+    _loop = workflow_manager.loop()
     _coro = _dispatch(work)
     # TODO: Name the task, if `work` has suitable attribute(s).
     _task = _loop.create_task(_coro)
@@ -174,7 +174,7 @@ class _ManagerT(typing.Protocol):
         ...
 
 
-def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  # noqa: C901
+def run(*, manager_factory: _ManagerT, executor_factory, _loop: asyncio.AbstractEventLoop = None):  # noqa: C901
     """Execute boilerplate for scalems entry point scripts.
 
     Provides consistent logic for command line invocation of a script with a main `scalems.app` function.
@@ -189,6 +189,10 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
     Refer to module documentation for the execution backend for command line arguments.
     Unrecognized command line arguments will be passed along to the called script through
     modification to `sys.argv`.
+
+    Args:
+        executor_factory: Implementation-specific callable to get a run time work manager.
+        manager_factory (typing.Callable[..., scalems.workflow.WorkflowManager]) : workflow manager creation function
     """
     safe = _reentrance_guard.acquire(blocking=False)
     if not safe:
@@ -254,6 +258,7 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
         #     should we effectively reimplement asyncio.run through scalems.run, or
         #     should we think about
         #     [ast.PyCF_ALLOW_TOP_LEVEL_AWAIT](https://docs.python.org/3/whatsnew/3.8.html#builtins)
+        # See also: https://docs.python.org/3/library/asyncio-runner.html
 
         # Execute the script in the current process.
         # TODO: Can we support mixing invocation with pytest?
@@ -290,7 +295,7 @@ def run(manager_factory: _ManagerT, _loop: asyncio.AbstractEventLoop = None):  #
 
                     logger.debug("Starting asyncio run()")
                     try:
-                        run_dispatch(main, manager)
+                        run_dispatch(main, workflow_manager=manager, executor_factory=executor_factory)
                     except Exception as e:
                         logger.exception("Unhandled exception in scalems runner calling dispatch(): " + str(e))
                         raise e

@@ -26,6 +26,7 @@ import pytest
 import scalems
 import scalems.call
 import scalems.context
+import scalems.execution
 import scalems.identifiers
 import scalems.messages
 import scalems.workflow
@@ -182,7 +183,9 @@ async def test_raptor_master(pilot_description, rp_venv):
     timeout = 180
     manager = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(manager, close_on_exit=True):
-        async with manager.dispatch(params=params) as dispatcher:
+        async with scalems.execution.dispatch(
+            manager, executor_factory=scalems.radical.executor_factory, params=params
+        ) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"test_raptor_master Session is {repr(dispatcher.runtime.session)}")
 
@@ -298,7 +301,9 @@ async def test_worker(pilot_description, rp_venv):
     with scalems.workflow.scope(manager, close_on_exit=True):
         assert not loop.is_closed()
         # Enter the async context manager for the default dispatcher
-        async with manager.dispatch(params=params) as dispatcher:
+        async with scalems.execution.dispatch(
+            manager, executor_factory=scalems.radical.executor_factory, params=params
+        ) as dispatcher:
             # We have now been through RPDispatchingExecutor.runtime_startup().
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"Session is {repr(dispatcher.runtime.session)}")
@@ -473,7 +478,9 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
         #     call_ref = manager.submit(function_call(**sample_call_input))
         #     return_value = call_ref.result()
 
-        async with manager.dispatch(params=params) as dispatcher:
+        async with scalems.execution.dispatch(
+            manager, executor_factory=scalems.radical.executor_factory, params=params
+        ) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
             task_uid = "test_rp_function-1"
@@ -546,7 +553,9 @@ async def test_rp_executable(pilot_description, rp_venv):
         # Test a command from before entering the dispatch context
         cmd1 = scalems.executable(("/bin/echo", "hello", "world"), stdout="stdout1.txt")
         # Enter the async context manager for the default dispatcher
-        async with manager.dispatch(params=params) as dispatcher:
+        async with scalems.execution.dispatch(
+            manager, executor_factory=scalems.radical.executor_factory, params=params
+        ) as dispatcher:
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"exec_rp Session is {repr(dispatcher.runtime.session)}")
             # Test a command issued after entering the dispatch context.

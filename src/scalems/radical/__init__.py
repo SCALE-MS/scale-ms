@@ -34,7 +34,7 @@ See Also:
 # TODO: Consider converting to a namespace package to improve modularity of
 #  implementation.
 
-__all__ = ["configuration", "parser", "workflow_manager"]
+__all__ = ["configuration", "executor_factory", "parser", "workflow_manager"]
 
 import asyncio
 import logging
@@ -43,6 +43,7 @@ import scalems.workflow
 from ..invocation import make_parser as _make_parser
 from .runtime import configuration
 from .runtime import parser as _runtime_parser
+from .runtime import executor_factory
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -68,6 +69,4 @@ def workflow_manager(loop: asyncio.AbstractEventLoop, directory=None):
         The importer of this module should be sure to import radical.pilot
         before importing the built-in logging module to avoid spurious warnings.
     """
-    from .runtime import executor_factory
-
-    return scalems.workflow.WorkflowManager(loop=loop, executor_factory=executor_factory, directory=directory)
+    return scalems.workflow.WorkflowManager(loop=loop, directory=directory)

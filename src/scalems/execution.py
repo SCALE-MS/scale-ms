@@ -92,14 +92,15 @@ The details of work dispatching are not yet strongly specified or fully encapsul
 
 from __future__ import annotations
 
-__all__ = ("AbstractWorkflowUpdater", "RuntimeManager", "manage_execution")
+__all__ = ("AbstractWorkflowUpdater", "RuntimeManager", "manage_execution", "Queuer")
 
 import abc
 import asyncio
 import contextlib
+import contextvars
 import logging
+import queue as _queue
 import typing
-import weakref
 
 import scalems.exceptions
 from scalems.exceptions import APIError
@@ -107,13 +108,31 @@ from scalems.exceptions import DispatchError
 from scalems.exceptions import InternalError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
+from scalems.messages import CommandQueueAddItem
+from scalems.messages import CommandQueueControlItem
 from scalems.messages import QueueItem
 from scalems.store import FileStore
-from scalems.workflow import Queuer
 from scalems.workflow import Task
+from scalems.workflow import WorkflowManager
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
+
+
+_dispatcher: contextvars.ContextVar = contextvars.ContextVar("_dispatcher")
+"""Identify an asynchronous Context.
+
+Non-asyncio-aware functions may need to behave
+differently when we know that asynchronous context switching could happen.
+We allow multiple dispatchers to be active, but each dispatcher must
+1. contextvars.copy_context()
+2. set itself as the dispatcher in the new Context.
+3. run within the new Context.
+4. ensure the Context is destroyed (remove circular references)
+"""
+
+
+_dispatcher_lock = asyncio.Lock()
 
 
 class AbstractWorkflowUpdater(abc.ABC):
@@ -237,7 +256,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         datastore: FileStore = None,
         loop: asyncio.AbstractEventLoop,
         configuration: _BackendT,
-        dispatcher_lock=None,
     ):
         self.submitted_tasks = set()
 
@@ -256,10 +274,6 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
         # TODO: Consider relying on module ContextVars and contextvars.Context scope.
         self._runtime_configuration = configuration
-
-        if not isinstance(dispatcher_lock, asyncio.Lock):
-            raise TypeError("An asyncio.Lock is required to control dispatcher state.")
-        self._dispatcher_lock = dispatcher_lock
 
     def configuration(self) -> _BackendT:
         return self._runtime_configuration
@@ -346,8 +360,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 # contention, it probably represents an unintended race condition
                 # or systematic dead-lock.
                 # TODO: Clarify dispatcher state machine and remove/replace assertions.
-                assert not self._dispatcher_lock.locked()
-                async with self._dispatcher_lock:
+                async with _dispatcher_lock:
                     runner_task: asyncio.Task = await self.runtime_startup()
                     if runner_task.done():
                         if runner_task.cancelled():
@@ -388,8 +401,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # contention, it probably represents an unintended race condition
         # or systematic dead-lock.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        assert not self._dispatcher_lock.locked()
-        async with self._dispatcher_lock:
+        async with _dispatcher_lock:
             runtime = self.runtime
             # This method is not thread safe, but we try to make clear as early as
             # possible that instance.session is no longer publicly available.
@@ -517,21 +529,11 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
     # Initially, we don't expect contention for the lock,
     # and if there is contention, it probably represents
     # an unintended race condition or systematic dead-lock.
-    assert not workflow_manager._dispatcher_lock.locked()
-    async with workflow_manager._dispatcher_lock:
+    async with _dispatcher_lock:
         # Dispatching state may be reentrant, but it does not make sense to
         # re-enter through this call structure.
-        if workflow_manager._dispatcher is not None:
-            raise ProtocolError(f"Already dispatching through {repr(workflow_manager._dispatcher)}.")
         if dispatcher is None:
-            dispatcher = Queuer(
-                source=workflow_manager,
-                command_queue=executor.queue(),
-                dispatcher_lock=workflow_manager._dispatcher_lock,
-            )
-            workflow_manager._dispatcher = dispatcher
-        else:
-            workflow_manager._dispatcher = weakref.proxy(dispatcher)
+            dispatcher = Queuer(source=workflow_manager, command_queue=executor.queue())
 
     try:
         # Manage scope of executor operation with a context manager.
@@ -579,9 +581,6 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
         #       Be on the look-out for nested context managers and usage in
         #       `finally` blocks.
-        assert not workflow_manager._dispatcher_lock.locked()
-        async with workflow_manager._dispatcher_lock:
-            workflow_manager._dispatcher = None
 
         dispatcher_exception = dispatcher.exception()
         if dispatcher_exception:
@@ -770,3 +769,229 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
         finally:
             logger.debug('Releasing "{}" from command queue.'.format(str(command)))
             queue.task_done()
+
+
+class Queuer:
+    """Maintain the active dispatching state for a managed workflow.
+
+    The Queuer, WorkflowManager, and Executor lifetimes do not need to be
+    coupled, but their periods of activity should be synchronized in certain ways
+    (aided using the Python context manager protocol).
+
+    The Queuer must have access to an active Executor while the Queuer
+    is active.
+
+    When entering the Queuer context manager, a task is created to transfer items
+    from the dispatch queue to the execution queue. The task is allowed to drain the
+    queue before the context manager yields to the ``with`` block. The task will
+    continue to process the queue asynchronously if new items appear.
+
+    When exiting the Queuer context manager, the items currently in the
+    dispatching queue are processed and the the dispatcher task is finalized.
+
+    The dispatcher queue is a queue.SimpleQueue so that WorkflowManager.add_item()
+    can easily use a concurrency-safe callback to add items whether or not the
+    dispatcher is active.
+    """
+
+    command_queue: asyncio.Queue
+    """Target queue for dispatched commands."""
+
+    source: WorkflowManager
+    """Owner of the workflow items being queued."""
+
+    _dispatcher_queue: _queue.SimpleQueue
+
+    _queue_runner_task: asyncio.Task
+    """Queue, owned by this object, of Workflow Items being processed for dispatch."""
+
+    def __init__(self, source: WorkflowManager, command_queue: asyncio.Queue):
+        """Create a queue-based workflow dispatcher.
+
+        Initialization and deinitialization occurs through
+        the Python (async) context manager protocol.
+        """
+
+        self.source = source
+        self._dispatcher_queue = _queue.SimpleQueue()
+        self.command_queue = command_queue
+        self._exception = None
+
+    def queue(self):
+        return self._dispatcher_queue
+
+    def put(self, item: typing.Union[CommandQueueAddItem, CommandQueueControlItem]):
+        assert len(item) == 1
+        key = list(item.keys())[0]
+        if key not in {"command", "add_item"}:
+            raise APIError("Unrecognized queue item representation.")
+        self._dispatcher_queue.put(item)
+
+    async def __aenter__(self):
+        try:
+            # Get a lock while the state is changing.
+            # Warning: The dispatching protocol is immature.
+            # Initially, we don't expect contention for the lock,
+            # and if there is contention, it probably represents
+            # an unintended race condition or systematic dead-lock.
+            # TODO: Clarify dispatcher state machine and remove/replace assertions.
+            async with _dispatcher_lock:
+                if _dispatcher.get(None):
+                    raise APIError("There is already an active dispatcher in this Context.")
+                _dispatcher.set(self)
+                # Launch queue processor (proxy executor).
+                runner_started = asyncio.Event()
+                runner_task = asyncio.create_task(self._queue_runner(runner_started))
+                await runner_started.wait()
+                self._queue_runner_task = runner_task
+
+                # Without yielding,
+                # 1. Install a hook for the queuer to catch new calls to add_item.
+                # 2. Get snapshot of current workflow state with which to initialize
+                #    the executor.
+                # Dont' forget to unsubscribe later!
+                # self.source_context.subscribe('add_item', self._dispatcher_queue.put)
+                self.source.subscribe("add_item", self.put)
+                # TODO: Topologically sort DAG!
+                initial_task_list = list(self.source.tasks.keys())
+                try:
+                    for _task_id in initial_task_list:
+                        self.command_queue.put_nowait(QueueItem({"add_item": _task_id}))
+                except asyncio.QueueFull as e:
+                    raise DispatchError("Executor was unable to receive initial commands.") from e
+                # It is now safe to yield.
+
+                # TODO: Add lock context for WorkflowManager event hooks
+                #  rather than assume the UI and event loop are always in the same thread.
+
+            return self
+        except Exception as e:
+            self._exception = e
+            raise e
+
+    async def _single_iteration_queue(self, source: _queue.SimpleQueue, target: asyncio.Queue):
+        """Transfer one queue item.
+
+        If a *stop* command is encountered, self-cancel after transfering command.
+
+        To avoid race conditions while stopping queue processing,
+        place a *stop* command in *source* and asyncio.shield() a call
+        to this coroutine in a *try: ... except: ...* block.
+
+        Note that the caller will then receive CancelledError after *stop* command has
+        been transferred.
+
+        Raises:
+            queue.Empty if *source* is empty
+            asyncio.CancelledError when cancelled or *stop* is received.
+
+        """
+        command: QueueItem = source.get_nowait()
+        logger.debug(f"Processing command {repr(command)}")
+
+        await target.put(command)
+
+        # TODO: Use formal RPC protocol.
+        if "control" in command:
+            # Note that we don't necessarily need to stop managing the dispatcher queue
+            # at this point, but the Executor will be directed to shut down,
+            # so we must not put anything else onto the command queue until we have a
+            # new command queue or a new executor.
+            if command["control"] == "stop":
+                raise asyncio.CancelledError()
+            else:
+                raise ProtocolError("Unknown command: {}".format(command["control"]))
+        else:
+            if "add_item" not in command:
+                # TODO: We might want a call-back or Event to force errors before the
+                #  queue-runner task is awaited.
+                raise MissingImplementationError(f"Executor has no implementation for {str(command)}")
+        return command
+
+    async def _queue_runner(self, processing_state: asyncio.Event):
+        processing_state.set()
+        while True:
+            try:
+                await asyncio.shield(
+                    self._single_iteration_queue(source=self._dispatcher_queue, target=self.command_queue)
+                )
+            except _queue.Empty:
+                # Wait a moment and try again.
+                await asyncio.sleep(0.5)
+
+    async def _drain_queue(self):
+        """Wait until the dispatcher queue is empty, then return.
+
+        Use in place of join() for event-loop treatment of *queue.SimpleQueue*.
+        """
+        while not self._dispatcher_queue.empty():
+            await asyncio.sleep(0.1)
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
+        """Clean up at context exit.
+
+        Drain the dispatching queue and exit.
+
+        Unsubscribes from the WorkflowManager add_item hook, deactivates the
+        dispatching context, and exits.
+        Does not cancel or send instructions to the Executor managing the command queue.
+        """
+        # Note that this coroutine could take a long time and could be cancelled at
+        # several points.
+        cancelled_error = None
+        # The dispatching protocol is immature. Initially, we don't expect contention
+        # for the lock, and if there is contention, it probably represents an
+        # unintended race condition or systematic dead-lock.
+        # TODO: Clarify dispatcher state machine and remove/replace assertions.
+        async with _dispatcher_lock:
+            try:
+                self.source.unsubscribe("add_item", self.put)
+                _dispatcher.set(None)
+
+                # Stop the dispatcher.
+                logger.debug("Stopping the SCALEMS RP dispatching queue runner.")
+
+                # Wait for the queue to drain or the queue runner to exit or fail.
+                drain = asyncio.create_task(self._drain_queue())
+                done, pending = await asyncio.wait(
+                    {drain, self._queue_runner_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+                assert len(done) > 0
+                if self._queue_runner_task not in done:
+                    if drain in done:
+                        self._queue_runner_task.cancel()
+                done, _ = await asyncio.wait({self._queue_runner_task})
+                assert self._queue_runner_task in done
+                if not self._queue_runner_task.cancelled():
+                    exception = self._queue_runner_task.exception()
+                else:
+                    exception = None
+                if exception:
+                    logger.exception("Queuer queue processing encountered exception", exc_info=exception)
+                    if self._exception:
+                        logger.error("Queuer is already holding an exception.")
+                    else:
+                        self._exception = exception
+
+            except asyncio.CancelledError as e:
+                logger.debug("Queuer context manager received cancellation while exiting.")
+                cancelled_error = e
+            except Exception as e:
+                logger.exception("Exception while stopping dispatcher.", exc_info=e)
+                if self._exception:
+                    logger.error("Queuer is already holding an exception.")
+                else:
+                    self._exception = e
+            finally:
+                # Should we do any other clean-up here?
+                ...
+        if cancelled_error:
+            raise cancelled_error
+
+        # Only return true if an exception should be suppressed (because it was handled).
+        # TODO: Catch internal exceptions for useful logging and user-friendliness.
+        if exc_type is not None:
+            return False
+
+    def exception(self) -> typing.Union[None, Exception]:
+        return self._exception

@@ -988,7 +988,6 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         datastore: FileStore = None,
         loop: asyncio.AbstractEventLoop,
         configuration: RuntimeConfiguration,
-        dispatcher_lock=None,
     ):
         """Create a client side execution manager.
 
@@ -1005,13 +1004,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         if not isinstance(configuration.target_venv, str) or len(configuration.target_venv) == 0:
             raise ValueError("Caller must specify a venv to be activated by the execution agent for dispatched tasks.")
 
-        super().__init__(
-            editor_factory=editor_factory,
-            datastore=datastore,
-            loop=loop,
-            configuration=configuration,
-            dispatcher_lock=dispatcher_lock,
-        )
+        super().__init__(editor_factory=editor_factory, datastore=datastore, loop=loop, configuration=configuration)
 
     @contextlib.contextmanager
     def runtime_configuration(self):
@@ -1385,7 +1378,6 @@ def executor_factory(manager: scalems.workflow.WorkflowManager, params: RuntimeC
         datastore=manager.datastore(),
         loop=manager.loop(),
         configuration=params,
-        dispatcher_lock=manager._dispatcher_lock,
     )
     return executor
 

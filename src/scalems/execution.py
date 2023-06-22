@@ -119,8 +119,8 @@ logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
 
 
-_dispatcher: contextvars.ContextVar = contextvars.ContextVar("_dispatcher")
-"""Identify an asynchronous Context.
+_queuer: contextvars.ContextVar = contextvars.ContextVar("_queuer")
+"""Identify an asynchronous queued dispatching context.
 
 Non-asyncio-aware functions may need to behave
 differently when we know that asynchronous context switching could happen.
@@ -132,7 +132,7 @@ We allow multiple dispatchers to be active, but each dispatcher must
 """
 
 
-_dispatcher_lock = asyncio.Lock()
+_queuer_lock = asyncio.Lock()
 
 
 class AbstractWorkflowUpdater(abc.ABC):
@@ -360,7 +360,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
                 # contention, it probably represents an unintended race condition
                 # or systematic dead-lock.
                 # TODO: Clarify dispatcher state machine and remove/replace assertions.
-                async with _dispatcher_lock:
+                async with _queuer_lock:
                     runner_task: asyncio.Task = await self.runtime_startup()
                     if runner_task.done():
                         if runner_task.cancelled():
@@ -401,7 +401,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # contention, it probably represents an unintended race condition
         # or systematic dead-lock.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        async with _dispatcher_lock:
+        async with _queuer_lock:
             runtime = self.runtime
             # This method is not thread safe, but we try to make clear as early as
             # possible that instance.session is no longer publicly available.
@@ -474,7 +474,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
 
 @contextlib.asynccontextmanager
-async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" = None, params=None):
+async def dispatch(workflow_manager, *, executor_factory, queuer: "Queuer" = None, params=None):
     """Enter the execution dispatching state.
 
     Attach to a dispatching executor, then provide a scope for concurrent activity.
@@ -494,7 +494,7 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
     Args:
         executor_factory: Implementation-specific callable to get a run time work
             manager.
-        dispatcher: A queue processor that will subscribe to the add_item hook to
+        queuer: A queue processor that will subscribe to the add_item hook to
             feed the executor.
         params: a parameters object relevant to the execution back-end
 
@@ -529,11 +529,11 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
     # Initially, we don't expect contention for the lock,
     # and if there is contention, it probably represents
     # an unintended race condition or systematic dead-lock.
-    async with _dispatcher_lock:
+    async with _queuer_lock:
         # Dispatching state may be reentrant, but it does not make sense to
         # re-enter through this call structure.
-        if dispatcher is None:
-            dispatcher = Queuer(source=workflow_manager, command_queue=executor.queue())
+        if queuer is None:
+            queuer = Queuer(source=workflow_manager, command_queue=executor.queue())
 
     try:
         # Manage scope of executor operation with a context manager.
@@ -558,7 +558,7 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
             #       subscriber: WorkflowEditor))
             # Consider also the similarity of RuntimeManager-WorkflowManager-Queuer
             # to a Model-View-Controller.
-            async with dispatcher:
+            async with queuer:
                 # We can surrender control here and leave the executor and
                 # dispatcher tasks active while evaluating a `with` block suite
                 # for the `dispatch` context manager.
@@ -582,7 +582,7 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
         #       Be on the look-out for nested context managers and usage in
         #       `finally` blocks.
 
-        dispatcher_exception = dispatcher.exception()
+        dispatcher_exception = queuer.exception()
         if dispatcher_exception:
             if isinstance(dispatcher_exception, asyncio.CancelledError):
                 logger.info("Dispatching queue processor cancelled.")
@@ -590,10 +590,10 @@ async def dispatch(workflow_manager, *, executor_factory, dispatcher: "Queuer" =
                 assert not isinstance(dispatcher_exception, asyncio.CancelledError)
                 logger.exception("Queuer encountered exception.", exc_info=dispatcher_exception)
         else:
-            if not dispatcher.queue().empty():
+            if not queuer.queue().empty():
                 logger.error(
                     "Queuer finished while items remain in dispatcher queue. "
-                    "Approximate size: {}".format(dispatcher.queue().qsize())
+                    "Approximate size: {}".format(queuer.queue().qsize())
                 )
 
         executor_exception = executor.exception()
@@ -835,10 +835,10 @@ class Queuer:
             # and if there is contention, it probably represents
             # an unintended race condition or systematic dead-lock.
             # TODO: Clarify dispatcher state machine and remove/replace assertions.
-            async with _dispatcher_lock:
-                if _dispatcher.get(None):
+            async with _queuer_lock:
+                if _queuer.get(None):
                     raise APIError("There is already an active dispatcher in this Context.")
-                _dispatcher.set(self)
+                _queuer.set(self)
                 # Launch queue processor (proxy executor).
                 runner_started = asyncio.Event()
                 runner_task = asyncio.create_task(self._queue_runner(runner_started))
@@ -943,10 +943,10 @@ class Queuer:
         # for the lock, and if there is contention, it probably represents an
         # unintended race condition or systematic dead-lock.
         # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        async with _dispatcher_lock:
+        async with _queuer_lock:
             try:
                 self.source.unsubscribe("add_item", self.put)
-                _dispatcher.set(None)
+                _queuer.set(None)
 
                 # Stop the dispatcher.
                 logger.debug("Stopping the SCALEMS RP dispatching queue runner.")

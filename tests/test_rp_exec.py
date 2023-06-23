@@ -59,7 +59,7 @@ else:
 
 
 @pytest.mark.asyncio
-async def test_rp_future(rp_task_manager):
+async def test_rp_future(rp_runtime):
     """Check our Future implementation for RP at a low level.
 
     Fulfill the asyncio.Future protocol for a rp.Task wrapper object. The wrapper
@@ -67,7 +67,7 @@ async def test_rp_future(rp_task_manager):
     """
     timeout = 120
 
-    tmgr = rp_task_manager
+    tmgr = rp_runtime.task_manager()
 
     task_description_dict = dict(
         executable="/bin/bash",

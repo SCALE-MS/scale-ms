@@ -4,39 +4,27 @@ import os
 import shlex
 import shutil
 import subprocess
-import typing
 from urllib.parse import ParseResult
 from urllib.parse import urlparse
 
 import packaging.version
 import pytest
 
+import scalems.radical.runtime
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 @pytest.mark.experimental
-def test_register_venv(rp_task_manager, rp_venv):
+def test_register_venv(rp_runtime: scalems.radical.runtime.RuntimeSession, rp_venv):
     """Use prepare_env() to register an existing venv."""
     import radical.pilot as rp
     import radical.utils as ru
 
     logger.debug(f"Client RP version is {rp.version}.")
 
-    # We only expect one pilot
-    pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
-    # We get a dictionary...
-    # assert isinstance(pilot, rp.Pilot)
-    # But it looks like it has the pilot id in it.
-    pilot_uid = typing.cast(dict, pilot)["uid"]
-    pmgr_uid = typing.cast(dict, pilot)["pmgr"]
-    session: rp.Session = rp_task_manager.session
-    pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
-    assert isinstance(pmgr, rp.PilotManager)
-    pilot = pmgr.get_pilots(uids=pilot_uid)
-    assert isinstance(pilot, rp.Pilot)
-    # It looks like either the pytest fixture should deliver something other than the TaskManager,
-    # or the prepare_venv part should be moved to a separate function, such as in conftest...
+    pilot: rp.Pilot = rp_runtime.pilot()
 
     access = pilot.description["access_schema"]
     if access not in ("local", "ssh"):
@@ -106,7 +94,8 @@ def test_register_venv(rp_task_manager, rp_venv):
         "stage_on_error": True,
     }
 
-    task = rp_task_manager.submit_tasks(rp.TaskDescription(td))
+    task_manager: rp.TaskManager = rp_runtime.task_manager()
+    task = task_manager.submit_tasks([rp.TaskDescription(td)])[0]
     task.wait(state=[rp.states.AGENT_EXECUTING] + rp.FINAL, timeout=120)
     logger.info(f"state is {task.state}.")
     logger.debug(f"stdout: {task.stdout}")
@@ -118,7 +107,7 @@ def test_register_venv(rp_task_manager, rp_venv):
 
 
 @pytest.mark.skip(reason="Currently unused.")
-def test_prepare_venv(rp_task_manager, sdist, rp_venv):
+def test_prepare_venv(rp_runtime: scalems.radical.runtime.RuntimeSession, sdist, rp_venv):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     Note that we cannot wait on the environment preparation directly, but we can define
@@ -129,21 +118,6 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     import radical.pilot as rp
     import radical.saga as rs
     import radical.utils as ru
-
-    # We only expect one pilot
-    pilot: rp.Pilot = rp_task_manager.get_pilots()[0]
-    # We get a dictionary...
-    # assert isinstance(pilot, rp.Pilot)
-    # But it looks like it has the pilot id in it.
-    pilot_uid = typing.cast(dict, pilot)["uid"]
-    pmgr_uid = typing.cast(dict, pilot)["pmgr"]
-    session: rp.Session = rp_task_manager.session
-    pmgr: rp.PilotManager = session.get_pilot_managers(pmgr_uids=pmgr_uid)
-    assert isinstance(pmgr, rp.PilotManager)
-    pilot = pmgr.get_pilots(uids=pilot_uid)
-    assert isinstance(pilot, rp.Pilot)
-    # It looks like either the pytest fixture should deliver something other than the TaskManager,
-    # or the prepare_venv part should be moved to a separate function, such as in conftest...
 
     sdist_names = {
         "ru": ru.sdist_name,
@@ -156,6 +130,8 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
     for path in sdist_local_paths.values():
         assert os.path.exists(path)
 
+    pilot: rp.Pilot = rp_runtime.pilot()
+
     sandbox_path = urlparse(pilot.pilot_sandbox).path
 
     sdist_session_paths = {name: os.path.join(sandbox_path, sdist_names[name]) for name in sdist_names.keys()}
@@ -167,8 +143,6 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
         input_staging.append({"source": sdist_local_paths[name], "target": sdist_names[name], "action": rp.TRANSFER})
     logger.debug(str(input_staging))
     pilot.stage_in(input_staging)
-
-    tmgr = rp_task_manager
 
     packages = ["pip", "setuptools", "wheel"]
     packages.extend(sdist_session_paths.values())
@@ -234,6 +208,8 @@ def test_prepare_venv(rp_task_manager, sdist, rp_venv):
             "named_env": "scalems_env",
         }
     )
+
+    tmgr = rp_runtime.task_manager()
 
     rp_check_task, scalems_check_task = tmgr.submit_tasks([rp_check_desc, scalems_check_desc])
     tmgr.wait_tasks()

@@ -158,6 +158,7 @@ __all__ = (
 
 import argparse
 import asyncio
+import atexit
 import collections.abc
 import contextlib
 import contextvars
@@ -208,6 +209,9 @@ from ..execution import AbstractWorkflowUpdater
 from ..identifiers import EphemeralIdentifier
 from ..identifiers import TypeIdentifier
 
+if typing.TYPE_CHECKING:
+    import radical.utils as ru
+
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
 
@@ -216,9 +220,26 @@ logger.debug("Importing {}".format(__name__))
 # with respect to the dispatching scope.
 _configuration = contextvars.ContextVar("_configuration")
 
+# The following infrastructure logic is borrowed from concurrent.futures.thread
+# What we really want, though, is to make sure that these hooks are handled before
+#  the event loop is closed.
+# TODO: Make sure that event loop is still active, and perform our shutdown hooks
+#  before the event loop shuts down.
 
-if typing.TYPE_CHECKING:
-    import radical.utils as ru
+_shutdown = False
+# Lock that ensures that new executors are not created while the interpreter is
+# shutting down. Must be held while mutating _runtime_queues and _shutdown.
+# Warning: don't copy this while locked, such as by forking.
+_global_shutdown_lock = threading.Lock()
+
+
+def _python_exit():
+    global _shutdown
+    with _global_shutdown_lock:
+        _shutdown = True
+
+
+atexit.register(_python_exit)
 
 
 def _parse_option(arg: str) -> tuple:
@@ -410,26 +431,38 @@ class RuntimeSession:
         representation = f'<RuntimeSession "{session}" pilot:"{pilot}" raptor:"{raptor_id}">'
         return representation
 
+    async def wait_closed(self):
+        """Wait for a closing session to be closed.
+
+        Use with `close()` to allow the asyncio event loop to resolve outstanding tasks.
+
+        TODO: Do we need this?
+        This method may not be necessary. Or it may be more necessary in the future.
+        """
+        while not self.resources.done():
+            timer = asyncio.create_task(asyncio.sleep(10.0), name="Session closing timer")
+            done, pending = asyncio.wait((self.resources, timer), return_when=asyncio.FIRST_EXCEPTION)
+            if self.resources in done:
+                timer.cancel()
+            else:
+                logger.info("Waiting for session to close.")
+
     def close(self):
-        """Shutdown runtime and release resources."""
+        """Direct the runtime to shut down and release resources.
+
+        Warning:
+            This function may return before resources have been finalized.
+            Follow a call to `close()` with `wait_closed()` to give the event
+            loop a chance to cycle.
+        """
 
         # De-initialize state: reset data members to class defaults.
 
         if self.resources is not None and not self.resources.done():
-            self._loop.call_soon_threadsafe(self.resources.cancel)
-            # Design notes:
-            # * Consider making this the responsibility of the caller
-            #   and/or provide a higher level `async def aclose()` coroutine.
-            # * Consider establishing a single asyncio.Task to manage the tasks
-            #   and threads associated with maintaining RuntimeSession state.
-            if not self._loop.is_running():
-                try:
-                    self._loop.run_until_complete(self.resources)
-                except asyncio.CancelledError:
-                    pass
-                except Exception:
-                    logger.exception(f"Task {self.resources} raised exception.")
-            del self.resources
+            if threading.main_thread() == threading.current_thread():
+                self.resources.cancel()
+            else:
+                self._loop.call_soon_threadsafe(self.resources.cancel)
 
         # TODO: Properly close raptor session. This includes sending a "stop" to the
         #     raptor scheduler instead of letting it get a `Task.cancel()` (i.e. a SIGTERM).
@@ -910,7 +943,7 @@ async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> 
     session_id = runtime.session.uid
     # Do we want to log this somewhere?
     # session_config = copy.deepcopy(self.session.cfg.as_dict())
-    logger.debug("RP dispatcher acquired session {}".format(session_id))
+    logger.debug("Acquired RP Session {}".format(session_id))
 
     logger.debug("Launching PilotManager.")
     pilot_manager = await asyncio.create_task(
@@ -2263,3 +2296,192 @@ def write_archive(*, filehandle, root_dir: pathlib.Path, relative_to: pathlib.Pa
         _add_to_archive(archive, source=root_dir, relative_to=relative_to)
         if logger.getEffectiveLevel() <= logging.DEBUG:
             logger.debug(f"Wrote to {archive.filename}: {', '.join(archive.namelist())}")
+
+
+class RuntimeManager:
+    """Runtime resources for SCALE-MS workflow execution, backed by RADICAL Pilot.
+
+    Initialize with a Session and pre-configured Pilot job.
+
+    Executors are provisioned in the allocated resources and user configuration
+    of a RuntimeManager.
+
+    The RuntimeManager mediates interaction between Executors and WorkflowManager
+    to fulfil Futures and update workflow state.
+
+    We expect to have Executor state somewhat disconnected from the calling program
+    scope, so the RuntimeManager context is an opportunity to collect Tasks bound
+    to different executors, to cleanly shut down executors and release resources.
+
+    The RuntimeManager implements the Computing Provider Interface (CPI) for SCALE-MS
+    calls to the runtime provider.`
+    """
+
+    runtime: "scalems.radical.runtime.RuntimeSession" = scalems.execution.RuntimeDescriptor()
+
+    def __init__(
+        self,
+        *,
+        datastore: FileStore = None,
+        loop: asyncio.AbstractEventLoop,
+        configuration: RuntimeConfiguration,
+        runtime: scalems.radical.runtime.RuntimeSession,
+    ):
+        if not isinstance(configuration.target_venv, str) or len(configuration.target_venv) == 0:
+            raise ValueError("Caller must specify a venv to be activated by the execution agent for dispatched tasks.")
+
+        self._exception = None
+        self._loop: asyncio.AbstractEventLoop = loop
+
+        if datastore is None:
+            raise TypeError("Provide a datastore.")
+        self.datastore = datastore
+
+        # TODO: Manage the module ContextVars and contextvars.Context scope.
+        self._runtime_configuration = configuration
+
+        self.runtime = runtime
+
+    async def wait_closed(self):
+        return await self.runtime.wait_closed()
+
+    def close(self):
+        """Manage tear down of the RADICAL Pilot Session and resources.
+
+        Several aspects of the RP runtime interface use blocking calls.
+        This method should be run in a non-root thread (concurrent.futures.Future)
+        that the event loop can manage as an asyncio-wrapped task.
+
+        The method should be used along with the wait_closed() method to allow
+        the asyncio event loop to clean up.
+
+        Overrides :py:class:`scalems.execution.RuntimeManager`
+
+        Design note:
+            Note that shutdown could take a while. To avoid blocking the event loop,
+            we need a consistent strategy for dispatching to threads. We need to
+            make sure that we can shut down as cleanly as possible even if the
+            asyncio default ThreadPoolExecutor cannot provide an available thread.
+            will probably dispatch it to a thread.
+
+            For now, we will try to keep a strategy of performing high level lifetime
+            management calls (like `close()`) exclusively from the event loop thread,
+            and moving blocking calls to a thread pool at the implementation level.
+            If this strategy becomes impractical, we will have to take care when
+            mixing `concurrent.futures` logic and `asyncio` logic.
+
+        """
+        # WARNING: If this call needs to manipulate ContexVars, we need to be
+        #   careful about how it is dispatched by the caller.
+
+        # TODO: Collect or cancel outstanding tasks, shut down executors, and
+        #  synchronize the workflow state.
+
+        self.runtime.close()
+
+    async def __aenter__(self):
+        if not _shutdown:
+            return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
+        """Clean up at context exit.
+
+        In addition to handling exceptions, clean up any Session resource.
+
+        We also need to make sure that we properly disengage from any queues
+        or generators.
+
+        We can also leave flags for ourself to be checked at __await__,
+        if there is a Task associated with the Executor.
+        """
+        # First, do something with exceptions that occurred in the `with` block if we're going to.
+        ...
+        # Finally, shut down the runtime.
+        try:
+            self.close()
+            await self.wait_closed()
+        except Exception as e:
+            logger.exception("Exception during RuntimeManager.close().")
+            raise e
+
+        # Only return true if an exception should be suppressed (because it was handled).
+        # TODO: Catch internal exceptions for useful logging and user-friendliness.
+        if exc_type is not None:
+            return False
+
+
+@contextlib.asynccontextmanager
+async def launch(
+    workflow_manager: scalems.workflow.WorkflowManager, runtime_configuration: RuntimeConfiguration
+) -> RuntimeManager:
+    """Get a runtime execution context for the managed workflow.
+
+    Configure, launch, and manage the runtime facilities.
+    The resulting RuntimeManager context can be used to acquire an
+    Executor for handling task submissions.
+
+    Example::
+
+        with scalems.workflow.scope(workflow, close_on_exit=True):
+            async with scalems.radical.runtime.launch(workflow, runtime_config) as runtime_context:
+                async with scalems.execution.executor(runtime_context, requirements={}) as executor:
+                    task: concurrent.futures.Future = executor.submit(fn, *args, **kwargs)
+                    task: asyncio.Task = asyncio.create_task(loop.run_in_executor(executor, fn, *args))
+
+    """
+    if workflow_manager.closed:
+        raise scalems.exceptions.ScopeError("WorkflowManager is closed.")
+
+    if "RADICAL_PILOT_DBURL" not in os.environ:
+        raise DispatchError("RADICAL Pilot environment is not available.")
+
+    if not isinstance(runtime_configuration.target_venv, str) or len(runtime_configuration.target_venv) == 0:
+        raise ValueError("Caller must specify a venv to be activated by the execution agent for dispatched tasks.")
+
+    with _global_shutdown_lock:
+        if _shutdown:
+            return
+        # TODO: Check that we have a FileStore.
+
+        logger.debug("Entering RP dispatching context. Waiting for rp.Session.")
+
+        # Note that any thread-dispatched creation functions or other subtasks
+        # in `runtime_session` will see the contextvars.Context state from _before_
+        # RuntimeManager takes control of its scope. Be careful to keep in mind
+        # appropriate coupling and collective state transitions of RuntimeSession
+        # and RuntimeManager.
+        _runtime: RuntimeSession = await runtime_session(
+            configuration=runtime_configuration, loop=workflow_manager.loop()
+        )
+
+        # TODO: Asynchronous data staging optimization.
+        #  Allow input data staging to begin before scheduler is in state EXECUTING and
+        #  before Pilot is in state PMGR_ACTIVE.
+
+        # Raptor session will be initialized and attached in the executor context, if needed.
+        assert _runtime.raptor is None
+
+        runtime_context = RuntimeManager(
+            datastore=workflow_manager.datastore(),
+            loop=workflow_manager.loop(),
+            configuration=runtime_configuration,
+            runtime=_runtime,
+        )
+
+    try:
+        # Manage scope of executor operation with a context manager.
+        # RP does not yet use an event loop, but we can use async context manager
+        # for future compatibility with asyncio management of network connections,
+        # etc.
+        #
+        # Note: the executor owns a rp.Session during operation.
+        yield runtime_context
+
+    except Exception as e:
+        logger.exception("Unhandled exception while in dispatching context.")
+        raise e
+
+    finally:
+        close_task = asyncio.create_task(asyncio.to_thread(runtime_context.close), name="runtime_manager.close")
+        await close_task
+        logger.debug(f"Exited {runtime_context} context.")

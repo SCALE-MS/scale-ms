@@ -1,10 +1,11 @@
-"""Test the scalems.radical.Runtime state object."""
+"""Test the scalems.radical.runtime module."""
 import asyncio
 import logging
 import warnings
 
 import pytest
 import radical.pilot as rp
+import radical.utils as ru
 
 import scalems.radical.runtime
 from scalems.exceptions import APIError
@@ -12,12 +13,6 @@ from scalems.radical.runtime import RuntimeSession
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
-
-
-@pytest.mark.asyncio
-async def test_pilot_resources(rp_runtime: scalems.radical.runtime.RuntimeSession, event_loop):
-    rm_info = await asyncio.wait_for(rp_runtime.resources, timeout=180)
-    assert rm_info.get("requested_cores", 0) >= 1
 
 
 @pytest.mark.exhaustive
@@ -75,3 +70,36 @@ async def test_runtime_mismatch(pilot_description, event_loop, rp_configuration)
             tmgr.close()
             pmgr.close()
         assert rp_session.closed
+
+
+@pytest.mark.asyncio
+async def test_runtime_context_management(rp_venv, pilot_description):
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip("This test requires a user-provided static RP venv.")
+
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+
+    # Configure execution module.
+    runtime_config = scalems.radical.runtime.configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
+    )
+
+    workflow = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(workflow, close_on_exit=True):
+        async with scalems.radical.runtime.launch(workflow, runtime_config):
+            ...
+        async with scalems.radical.runtime.launch(workflow, runtime_config) as runtime_manager:
+            rm_info: dict = await runtime_manager.runtime.resources
+            assert rm_info["requested_cores"] >= pilot_description.cores

@@ -170,10 +170,12 @@ import logging
 import os
 import pathlib
 import shutil
+import subprocess
 import sys
 import tempfile
 import threading
 import typing
+import urllib.parse
 import uuid
 import warnings
 import weakref
@@ -356,6 +358,54 @@ class RuntimeConfiguration:
                 message = f"RP Raptor MPI Worker not supported for '{launch_scheme}' launch method."
                 message += f" '{access}' access for {hpc_platform_label}: {job_endpoint}"
                 raise RPConfigurationError(message)
+
+
+def check_hpc_host(*, pilot_description: rp.PilotDescription):
+    """Check a Pilot configuration for host accessibility.
+
+    Try to ensure that a :py:class:`rp.Pilot` can be launched, before acquiring
+    resources, beginning to stage data, or proceeding with other potentially
+    expensive operations.
+
+    TODO: Validate remote venv.
+    """
+    resource = rp.utils.misc.get_resource_config(pilot_description.resource)
+
+    # TODO: Is there a radical.saga or radical.utils feature with which we can
+    #  test a connection more generally without acquiring a rp.Session?
+    if pilot_description.access_schema == "ssh":
+        ssh_target = resource["ssh"]["job_manager_endpoint"]
+        result: urllib.parse.ParseResult = urllib.parse.urlparse(ssh_target)
+        assert result.scheme == "ssh"
+        user = result.username
+        port = result.port
+        host = result.hostname
+
+        ssh = ["ssh"]
+        if user:
+            ssh.extend(["-l", user])
+        if port:
+            ssh.extend(["-p", str(port)])
+        ssh.append(host)
+
+        process = subprocess.run(
+            ssh + ["/bin/echo", "success"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=5,
+            encoding="utf-8",
+        )
+        if process.returncode != 0 or process.stdout.rstrip() != "success":
+            logger.error("Failed ssh stdout: " + str(process.stdout))
+            logger.error("Failed ssh stderr: " + str(process.stderr))
+            raise RPConnectionError(f"Could not ssh to target computing resource with {' '.join(ssh)}.")
+
+    else:
+        # Not using ssh access. Assuming 'local'.
+        if pilot_description.access_schema is None:
+            pilot_description.access_schema = "local"
+        if pilot_description.access_schema != "local":
+            raise RPConfigurationError(f"Cannot validate access_schema={pilot_description.access_schema}")
 
 
 class RuntimeSession:
@@ -900,6 +950,8 @@ async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> 
         RuntimeSession instance.
 
     """
+    check_hpc_host(pilot_description=describe_pilot(configuration))
+
     if loop is None:
         loop = asyncio.get_running_loop()
     _task = asyncio.create_task(asyncio.to_thread(_rp_session), name="create-Session")

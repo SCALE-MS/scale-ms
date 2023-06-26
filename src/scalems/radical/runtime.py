@@ -153,6 +153,7 @@ __all__ = (
     "parser",
     "RuntimeConfiguration",
     "RuntimeSession",
+    "ScaleMSRadicalError",
 )
 
 import argparse
@@ -190,6 +191,7 @@ import scalems.execution
 import scalems.file
 import scalems.invocation
 import scalems.messages
+import scalems.radical
 import scalems.radical.raptor
 import scalems.store
 import scalems.subprocess
@@ -227,8 +229,16 @@ def _parse_option(arg: str) -> tuple:
     return tuple(arg.split("="))
 
 
-class RPConfigurationError(ScaleMSError):
+class ScaleMSRadicalError(ScaleMSError):
+    """Base exception for `scalems.radical` backend."""
+
+
+class RPConfigurationError(ScaleMSRadicalError):
     """Unusable RADICAL Pilot configuration."""
+
+
+class RPConnectionError(ScaleMSRadicalError):
+    """A problem connecting to the RCT back end or remote resources."""
 
 
 @functools.cache
@@ -295,6 +305,14 @@ def parser(add_help=False):
     return _parser
 
 
+class RPResourceParams(typing.TypedDict):
+    PilotDescription: dict
+    """A dictionary representation of a PilotDescription.
+
+    See :py:class:`radical.pilot.PilotDescription` for allowed fields and value types.
+    """
+
+
 @dataclasses.dataclass(frozen=True)
 class RuntimeConfiguration:
     """Module configuration information.
@@ -311,9 +329,16 @@ class RuntimeConfiguration:
     # Note that the use cases for this dataclass interact with module ContextVars,
     # pending refinement.
     datastore: FileStore = None
+
     execution_target: str = "local.localhost"
-    rp_resource_params: dict = dataclasses.field(default_factory=dict)
+    """Platform identifier for the RADCIAL Pilot execution resource."""
+
+    rp_resource_params: RPResourceParams = dataclasses.field(default_factory=dict)
+    """Schema for this member container may not be stable."""
+
     target_venv: str = None
+    """Path to a pre-configured Python virtual environment on *execution_target*."""
+
     enable_raptor: bool = False
 
     def __post_init__(self):
@@ -336,21 +361,16 @@ class RuntimeConfiguration:
 class RuntimeSession:
     """Container for scalems.radical runtime state data.
 
+    Use a creation function to provide RuntimeSession with an asyncio event
+    loop. Interact with the RuntimeSession in the main thread whenever
+    possible. Let the RuntimeSession dispatch slow rp UI calls to other
+    threads as needed and appropriate.
+
     Note:
-        This class is almost exclusively a container. Lifetime management is assumed
-        to be handled externally.
-
-    .. todo:: Let `scalems.radical.runtime.RuntimeConfiguration` holds the run time invariant.
-        And let this become more than a container, explicitly encapsulating
-        the responsibilities of `RPDispatchingExecutor.runtime_startup()`
-        and `RPDispatchingExecutor.runtime_shutdown()`.
-
-    See Also:
-        :py:attr:`scalems.radical.runtime.RPDispatchingExecutor.runtime`
-
+        There is very little automated error recovery. For examples of expansive
+        checking and re-launching of runtime resources, refer to the fixtures
+        in conftest.py at or before revision 41b965a27c5af9abc115677b738085c35766b5b6.
     """
-
-    _session: rp.Session
 
     raptor: typing.Optional[rp.Task] = None
     """The active raptor scheduler task, if any."""
@@ -363,14 +383,23 @@ class RuntimeSession:
     reaches state PMGR_ACTIVE.
     """
 
+    _configuration: RuntimeConfiguration
+    _loop: asyncio.AbstractEventLoop
     _pilot_manager: typing.Optional[rp.PilotManager] = None
     _pilot: typing.Optional[rp.Pilot] = None
+    _session: rp.Session
     _task_manager: typing.Optional[rp.TaskManager] = None
 
-    def __init__(self, session: rp.Session):
+    def __init__(self, session: rp.Session, *, loop: asyncio.AbstractEventLoop, configuration: RuntimeConfiguration):
         if not isinstance(session, rp.Session) or session.closed:
             raise ValueError("*session* must be an active RADICAL Pilot Session.")
         self._session = session
+        self._session_finalizer = weakref.finalize(self, session.close)
+        if loop.is_closed():
+            raise ValueError("*loop* must be an active event loop.")
+        # Note: loop.is_running() may not yet return True if no coroutines have been awaited.
+        self._loop = loop
+        self._configuration = configuration
 
     def __repr__(self):
         if session := self._session:
@@ -381,35 +410,68 @@ class RuntimeSession:
         representation = f'<RuntimeSession "{session}" pilot:"{pilot}" raptor:"{raptor_id}">'
         return representation
 
-    def reset(self, session: rp.Session):
-        """Reset the runtime state.
+    def close(self):
+        """Shutdown runtime and release resources."""
 
-        Close any existing resources and revert to a new RuntimeSession state containing only
-        the provided *session*.
-        """
-        if not isinstance(session, rp.Session) or session.closed:
-            raise ValueError("*session* must be an active RADICAL Pilot Session.")
-        if self.resources is not None:
-            self.resources.cancel()
-            self.resources = None
-        self._session.close()
-        # Warning: This is not quite right.
-        # The attribute values are deferred to the class dict from initialization. The
-        # following lines actually leave the instance members in place with None values
-        # rather than removing them, but the logic of checking for and removing the
-        # instance values seems a little harder to read.
-        # TODO: Properly close previous session. This includes sending a "stop" to the
+        # De-initialize state: reset data members to class defaults.
+
+        if self.resources is not None and not self.resources.done():
+            self._loop.call_soon_threadsafe(self.resources.cancel)
+            # Design notes:
+            # * Consider making this the responsibility of the caller
+            #   and/or provide a higher level `async def aclose()` coroutine.
+            # * Consider establishing a single asyncio.Task to manage the tasks
+            #   and threads associated with maintaining RuntimeSession state.
+            if not self._loop.is_running():
+                try:
+                    self._loop.run_until_complete(self.resources)
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    logger.exception(f"Task {self.resources} raised exception.")
+            del self.resources
+
+        # TODO: Properly close raptor session. This includes sending a "stop" to the
         #     raptor scheduler instead of letting it get a `Task.cancel()` (i.e. a SIGTERM).
-        self.raptor = None
-        self._pilot = None
-        self._task_manager = None
-        self._pilot_manager = None
-        self._session = session
+        if self.raptor is not None:
+            del self.raptor
+
+        if self._pilot is not None:
+            del self._pilot
+        if self._task_manager is not None:
+            del self._task_manager
+        if self._pilot_manager is not None:
+            del self._pilot_manager
+
+        # Note: there are no documented exceptions or errors to check for,
+        # programmatically. Some issues encountered during shutdown will be
+        # reported through the reporter or logger of the
+        # radical.pilot.utils.component.Component base.
+        # The RP convention seems to be to use the component uid as the name
+        # of the underlying logging.Logger node, so we could presumably attach
+        # a log handler to the logger for a component of interest.
+        logger.debug(f"Closing Session {self.session.uid}.")
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
+            self.session.close(download=True)
+
+        self._session_finalizer()
+        del self._session_finalizer
 
     @property
     def session(self) -> rp.Session:
         """The current radical.pilot.Session (may already be closed)."""
         return self._session
+
+    def _new_pilotmanager(self):
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
+
+            return rp.PilotManager(session=self.session)
 
     @typing.overload
     def pilot_manager(self) -> typing.Union[rp.PilotManager, None]:
@@ -438,12 +500,25 @@ class RuntimeSession:
             APIError: for invalid RP Session configuration.
         """
         if pilot_manager is None:
-            return self._pilot_manager
+            # Caller should destroy and recreate Pilot if this call has to replace PilotManager.
+            session = self.session
+            if session.closed:
+                # Once rp.Session is closed, require a new RuntimeSession.
+                raise ProtocolError(f"RP Session {self.session.uid} is closed. Get a new RuntimeSession instance.")
+            if self._pilot_manager is not None:
+                return self._pilot_manager
+            # Is there a way to check whether the PilotManager is healthy?
+            logger.info(f"Creating a new PilotManager for {self.session.uid}")
+            manager = self._new_pilotmanager()
+            logger.info(f"New PilotManager is {manager.uid}")
+            return self.pilot_manager(manager)
         elif isinstance(pilot_manager, rp.PilotManager):
+            if self._pilot_manager is not None and pilot_manager != self._pilot_manager:
+                raise APIError(f"PilotManager {self._pilot_manager.uid} already assigned.")
             if not pilot_manager.session.uid == self.session.uid:
                 raise APIError("Cannot accept a PilotManager from a different Session.")
             self._pilot_manager = pilot_manager
-            return pilot_manager
+            return self._pilot_manager
         else:
             uid = pilot_manager
             try:
@@ -503,61 +578,91 @@ class RuntimeSession:
             else:
                 return self.task_manager(tmgr)
 
-    @typing.overload
-    def pilot(self) -> typing.Union[rp.Pilot, None]:
-        ...
+    @staticmethod
+    def _new_pilot(
+        *,
+        session: rp.Session,
+        pilot_manager: rp.PilotManager,
+        pilot_description: rp.PilotDescription,
+        task_manager: rp.TaskManager,
+    ):
+        logger.debug(
+            "Using resource config: {}".format(str(session.get_resource_config(pilot_description.resource).as_dict()))
+        )
+        logger.debug("Using PilotDescription: {}".format(str(pilot_description.as_dict())))
+        with warnings.catch_warnings():
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
-    @typing.overload
-    def pilot(self, pilot: str) -> rp.Pilot:
-        ...
+            pilot = pilot_manager.submit_pilots([rp.PilotDescription(pilot_description)])[0]
+            task_manager.add_pilots(pilot)
+        return pilot
 
-    @typing.overload
-    def pilot(self, pilot: rp.Pilot) -> rp.Pilot:
-        ...
+    def pilot(self) -> rp.Pilot:
+        """Get active Pilot.
 
-    def pilot(self, pilot=None) -> typing.Union[rp.Pilot, None]:
-        """Get (optionally set) the current Pilot.
-
-        Args:
-            pilot (radical.pilot.Pilot, str, None): Set to RP Pilot instance or identifier, if provided.
+        Allows lazy initialization of the Pilot resource.
 
         Returns:
-            radical.pilot.Pilot: instance, if set, else ``None``
+            radical.pilot.Pilot: The current Pilot instance, if available and valid,
+                or a new Pilot instance in the configured PilotManager.
 
         Raises:
-            ValueError: for invalid identifier.
             APIError: for invalid RP Session configuration.
         """
-        if pilot is None:
-            return self._pilot
+        pilot_manager = self.pilot_manager()
+        if not pilot_manager:
+            raise APIError("Cannot get/set Pilot before setting PilotManager.")
 
-        pmgr = self.pilot_manager()
-        if not pmgr:
-            raise APIError("Cannot set Pilot before setting PilotManager.")
+        pilot = self._pilot
 
-        if isinstance(pilot, rp.Pilot):
-            session = pilot.session
-            if not isinstance(session, rp.Session):
-                raise APIError(f"Pilot {repr(pilot)} does not have a valid Session.")
-            if session.uid != self.session.uid:
-                raise APIError("Cannot accept a Pilot from a different Session.")
-            if pilot.pmgr.uid != pmgr.uid:
-                raise APIError("Pilot must be associated with a PilotManager already configured.")
-            self._pilot = pilot
-            return pilot
-        else:
-            uid = pilot
-            try:
-                pilot = pmgr.get_pilots(uids=uid)
-                assert isinstance(pilot, rp.Pilot)
-            except (AssertionError, KeyError, ValueError) as e:
-                raise ValueError(f"{uid} does not describe a valid Pilot") from e
-            except Exception as e:
-                # TODO: Track down the expected rp exception.
-                logger.exception("Unhandled RADICAL Pilot exception.", exc_info=e)
-                raise ValueError(f"{uid} does not describe a valid Pilot") from e
+        if pilot is None or pilot.state in rp.FINAL:
+            if pilot is None:
+                logger.info(f"Creating a Pilot for {self.session.uid}")
             else:
-                return self.pilot(pilot)
+                assert isinstance(pilot, rp.Pilot)
+                logger.info(f"Old Pilot {pilot.uid} in state {pilot.state}")
+            pilot_description = describe_pilot(self._configuration)
+
+            logger.debug("Requesting Pilot: {}".format(repr(pilot_description.as_dict())))
+            task_manager = self.task_manager()
+
+            pilot = self._new_pilot(
+                session=self.session,
+                pilot_manager=pilot_manager,
+                pilot_description=pilot_description,
+                task_manager=task_manager,
+            )
+            logger.debug(f"Got Pilot {pilot.uid}: {pilot.as_dict()}")
+
+            # Note: This could take hours or days depending on the queuing system.
+            # Can we report some more useful information, like job ID?
+            # self.resources = self._loop.create_task(pilot_resources(pilot), name="Pilot resources")
+            self.resources = asyncio.create_task(get_pilot_resources(pilot), name="Pilot resources")
+
+            self._pilot = pilot
+        # Do some checking.
+        session = pilot.session
+        assert isinstance(session, rp.Session)
+        if session.uid != self.session.uid:
+            raise APIError("Cannot accept a Pilot from a different Session.")
+        if pilot.pmgr.uid != pilot_manager.uid:
+            raise APIError("Pilot must be associated with a PilotManager already configured.")
+
+        return pilot
+
+
+def describe_pilot(configuration: RuntimeConfiguration):
+    pilot_description_dict = configuration.rp_resource_params["PilotDescription"].copy()
+    # Get a unique identifier.
+    pilot_description_dict["uid"] = f"pilot.{str(uuid.uuid4())}"
+    pilot_description_dict["resource"] = configuration.execution_target
+    assert pilot_description_dict["exit_on_error"] is False
+    # if pilot_description_dict.get("exit_on_error", True):
+    #     warnings.warn("Failing to set PilotDescription.exit_on_error to False may prevent clean shut down.")
+    pilot_description = rp.PilotDescription(pilot_description_dict)
+    return pilot_description
 
 
 async def _get_scheduler(
@@ -731,11 +836,13 @@ def _set_configuration(*args, **kwargs) -> RuntimeConfiguration:
     assert len(args) != 0 or len(kwargs) != 0
     # Caller has provided arguments.
     # Not thread-safe
+    # FIX: Only the RuntimeManager context manager will manipulate this context variable
     if _configuration.get(None):
         raise APIError(f"configuration() cannot accept arguments when {__name__} is already configured.")
     c = RuntimeConfiguration(*args, **kwargs)
-    _configuration.set(c)
-    return _configuration.get()
+    # _configuration.set(c)
+    # return _configuration.get()
+    return c
 
 
 @_set_configuration.register
@@ -774,36 +881,67 @@ def _(namespace: argparse.Namespace) -> RuntimeConfiguration:
     return _set_configuration(config)
 
 
-async def new_session():
-    """Start a new RADICAL Pilot Session.
-
-    Returns:
-        RuntimeSession instance.
-
-    """
-    # Note that we cannot resolve the full _resource config until we have a Session
-    # object.
-    # We cannot get the default session config until after creating the Session,
-    # so we don't have a template for allowed, required, or default values.
-    # Question: does the provided *cfg* need to be complete? Or will it be merged
-    # with default values from some internal definition, such as by dict.update()?
-    # I don't remember what the use cases are for overriding the default session
-    # config.
-    session_config = None
-
-    # Note: We may soon want Session ID to be deterministic (or to be re-used?).
-    session_id = None
-
+def _rp_session(*args, **kwargs) -> rp.Session:
     # Note: radical.pilot.Session creation causes several deprecation warnings.
     # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", category=DeprecationWarning)
         # This would be a good time to `await`, if an event-loop friendly
         # Session creation function becomes available.
-        session_args = dict(uid=session_id, cfg=session_config)
-        _task = asyncio.create_task(asyncio.to_thread(rp.Session, (), **session_args), name="create-Session")
-        session = await _task
-        runtime = RuntimeSession(session=session)
+        session = rp.Session(*args, **kwargs)
+        logger.info(f"Created {session.uid}")
+    return session
+
+
+async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> RuntimeSession:
+    """Start a new RADICAL Pilot Session.
+
+    Returns:
+        RuntimeSession instance.
+
+    """
+    if loop is None:
+        loop = asyncio.get_running_loop()
+    _task = asyncio.create_task(asyncio.to_thread(_rp_session), name="create-Session")
+    session: rp.Session = await _task
+    runtime = RuntimeSession(session=session, loop=loop, configuration=configuration)
+
+    # At some point soon, we need to track Session ID for the workflow metadata.
+    session_id = runtime.session.uid
+    # Do we want to log this somewhere?
+    # session_config = copy.deepcopy(self.session.cfg.as_dict())
+    logger.debug("RP dispatcher acquired session {}".format(session_id))
+
+    logger.debug("Launching PilotManager.")
+    pilot_manager = await asyncio.create_task(
+        asyncio.to_thread(rp.PilotManager, session=runtime.session),
+        name="get-PilotManager",
+    )
+    pilot_manager = runtime.pilot_manager(pilot_manager)
+    logger.debug("Got PilotManager {}.".format(pilot_manager.uid))
+
+    logger.debug("Launching TaskManager.")
+    task_manager = await asyncio.create_task(
+        asyncio.to_thread(rp.TaskManager, session=runtime.session),
+        name="get-TaskManager",
+    )
+    task_manager = runtime.task_manager(task_manager)
+    logger.debug(("Got TaskManager {}".format(task_manager.uid)))
+
+    #
+    # Get a Pilot
+    #
+    # We can launch an initial Pilot, but we may have to run further Pilots
+    # during self._queue_runner_task (or while servicing scalems.wait() within the
+    # with block) to handle dynamic work load requirements.
+    # Optionally, we could refrain from launching the pilot here, at all,
+    # but it seems like a good chance to start bootstrapping the agent environment.
+    #
+    # How and when should we update the pilot description?
+
+    pilot = runtime.pilot()
+    logger.debug("Added Pilot {} to task manager {}.".format(pilot.uid, runtime.task_manager().uid))
+
     return runtime
 
 
@@ -890,52 +1028,11 @@ class _PilotDescriptionProxy(rp.PilotDescription):
                 yield key, normalize(hint, value)
 
 
-async def add_pilot(runtime: RuntimeSession, **kwargs):
-    """Get a new rp.Pilot and add it to the RuntimeSession instance."""
-    if kwargs:
-        message = (
-            f"scalems.radical.runtime.add_pilot() version {scalems.__version__} "
-            + "does not support keyword arguments "
-            + ", ".join(kwargs.keys())
-        )
-        raise MissingImplementationError(message)
-    pilot_manager = runtime.pilot_manager()
-    task_manager = runtime.task_manager()
-    if not pilot_manager or not task_manager:
-        raise ProtocolError(f"RuntimeSession {runtime} is not ready to use.")
-
-    # Note: Consider fetching through the RuntimeSession instance.
-    config: RuntimeConfiguration = configuration()
-
-    # Warning: The Pilot ID needs to be unique within the Session.
-    pilot_description = {"uid": f"pilot.{str(uuid.uuid4())}"}
-    pilot_description.update(config.rp_resource_params.get("PilotDescription", (("exit_on_error", False),)))
-    pilot_description.update({"resource": config.execution_target})
-    if pilot_description.get("exit_on_error", True):
-        warnings.warn("Failing to set PilotDescription.exit_on_error to False may prevent clean shut down.")
-
-    # TODO: Pilot venv (#90, #94).
-    # Currently, Pilot venv must be specified in the JSON file for resource
-    # definitions.
-    pilot_description = rp.PilotDescription(pilot_description)
-    logger.debug("Submitting PilotDescription {}".format(repr(pilot_description.as_dict())))
-    pilot: rp.Pilot = await asyncio.create_task(
-        asyncio.to_thread(pilot_manager.submit_pilots, pilot_description), name="submit_pilots"
-    )
-    logger.debug(f"Got Pilot {pilot.uid}: {pilot.as_dict()}")
-    runtime.pilot(pilot)
-
-    await asyncio.create_task(asyncio.to_thread(task_manager.add_pilots, pilot), name="add_pilots")
-
-    return pilot
-
-
 async def get_pilot_resources(pilot: rp.Pilot):
     def log_pilot_state(fut: asyncio.Task[str]):
-        # Task callbacks do not get called for cancelled Tasks.
-        assert not fut.cancelled()
-        if e := fut.exception():
-            logger.exception("Exception while watching for Pilot to become active.", exc_info=e)
+        if not fut.cancelled():
+            if e := fut.exception():
+                logger.exception("Exception while watching for Pilot to become active.", exc_info=e)
         logger.info(f"Pilot {pilot.uid} in state {pilot.state}.")
 
     logger.info("Waiting for an active Pilot.")
@@ -1136,55 +1233,17 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
             # We could choose another approach and change our assumptions, if appropriate.
             logger.debug("Entering RP dispatching context. Waiting for rp.Session.")
 
-            _runtime: RuntimeSession = await new_session()
-            # At some point soon, we need to track Session ID for the workflow metadata.
-            session_id = _runtime.session.uid
-            # Do we want to log this somewhere?
-            # session_config = copy.deepcopy(self.session.cfg.as_dict())
-            logger.debug("RP dispatcher acquired session {}".format(session_id))
-
-            logger.debug("Launching PilotManager.")
-            pilot_manager = await asyncio.create_task(
-                asyncio.to_thread(rp.PilotManager, session=_runtime.session),
-                name="get-PilotManager",
-            )
-            logger.debug("Got PilotManager {}.".format(pilot_manager.uid))
-            _runtime.pilot_manager(pilot_manager)
-
-            logger.debug("Launching TaskManager.")
-            task_manager = await asyncio.create_task(
-                asyncio.to_thread(rp.TaskManager, session=_runtime.session),
-                name="get-TaskManager",
-            )
-            logger.debug(("Got TaskManager {}".format(task_manager.uid)))
-            _runtime.task_manager(task_manager)
-
-            #
-            # Get a Pilot
-            #
-            # We can launch an initial Pilot, but we may have to run further Pilots
-            # during self._queue_runner_task (or while servicing scalems.wait() within the
-            # with block) to handle dynamic work load requirements.
-            # Optionally, we could refrain from launching the pilot here, at all,
-            # but it seems like a good chance to start bootstrapping the agent environment.
-            #
-            # How and when should we update the pilot description?
-
-            pilot = await add_pilot(runtime=_runtime)
-            logger.debug("Added Pilot {} to task manager {}.".format(pilot.uid, _runtime.task_manager().uid))
+            _runtime: RuntimeSession = await runtime_session(loop=self._loop, configuration=config)
 
             # TODO: Asynchronous data staging optimization.
             #  Allow input data staging to begin before scheduler is in state EXECUTING and
             #  before Pilot is in state PMGR_ACTIVE.
 
-            # Note: This could take hours or days depending on the queuing system.
-            # Can we report some more useful information, like job ID?
-            _runtime.resources = asyncio.create_task(get_pilot_resources(pilot))
-
             assert _runtime.raptor is None
 
             # Get a scheduler task IFF raptor is explicitly enabled.
             if config.enable_raptor:
+                task_manager = _runtime.task_manager()
                 # Note that _get_scheduler is a coroutine that, itself, returns a rp.Task.
                 # We await the result of _get_scheduler, then store the scheduler Task.
                 _runtime.raptor = await asyncio.create_task(
@@ -1274,8 +1333,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         # WARNING: Dropping the Task reference will cause its deletion.
         return command_watcher
 
-    @staticmethod
-    def runtime_shutdown(runtime: RuntimeSession):
+    def runtime_shutdown(self, runtime: RuntimeSession):
         """Manage tear down of the RADICAL Pilot Session and resources.
 
         Several aspects of the RP runtime interface use blocking calls.
@@ -1284,6 +1342,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
 
         Overrides :py:class:`scalems.execution.RuntimeManager`
         """
+        # TODO: Move this to a RuntimeSession.close() method.
         session: rp.Session = getattr(runtime, "session", None)
         if session is None:
             raise scalems.exceptions.APIError(f"No Session in {runtime}.")
@@ -1322,15 +1381,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
                     # so we shouldn't necessarily consider it an error level event.
                     logger.debug(runtime.raptor.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
 
-            # Note: there are no documented exceptions or errors to check for,
-            # programmatically. Some issues encountered during shutdown will be
-            # reported through the reporter or logger of the
-            # radical.pilot.utils.component.Component base.
-            # The RP convention seems to be to use the component uid as the name
-            # of the underlying logging.Logger node, so we could presumably attach
-            # a log handler to the logger for a component of interest.
-            logger.debug(f"Closing Session {session.uid}.")
-            session.close(download=True)
+            runtime.close()
 
             if session.closed:
                 logger.debug(f"Session {session.uid} closed.")

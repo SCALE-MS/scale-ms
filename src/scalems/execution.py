@@ -198,7 +198,7 @@ class RuntimeDescriptor:
             pass
 
     def __init__(self):
-        self.private_name = "_runtime_state"
+        self.private_name = "_runtime_session"
 
 
 _BackendT = typing.TypeVar("_BackendT")
@@ -222,6 +222,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
 
     _command_queue: asyncio.Queue
     _dispatcher_lock: asyncio.Lock
+    _loop: asyncio.AbstractEventLoop
     _queue_runner_task: typing.Union[None, asyncio.Task] = None
 
     runtime = RuntimeDescriptor()
@@ -287,8 +288,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         """
         logger.debug(f"Null CPI handler received command {command}.")
 
-    @staticmethod
-    def runtime_shutdown(runtime):
+    def runtime_shutdown(self, runtime):
         """Shutdown hook for runtime facilities.
 
         Called while exiting the context manager. Allows specialized handling of

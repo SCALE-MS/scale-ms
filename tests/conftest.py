@@ -10,25 +10,27 @@ variable to 1."
 Note: Enable more radical.pilot debugging information by exporting
 RADICAL_LOG_LVL=DEBUG before invocation.
 """
+import asyncio
+
+import pytest_asyncio
 
 try:
     # Import radical.pilot early because of interaction with the built-in logging module.
     import radical.pilot as rp
+    import radical.utils as ru
 except ImportError:
     # It is not an error to run tests without RP, but when RP is available, we
     # need to import it before pytest imports the logging module.
     rp = None
+    ru = None
 
 import logging
 import os
 import pathlib
 import shutil
-import subprocess
 import tempfile
 import warnings
 from contextlib import contextmanager
-from urllib.parse import ParseResult
-from urllib.parse import urlparse
 
 import pytest
 
@@ -251,7 +253,7 @@ def cleandir(rmtmp):
 
 @pytest.fixture(scope="session")
 def pilot_description(request) -> rp.PilotDescription:
-    """pytest fixture to get access to the --rm CLI option."""
+    """pytest fixture to build PilotDescription from the --rp* CLI options."""
     try:
         import radical.pilot as rp
         import radical.utils as ru
@@ -274,6 +276,35 @@ def pilot_description(request) -> rp.PilotDescription:
 
 
 @pytest.fixture(scope="session")
+def rp_configuration(request, rp_venv) -> scalems.radical.runtime.RuntimeConfiguration:
+    """pytest fixture to configure scalems.radical from CLI options."""
+    resource = request.config.getoption("--rp-resource")
+    if rp is None or ru is None or resource is None or not os.environ.get("RADICAL_PILOT_DBURL"):
+        pytest.skip("Test requires RADICAL environment. Provide target resource and " "RADICAL_PILOT_DBURL")
+
+    access_schema = request.config.getoption("--rp-access")
+
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(resource, access_schema)
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
+
+    rp_resource_params = {
+        "PilotDescription": {
+            "access_schema": access_schema,
+            "exit_on_error": False,
+        }
+    }
+    config = scalems.radical.runtime.RuntimeConfiguration(
+        execution_target=resource,
+        target_venv=rp_venv,
+        rp_resource_params=rp_resource_params,
+        enable_raptor=True,
+    )
+    return config
+
+
+@pytest.fixture(scope="session")
 def rp_venv(request):
     """pytest fixture to allow a user-specified venv for the RP tasks."""
     path = request.config.getoption("--rp-venv")
@@ -284,202 +315,41 @@ def rp_venv(request):
     return path
 
 
-def _new_session():
-    # Note: radical.pilot.Session creation causes several deprecation warnings.
-    # Ref https://github.com/radical-cybertools/radical.pilot/issues/2185
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", category=DeprecationWarning)
-        session = rp.Session()
-        logger.info(f"Created {session.uid}")
-    return session
-
-
-def _new_runtime():
-    session = _new_session()
-    runtime = scalems.radical.runtime.RuntimeSession(session)
-    return runtime
-
-
-def _new_pilotmanager(session: rp.Session):
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
-
-        return rp.PilotManager(session=session)
-
-
-def _new_taskmanager(session: rp.Session, pilot: rp.Pilot):
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
-
-        tmgr = rp.TaskManager(session=session)
-        tmgr.add_pilots(pilot)
-    return tmgr
-
-
-def _new_pilot(session: rp.Session, pilot_manager: rp.PilotManager, pilot_description: rp.PilotDescription, venv: str):
-    # Note: we can't manipulate the resource definition after creating the Session,
-    # but we could check whether the resource is using the same venv that the user
-    # is requesting.
-    if venv is None:
-        pytest.skip("This test requires a user-provided static RP venv.")
-
-    resource = session.get_resource_config(pilot_description.resource)
-
-    if pilot_description.access_schema == "ssh":
-        ssh_target = resource["ssh"]["job_manager_endpoint"]
-        result: ParseResult = urlparse(ssh_target)
-        assert result.scheme == "ssh"
-        user = result.username
-        port = result.port
-        host = result.hostname
-
-        ssh = ["ssh"]
-        if user:
-            ssh.extend(["-l", user])
-        if port:
-            ssh.extend(["-p", str(port)])
-        ssh.append(host)
-
-        process = subprocess.run(
-            ssh + ["/bin/echo", "success"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=5, encoding="utf-8"
-        )
-        if process.returncode != 0 or process.stdout.rstrip() != "success":
-            logger.error("Failed ssh stdout: " + str(process.stdout))
-            logger.error("Failed ssh stderr: " + str(process.stderr))
-            pytest.skip(f"Could not ssh to target computing resource with " f'{" ".join(ssh)}.')
-            return
-
-    else:
-        # Not using ssh access. Assuming 'local'.
-        if pilot_description.access_schema is None:
-            pilot_description.access_schema = "local"
-        assert pilot_description.access_schema == "local"
-
-    logger.debug(
-        "Using resource config: {}".format(str(session.get_resource_config(pilot_description.resource).as_dict()))
-    )
-    logger.debug("Using PilotDescription: {}".format(str(pilot_description.as_dict())))
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
-        warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
-
-        pilot = pilot_manager.submit_pilots([rp.PilotDescription(pilot_description)])[0]
-    return pilot
-
-
 @pytest.fixture(scope="session")
-def rp_runtime(pilot_description) -> scalems.radical.runtime.RuntimeSession:
+def event_loop():
+    """Override the pytest_asyncio event_loop fixture with broader scope.
+
+    The default ``event_loop`` fixture from :py:mod:`pytest_asyncio` has ``function``
+    scope, but we would like to be able to re-use runtime resources more broadly.
+    Note that the event loop could become unusable if its ThreadPoolExecutor runs
+    out of threads from badly behaved code triggered in other tests.
+
+    Ref: https://pytest-asyncio.readthedocs.io/en/latest/reference/fixtures.html
+    """
+    policy = asyncio.get_event_loop_policy()
+    loop = policy.new_event_loop()
+    yield loop
+    loop.close()
+
+
+# @pytest_asyncio.fixture(scope=event_loop_scope)
+# async def async_fixture():
+#     return await asyncio.sleep(0.1)
+
+
+@pytest_asyncio.fixture(scope="session")
+async def rp_runtime(rp_configuration, event_loop) -> scalems.radical.runtime.RuntimeSession:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
-        runtime: scalems.radical.runtime.RuntimeSession = _new_runtime()
+        runtime = await scalems.radical.runtime.runtime_session(loop=event_loop, configuration=rp_configuration)
         try:
             yield runtime
         finally:
-            scalems.radical.runtime.RPDispatchingExecutor.runtime_shutdown(runtime)
+            runtime.close()
         assert runtime.session.closed
-
-
-def _check_pilot_manager(runtime: scalems.radical.runtime.RuntimeSession):
-    # Caller should destroy and recreate Pilot if this call has to replace PilotManager.
-    session = runtime.session
-    original_pilot_manager: rp.PilotManager = runtime.pilot_manager()
-    if session.closed:
-        logger.info(f"{session.uid} is closed. Creating new Session.")
-        session: rp.Session = _new_session()
-        runtime.reset(session)
-    if original_pilot_manager is None or original_pilot_manager is not runtime.pilot_manager():
-        # Is there a way to check whether the PilotManager is healthy?
-        logger.info(f"Creating a new PilotManager for {runtime.session.uid}")
-        if isinstance(original_pilot_manager, rp.PilotManager):
-            logger.info("Closing old PilotManager")
-            original_pilot_manager.close()
-        pilot_manager = _new_pilotmanager(runtime.session)
-        logger.info(f"New PilotManager is {pilot_manager.uid}")
-        runtime.pilot_manager(pilot_manager)
-
-
-def _check_pilot(runtime: scalems.radical.runtime.RuntimeSession, pilot_description: rp.PilotDescription, venv):
-    pilot_manager = runtime.pilot_manager()
-    pilot = runtime.pilot()
-    _check_pilot_manager(runtime=runtime)
-    if runtime.pilot_manager() is not pilot_manager or pilot is None or pilot.state in rp.FINAL:
-        if runtime.pilot_manager() is not pilot_manager:
-            logger.info("PilotManager refreshed. Now refreshing Pilot.")
-            assert pilot is None or isinstance(pilot, rp.Pilot) and pilot.state in rp.FINAL
-        if pilot is None:
-            logger.info(f"Creating a Pilot for {runtime.session.uid}")
-        if isinstance(pilot, rp.Pilot):
-            if pilot.state in rp.FINAL:
-                logger.info(f"Old Pilot is {pilot.state}")
-            else:
-                logger.warning(f"Canceling old pilot {pilot.uid}, which should have already been canceled.")
-                pilot.cancel()
-        pilot = _new_pilot(
-            session=runtime.session,
-            pilot_manager=runtime.pilot_manager(),
-            pilot_description=pilot_description,
-            venv=venv,
-        )
-        if pilot is None:
-            raise RuntimeError("Could not get a Pilot.")
-        logger.info(f"New Pilot is {pilot.uid}")
-        runtime.pilot(pilot)
-    else:
-        assert pilot is runtime.pilot()
-
-
-def _check_task_manager(runtime: scalems.radical.runtime.RuntimeSession, pilot_description: rp.PilotDescription, venv):
-    task_manager = runtime.task_manager()
-    original_pilot = runtime.pilot()
-    _check_pilot(runtime=runtime, pilot_description=pilot_description, venv=venv)
-    pilot = runtime.pilot()
-    if task_manager is None or pilot is not original_pilot:
-        if pilot is not original_pilot and original_pilot is not None:
-            logger.info("Pilot has changed. Creating and binding a new TaskManager.")
-        if task_manager is not None:
-            assert isinstance(task_manager, rp.TaskManager)
-            logger.info("Closing old TaskManager.")
-            task_manager.close()
-        logger.info(f"Creating new TaskManager for {runtime.session.uid}")
-        task_manager = _new_taskmanager(session=runtime.session, pilot=pilot)
-
-    if runtime.task_manager() is not task_manager:
-        runtime.task_manager(task_manager)
-
-
-@pytest.fixture(scope="function")
-def rp_pilot_manager(rp_runtime: scalems.radical.runtime.RuntimeSession):
-    _check_pilot_manager(runtime=rp_runtime)
-    yield rp_runtime.pilot_manager()
-
-
-@pytest.fixture(scope="function")
-def rp_pilot(
-    rp_runtime: scalems.radical.runtime.RuntimeSession,
-    rp_pilot_manager: rp.PilotManager,
-    pilot_description: rp.PilotDescription,
-    rp_venv,
-):
-    _check_pilot(runtime=rp_runtime, pilot_description=pilot_description, venv=rp_venv)
-    pilot = rp_runtime.pilot()
-    assert pilot is not None
-    assert pilot.state not in rp.FINAL
-    yield pilot
-
-
-@pytest.fixture(scope="function")
-def rp_task_manager(rp_runtime: scalems.radical.runtime.RuntimeSession, pilot_description, rp_venv):
-    _check_task_manager(runtime=rp_runtime, pilot_description=pilot_description, venv=rp_venv)
-    task_manager: rp.TaskManager = rp_runtime.task_manager()
-    yield task_manager
 
 
 @pytest.fixture(scope="session")

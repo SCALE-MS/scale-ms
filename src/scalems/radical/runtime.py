@@ -638,8 +638,7 @@ class RuntimeSession:
 
             # Note: This could take hours or days depending on the queuing system.
             # Can we report some more useful information, like job ID?
-            # self.resources = self._loop.create_task(pilot_resources(pilot), name="Pilot resources")
-            self.resources = asyncio.create_task(get_pilot_resources(pilot), name="Pilot resources")
+            self.resources = self._loop.create_task(pilot_resources(pilot), name="Pilot resources")
 
             self._pilot = pilot
         # Do some checking.
@@ -1028,23 +1027,34 @@ class _PilotDescriptionProxy(rp.PilotDescription):
                 yield key, normalize(hint, value)
 
 
-async def get_pilot_resources(pilot: rp.Pilot):
-    def log_pilot_state(fut: asyncio.Task[str]):
-        if not fut.cancelled():
-            if e := fut.exception():
-                logger.exception("Exception while watching for Pilot to become active.", exc_info=e)
-        logger.info(f"Pilot {pilot.uid} in state {pilot.state}.")
+def pilot_active_callback(p: rp.Pilot, state, *, loop, event):
+    if state == rp.PMGR_ACTIVE:
+        try:
+            loop.call_soon_threadsafe(event.set)
+            logger.info(f"Pilot {p.uid} in state {state}.")
+        except Exception as e:
+            logger.exception("Exception in pilot_active_callback.")
 
+
+def pilot_final_callback(p: rp.Pilot, state, *, loop, task_weakref):
+    """Cancel the watcher task if the Pilot fails or is canceled.
+
+    Args:
+        task_weakref: a Task that is waiting for the Pilot to reach active state.
+    """
+    try:
+        logger.debug(f"Pilot {p.uid} reached state {state}.")
+        task = task_weakref()
+        if task and not task.done() and state in {rp.FAILED, rp.CANCELED}:
+            logger.debug(f"Canceling {repr(task)}.")
+            loop.call_soon_threadsafe(task.cancel)
+    except Exception as e:
+        logger.exception("Exception in pilot_final_callback.")
+
+
+async def _get_pilot_resources(pilot: rp.Pilot, pilot_ready: asyncio.Event):
     logger.info("Waiting for an active Pilot.")
-    # Wait for Pilot to be in state PMGR_ACTIVE. (There is no reasonable
-    # choice of a timeout because we are waiting for the HPC queuing system.)
-    # Then, query Pilot.resource_details['rm_info']['requested_cores'] and 'requested_gpus'.
-    pilot_state = asyncio.create_task(
-        asyncio.to_thread(pilot.wait, state=rp.PMGR_ACTIVE, timeout=None), name="pilot_state_waiter"
-    )
-
-    pilot_state.add_done_callback(log_pilot_state)
-    await pilot_state
+    await pilot_ready.wait()
     rm_info: dict = pilot.resource_details.get("rm_info")
     logger.debug(f"Pilot {pilot.uid} resources: {str(rm_info)}")
     if rm_info is not None:
@@ -1052,6 +1062,36 @@ async def get_pilot_resources(pilot: rp.Pilot):
         assert "requested_cores" in rm_info and isinstance(rm_info["requested_cores"], int)
         assert "requested_gpus" in rm_info and isinstance(rm_info["requested_gpus"], typing.SupportsFloat)
         return rm_info.copy()
+
+
+async def pilot_resources(pilot: rp.Pilot):
+    """Get the Pilot rm_info, once available.
+
+    Schedule a Task that waits for Pilot.resource_details["rm_info"] to be delivered
+    through the :py:func:`rp.Pilot.register_callback()` facility.
+    """
+    loop = asyncio.get_event_loop()
+    pilot_active = asyncio.Event()
+
+    cb1 = functools.partial(pilot_active_callback, loop=loop, event=pilot_active)
+    if packaging.version.parse(rp.version) < packaging.version.parse("1.35"):
+        cb1.__name__ = id(cb1)
+    pilot.register_callback(cb1)
+
+    get_pilot_resources = asyncio.create_task(_get_pilot_resources(pilot, pilot_active), name="get Pilot resources")
+
+    cb2 = functools.partial(pilot_final_callback, loop=loop, task=weakref.ref(get_pilot_resources))
+    if packaging.version.parse(rp.version) < packaging.version.parse("1.35"):
+        cb2.__name__ = id(cb2)
+    pilot.register_callback(cb2)
+
+    try:
+        return await get_pilot_resources
+    except asyncio.CancelledError:
+        logger.debug("RuntimeSession.resources Task canceled before Pilot resources were delivered.")
+        pilot.unregister_callback(cb2)
+        pilot.unregister_callback(cb1)
+        raise
 
 
 class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguration]):

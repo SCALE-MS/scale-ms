@@ -54,10 +54,11 @@ the following module attribute(s) for hooks in `run()`
 .. py:attribute:: configuration
     :noindex:
 
-    A callable to initialize and retrieve the current module configuration.
+    A callable to acquire a runtime module configuration.
     If present in *module*, `run()` calls ``module.configuration(args)``,
     where *args* is a :py:class:`argparse.Namespace` object created by the
-    module's *parser*.
+    module's *parser*. The resulting configuration object is provided when
+    invoking the *executor_factory*.
 
 .. uml::
 
@@ -130,10 +131,11 @@ _reentrance_guard = threading.Lock()
 # TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
 
 
-def run_dispatch(work, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory):
+def run_dispatch(work, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, config):
     """Run the provided work in the execution dispatching context.
 
     Parameters:
+        config: Implementation-specific runtime configuration to be provided to *executor_factory*.
         executor_factory: Implementation-specific callable to get a run time work manager.
         workflow_manager (scalems.workflow.WorkflowManager) : an active workflow manager (with a running event loop)
         work (typing.Callable) : An "app" function to run within the scope of an active execution dispatcher.
@@ -144,7 +146,7 @@ def run_dispatch(work, *, workflow_manager: scalems.workflow.WorkflowManager, ex
     """
 
     async def _dispatch(_work):
-        async with scalems.execution.dispatch(workflow_manager, executor_factory=executor_factory):
+        async with scalems.execution.dispatch(workflow_manager, executor_factory=executor_factory, params=config):
             # Add work to the queue
             _work()
         # Return an iterable of results.
@@ -240,6 +242,8 @@ def run(*, manager_factory: _ManagerT, executor_factory, _loop: asyncio.Abstract
         if configure_module is not None:
             config = configure_module(args)
             logger.debug(f"Configuration: {config}")
+        else:
+            config = None
 
         sys.argv = [args.script] + script_args
 
@@ -295,7 +299,7 @@ def run(*, manager_factory: _ManagerT, executor_factory, _loop: asyncio.Abstract
 
                     logger.debug("Starting asyncio run()")
                     try:
-                        run_dispatch(main, workflow_manager=manager, executor_factory=executor_factory)
+                        run_dispatch(main, workflow_manager=manager, executor_factory=executor_factory, config=config)
                     except Exception as e:
                         logger.exception("Unhandled exception in scalems runner calling dispatch(): " + str(e))
                         raise e

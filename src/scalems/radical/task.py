@@ -34,7 +34,7 @@ from scalems.exceptions import APIError
 from scalems.exceptions import DispatchError
 from scalems.exceptions import ScaleMSError
 from scalems.identifiers import TypeIdentifier
-from scalems.radical.configuration import get_pre_exec
+from scalems.radical.runtime_configuration import get_pre_exec
 from scalems.radical.exceptions import RPInternalError
 
 if typing.TYPE_CHECKING:

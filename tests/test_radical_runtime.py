@@ -7,7 +7,7 @@ import pytest
 import radical.pilot as rp
 import radical.utils as ru
 
-import scalems.radical.configuration
+import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.runtime
 import scalems.radical.session
@@ -93,7 +93,7 @@ async def test_runtime_context_management(rp_venv, pilot_description):
     loop.set_debug(True)
 
     # Configure execution module.
-    runtime_config = scalems.radical.configuration.configuration(
+    runtime_config = scalems.radical.runtime_configuration.configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},

@@ -15,7 +15,7 @@ import weakref
 
 from scalems.exceptions import APIError
 from scalems.exceptions import ProtocolError
-from scalems.radical.configuration import RuntimeConfiguration
+from scalems.radical.runtime_configuration import RuntimeConfiguration
 
 from radical import pilot as rp
 

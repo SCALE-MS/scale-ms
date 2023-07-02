@@ -14,7 +14,7 @@ import asyncio
 
 import pytest_asyncio
 
-import scalems.radical.configuration
+import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.session
 
@@ -280,7 +280,7 @@ def pilot_description(request) -> rp.PilotDescription:
 
 
 @pytest.fixture(scope="session")
-def rp_configuration(request, rp_venv) -> scalems.radical.configuration.RuntimeConfiguration:
+def rp_configuration(request, rp_venv) -> scalems.radical.runtime_configuration.RuntimeConfiguration:
     """pytest fixture to configure scalems.radical from CLI options."""
     resource = request.config.getoption("--rp-resource")
     if rp is None or ru is None or resource is None or not os.environ.get("RADICAL_PILOT_DBURL"):
@@ -299,7 +299,7 @@ def rp_configuration(request, rp_venv) -> scalems.radical.configuration.RuntimeC
             "exit_on_error": False,
         }
     }
-    config = scalems.radical.configuration.RuntimeConfiguration(
+    config = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=resource,
         target_venv=rp_venv,
         rp_resource_params=rp_resource_params,

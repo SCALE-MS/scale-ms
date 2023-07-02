@@ -16,7 +16,7 @@ import scalems.messages
 import scalems.workflow
 import scalems.radical.raptor
 from scalems.exceptions import DispatchError
-from scalems.radical.configuration import RuntimeConfiguration
+from scalems.radical.runtime_configuration import RuntimeConfiguration
 from scalems.radical.session import runtime_session
 from scalems.radical.session import RuntimeSession
 from scalems.store import FileStore

@@ -155,6 +155,7 @@ import contextvars
 import logging
 import os
 import typing
+import warnings
 import weakref
 
 from radical import pilot as rp
@@ -166,7 +167,7 @@ import scalems.file
 import scalems.invocation
 import scalems.messages
 import scalems.radical
-import scalems.radical.configuration
+import scalems.radical.runtime_configuration
 import scalems.radical.raptor
 import scalems.store
 import scalems.subprocess
@@ -174,8 +175,8 @@ import scalems.workflow
 from scalems.exceptions import DispatchError
 from scalems.exceptions import MissingImplementationError
 from scalems.exceptions import ProtocolError
-from .configuration import get_pre_exec
-from .configuration import RuntimeConfiguration
+from .runtime_configuration import get_pre_exec
+from .runtime_configuration import RuntimeConfiguration
 from .session import runtime_session
 from .session import RuntimeSession
 from .raptor import get_scheduler
@@ -519,7 +520,8 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
 
 def executor_factory(manager: scalems.workflow.WorkflowManager, params: RuntimeConfiguration = None):
     if params is None:
-        params = scalems.radical.configuration.configuration()
+        warnings.warn("executor_factory called without explicit configuration.")
+        params = scalems.radical.runtime_configuration.configuration()
 
     executor = RPDispatchingExecutor(
         editor_factory=weakref.WeakMethod(manager.edit_item),

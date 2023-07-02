@@ -733,7 +733,7 @@ def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> 
     TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     """
     # TODO: calculate cores.
-    # rp_config = scalems.radical.configuration.configuration()
+    # rp_config = scalems.radical.runtime_configuration.configuration()
     # pilot_description = rp_config.rp_resource_params["PilotDescription"]
     # available_cores = pilot_description.get("cores")
     # if not available_cores:

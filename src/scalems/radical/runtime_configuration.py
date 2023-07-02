@@ -106,7 +106,7 @@ class RuntimeConfiguration:
     """Module configuration information.
 
     See also:
-        * :py:func:`scalems.radical.configuration.configuration()`
+        * :py:func:`scalems.radical.runtime_configuration.configuration()`
         * :py:data:`scalems.radical.runtime.parser`
         * :py:class:`scalems.radical.runtime.RuntimeSession`
     """

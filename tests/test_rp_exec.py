@@ -29,7 +29,7 @@ import scalems.context
 import scalems.execution
 import scalems.identifiers
 import scalems.messages
-import scalems.radical.configuration
+import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.task
 import scalems.workflow
@@ -176,7 +176,7 @@ async def test_raptor_master(pilot_description, rp_venv):
     loop.set_debug(True)
 
     # Configure module.
-    params = scalems.radical.configuration.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -286,7 +286,7 @@ async def test_worker(pilot_description, rp_venv):
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
-    params = scalems.radical.configuration.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -465,7 +465,7 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
     loop.set_debug(True)
 
     # Configure module.
-    params = scalems.radical.configuration.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -542,7 +542,7 @@ async def test_rp_executable(pilot_description, rp_venv):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
-    params = scalems.radical.configuration.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},

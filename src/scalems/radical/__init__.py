@@ -41,8 +41,8 @@ import logging
 
 import scalems.workflow
 from ..invocation import make_parser as _make_parser
-from .runtime import configuration
-from .runtime import parser as _runtime_parser
+from .runtime_configuration import configuration
+from .runtime_configuration import parser as _runtime_parser
 from .runtime import executor_factory
 
 logger = logging.getLogger(__name__)

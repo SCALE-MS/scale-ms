@@ -29,6 +29,9 @@ import scalems.context
 import scalems.execution
 import scalems.identifiers
 import scalems.messages
+import scalems.radical.runtime_configuration
+import scalems.radical.manager
+import scalems.radical.task
 import scalems.workflow
 
 if typing.TYPE_CHECKING:
@@ -80,7 +83,7 @@ async def test_rp_future(rp_runtime):
     # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(task_description)
 
-    rp_future: asyncio.Future = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Future = await scalems.radical.task.rp_task(task)
 
     task.cancel()
     try:
@@ -97,7 +100,7 @@ async def test_rp_future(rp_runtime):
     task_description.uid = "test-rp-future-2"
     task: rp.Task = tmgr.submit_tasks(task_description)
 
-    rp_future: asyncio.Task = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Task = await scalems.radical.task.rp_task(task)
 
     assert isinstance(rp_future, asyncio.Task)
     rp_future.cancel()
@@ -135,7 +138,7 @@ async def test_rp_future(rp_runtime):
         watcher.cancel()
         raise e
 
-    rp_future: asyncio.Task[rp.Task] = await scalems.radical.runtime.rp_task(task)
+    rp_future: asyncio.Task[rp.Task] = await scalems.radical.task.rp_task(task)
     try:
         result: rp.Task = await asyncio.wait_for(rp_future, timeout=timeout)
     except asyncio.TimeoutError as e:
@@ -173,7 +176,7 @@ async def test_raptor_master(pilot_description, rp_venv):
     loop.set_debug(True)
 
     # Configure module.
-    params = scalems.radical.runtime.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -283,7 +286,7 @@ async def test_worker(pilot_description, rp_venv):
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
-    params = scalems.radical.runtime.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -338,7 +341,7 @@ async def test_worker(pilot_description, rp_venv):
                 submitter.cancel()
                 raise e
 
-            cpi_command_future: asyncio.Task = await scalems.radical.runtime.rp_task(submitted_rptask)
+            cpi_command_future: asyncio.Task = await scalems.radical.task.rp_task(submitted_rptask)
             try:
                 add_item_task: rp.Task = await asyncio.wait_for(cpi_command_future, timeout=timeout)
             except asyncio.TimeoutError as e:
@@ -462,7 +465,7 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
     loop.set_debug(True)
 
     # Configure module.
-    params = scalems.radical.runtime.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -511,11 +514,11 @@ async def test_rp_function(pilot_description, rp_venv, tmp_path):
             # * For immediate follow-up: Worker provisioning needs to be delayed,
             #   and carried out with respect to the work load.
 
-            rp_task_result: scalems.radical.runtime.RPTaskResult = await scalems.radical.runtime.subprocess_to_rp_task(
+            rp_task_result: scalems.radical.task.RPTaskResult = await scalems.radical.task.subprocess_to_rp_task(
                 call_handle, dispatcher=dispatcher
             )
 
-            call_result: scalems.call.CallResult = await scalems.radical.runtime.wrapped_function_result_from_rp_task(
+            call_result: scalems.call.CallResult = await scalems.radical.task.wrapped_function_result_from_rp_task(
                 call_handle, rp_task_result
             )
 
@@ -539,7 +542,7 @@ async def test_rp_executable(pilot_description, rp_venv):
     logging.getLogger("asyncio").setLevel(logging.DEBUG)
 
     # Configure module.
-    params = scalems.radical.runtime.RuntimeConfiguration(
+    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},

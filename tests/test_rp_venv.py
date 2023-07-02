@@ -10,14 +10,15 @@ from urllib.parse import urlparse
 import packaging.version
 import pytest
 
-import scalems.radical.runtime
+import scalems.radical.manager
+import scalems.radical.session
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
 
 @pytest.mark.experimental
-def test_register_venv(rp_runtime: scalems.radical.runtime.RuntimeSession, rp_venv):
+def test_register_venv(rp_runtime: scalems.radical.session.RuntimeSession, rp_venv):
     """Use prepare_env() to register an existing venv."""
     import radical.pilot as rp
     import radical.utils as ru
@@ -107,7 +108,7 @@ def test_register_venv(rp_runtime: scalems.radical.runtime.RuntimeSession, rp_ve
 
 
 @pytest.mark.skip(reason="Currently unused.")
-def test_prepare_venv(rp_runtime: scalems.radical.runtime.RuntimeSession, sdist, rp_venv):
+def test_prepare_venv(rp_runtime: scalems.radical.session.RuntimeSession, sdist, rp_venv):
     """Bootstrap the scalems package in a RP target environment using pilot.prepare_env.
 
     Note that we cannot wait on the environment preparation directly, but we can define

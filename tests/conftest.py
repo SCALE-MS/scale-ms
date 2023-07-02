@@ -14,6 +14,10 @@ import asyncio
 
 import pytest_asyncio
 
+import scalems.radical.runtime_configuration
+import scalems.radical.manager
+import scalems.radical.session
+
 try:
     # Import radical.pilot early because of interaction with the built-in logging module.
     import radical.pilot as rp
@@ -276,7 +280,7 @@ def pilot_description(request) -> rp.PilotDescription:
 
 
 @pytest.fixture(scope="session")
-def rp_configuration(request, rp_venv) -> scalems.radical.runtime.RuntimeConfiguration:
+def rp_configuration(request, rp_venv) -> scalems.radical.runtime_configuration.RuntimeConfiguration:
     """pytest fixture to configure scalems.radical from CLI options."""
     resource = request.config.getoption("--rp-resource")
     if rp is None or ru is None or resource is None or not os.environ.get("RADICAL_PILOT_DBURL"):
@@ -295,7 +299,7 @@ def rp_configuration(request, rp_venv) -> scalems.radical.runtime.RuntimeConfigu
             "exit_on_error": False,
         }
     }
-    config = scalems.radical.runtime.RuntimeConfiguration(
+    config = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=resource,
         target_venv=rp_venv,
         rp_resource_params=rp_resource_params,
@@ -338,13 +342,13 @@ def event_loop():
 
 
 @pytest_asyncio.fixture(scope="session")
-async def rp_runtime(rp_configuration, event_loop) -> scalems.radical.runtime.RuntimeSession:
+async def rp_runtime(rp_configuration, event_loop) -> scalems.radical.session.RuntimeSession:
     with warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
         warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
 
-        runtime = await scalems.radical.runtime.runtime_session(loop=event_loop, configuration=rp_configuration)
+        runtime = await scalems.radical.session.runtime_session(loop=event_loop, configuration=rp_configuration)
         try:
             yield runtime
         finally:

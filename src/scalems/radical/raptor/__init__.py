@@ -183,7 +183,7 @@ with which to :py:func:`~radical.pilot.raptor.Master.submit_workers()`.
 
     -> client_runtime : runtime_startup()
     activate client_runtime
-    client_runtime -> client_runtime : _get_scheduler()
+    client_runtime -> client_runtime : get_scheduler()
     activate client_runtime
     client_runtime -> client_runtime : raptor_script()
     client_runtime -> client_runtime : raptor_input()
@@ -274,6 +274,7 @@ import importlib
 import importlib.metadata
 import json
 import os
+import pathlib
 import sys
 import tempfile
 import typing
@@ -286,6 +287,10 @@ from importlib.util import find_spec
 from collections.abc import Generator
 
 import packaging.version
+
+from scalems.exceptions import DispatchError
+from scalems.identifiers import EphemeralIdentifier
+from scalems.store import FileStore
 
 if typing.TYPE_CHECKING:
     try:
@@ -728,7 +733,7 @@ def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> 
     TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     """
     # TODO: calculate cores.
-    # rp_config = scalems.radical.configuration()
+    # rp_config = scalems.radical.runtime_configuration.configuration()
     # pilot_description = rp_config.rp_resource_params["PilotDescription"]
     # available_cores = pilot_description.get("cores")
     # if not available_cores:
@@ -1738,3 +1743,135 @@ def next_numbered_file(*, dir, name, suffix):
         i += 1
         filename = template.format(i=i)
     return os.path.join(dir, filename)
+
+
+async def get_scheduler(
+    pre_exec: typing.Iterable[str],
+    task_manager: rp.TaskManager,
+    filestore: FileStore,
+    scalems_env: str,
+):
+    """Establish the radical.pilot.raptor.Master task.
+
+    Create a raptor rp.Task (running the scalems_rp_master script) with the
+    provided *name* to be referenced as the *scheduler* for raptor tasks.
+
+    Returns the rp.Task for the raptor script once the Master is ready to
+    receive submissions.
+
+    Raises:
+        DispatchError if the raptor task could not be launched successfully.
+
+    Note:
+        Currently there is no completion condition for the raptor script.
+        Caller is responsible for canceling the Task returned by this function.
+    """
+    # define a raptor.scalems raptor and launch it within the pilot
+    td = rp.TaskDescription()
+
+    # The raptor uid is used as the `scheduler` value for raptor task routing.
+    # TODO(#108): Use caller-provided *name* for master_identity.
+    # Master tasks may not appear unique, but must be uniquely identified within the
+    # scope of a rp.Session for RP bookkeeping. Since there is no other interesting
+    # information at this time, we can generate a random ID and track it in our metadata.
+    master_identity = EphemeralIdentifier()
+    td.uid = "scalems-rp-raptor." + str(master_identity)
+
+    td.mode = rp.RAPTOR_MASTER
+
+    # scalems_rp_master will write output before it begins handling requests. The
+    # script may crash even before it can write anything, but if it does write
+    # anything, we _will_ have the output file locally.
+    # TODO: Why don't we have the output files? Can we ensure output files for CANCEL?
+    td.output_staging = []  # TODO(#229) Write and stage output from raptor task.
+    td.stage_on_error = True
+
+    td.pre_exec = list(pre_exec)
+
+    # We are not using prepare_env at this point. We use the `venv` configured by the
+    # caller.
+    # td.named_env = 'scalems_env'
+
+    td.executable = "python3"
+    td.arguments = []
+    if os.getenv("PYTHONDEVMODE", None) == "1" or "dev" in getattr(sys, "_xoptions", {}):
+        td.arguments.extend(("-X", "dev"))
+    if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+        # TODO: Use the FileStore!
+        local_coverage_dir = pathlib.Path("scalems-remote-coverage-dir").resolve()
+        td.arguments.extend(
+            (
+                "-m",
+                "coverage",
+                "run",
+                "--parallel-mode",
+                "--source=scalems",
+                "--branch",
+                "--data-file=coverage_dir/.coverage",
+            )
+        )
+        td.environment["SCALEMS_COVERAGE"] = "TRUE"
+        td.environment["RADICAL_LOG_LVL"] = "DEBUG"
+        td.pre_exec.append("mkdir -p coverage_dir")
+        td.output_staging.extend(
+            (
+                {
+                    "source": "task:///coverage_dir",
+                    "target": local_coverage_dir.as_uri(),
+                    "action": rp.TRANSFER,
+                },
+            )
+        )
+        logger.info(f"Coverage data will be staged to {local_coverage_dir}.")
+    else:
+        logger.debug("No coverage testing")
+    td.arguments.extend(("-m", "scalems.radical.raptor"))
+
+    logger.debug(f"Using {filestore}.")
+
+    # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
+    # asyncio.get_running_loop().slow_callback_duration = 0.5
+    config_file = await asyncio.create_task(
+        raptor_input(filestore=filestore, worker_pre_exec=list(pre_exec), worker_venv=scalems_env),
+        name="get-raptor-input",
+    )
+    # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration
+
+    # TODO(#75): Automate handling of file staging directives for scalems.file.AbstractFileReference
+    # e.g. _add_file_dependency(td, config_file)
+    config_file_name = str(td.uid) + "-config.json"
+    td.input_staging = [
+        {
+            "source": config_file.as_uri(),
+            "target": f"task:///{config_file_name}",
+            "action": rp.TRANSFER,
+        }
+    ]
+    td.arguments.append(config_file_name)
+
+    task_metadata = {"uid": td.uid, "task_manager": task_manager.uid}
+
+    await asyncio.create_task(asyncio.to_thread(filestore.add_task, master_identity, **task_metadata), name="add-task")
+    # filestore.add_task(master_identity, **task_metadata)
+
+    logger.debug(f"Launching RP raptor scheduling. Submitting {td}.")
+
+    _task = asyncio.create_task(asyncio.to_thread(task_manager.submit_tasks, td), name="submit-Master")
+    raptor: rp.Task = await _task
+
+    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
+    # check type.
+    _task = asyncio.create_task(
+        asyncio.to_thread(raptor.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
+        name="check-Master-started",
+    )
+    await _task
+    logger.debug(f"Scheduler in state {raptor.state}.")
+    # TODO: Generalize the exit status checker for the Master task and perform this
+    #  this check at the call site.
+    if raptor.state in rp.FINAL:
+        if raptor.stdout or raptor.stderr:
+            logger.error(f"raptor.stdout: {raptor.stdout}")
+            logger.error(f"raptor.stderr: {raptor.stderr}")
+        raise DispatchError(f"Master Task unexpectedly reached {raptor.state} during launch.")
+    return raptor

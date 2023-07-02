@@ -7,9 +7,13 @@ import pytest
 import radical.pilot as rp
 import radical.utils as ru
 
+import scalems.radical.runtime_configuration
+import scalems.radical.manager
 import scalems.radical.runtime
+import scalems.radical.session
 from scalems.exceptions import APIError
-from scalems.radical.runtime import RuntimeSession
+import scalems.radical.runtime
+from scalems.radical.session import RuntimeSession
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -89,7 +93,7 @@ async def test_runtime_context_management(rp_venv, pilot_description):
     loop.set_debug(True)
 
     # Configure execution module.
-    runtime_config = scalems.radical.runtime.configuration(
+    runtime_config = scalems.radical.runtime_configuration.configuration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -98,8 +102,9 @@ async def test_runtime_context_management(rp_venv, pilot_description):
 
     workflow = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(workflow, close_on_exit=True):
-        async with scalems.radical.runtime.launch(workflow, runtime_config):
+        async with scalems.radical.manager.launch(workflow, runtime_config):
+            # Test for clean shutdown in trivial case.
             ...
-        async with scalems.radical.runtime.launch(workflow, runtime_config) as runtime_manager:
-            rm_info: dict = await runtime_manager.runtime.resources
+        async with scalems.radical.manager.launch(workflow, runtime_config) as runtime_manager:
+            rm_info: dict = await runtime_manager.runtime_session.resources
             assert rm_info["requested_cores"] >= pilot_description.cores

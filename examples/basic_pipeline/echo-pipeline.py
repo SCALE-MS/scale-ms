@@ -33,6 +33,7 @@ import typing
 import scalems.radical
 import scalems.call
 import scalems.execution
+import scalems.radical.task
 import scalems.workflow
 
 
@@ -81,21 +82,26 @@ class TaskHandle(typing.Generic[_ResultT]):
         # Wait for input preparation
         call_handle = await self._call_handle
         rp_task_result_future = asyncio.create_task(
-            scalems.radical.runtime.subprocess_to_rp_task(call_handle, dispatcher=self._dispatcher)
+            scalems.radical.task.subprocess_to_rp_task(call_handle, dispatcher=self._dispatcher)
         )
         # Wait for submission and completion
         rp_task_result = await rp_task_result_future
         result_future = asyncio.create_task(
-            scalems.radical.runtime.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
+            scalems.radical.task.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
         )
         # Wait for results staging.
         result = await result_future
         return result.return_value
 
 
-async def main(text, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, size: int):
+async def main(
+    text, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, config: argparse.Namespace
+):
     session: scalems.radical.runtime.RPDispatchingExecutor
-    async with scalems.execution.dispatch(workflow_manager, executor_factory=executor_factory) as session:
+    runtime_configuration = scalems.radical.runtime_configuration.configuration(config)
+    async with scalems.execution.dispatch(
+        workflow_manager, executor_factory=executor_factory, params=runtime_configuration
+    ) as session:
         # submit a single pipeline task to pilot job
         # task_handle = await TaskHandle.submit(
         #     func=sender,
@@ -125,7 +131,7 @@ async def main(text, *, workflow_manager: scalems.workflow.WorkflowManager, exec
                 args=(text,),
                 requirements={"ranks": 2, "cores_per_rank": 2, "threading_type": "OpenMP"},
             )
-            for i in range(size)
+            for i in range(config.size)
         )
 
         # Localize all the results.
@@ -195,7 +201,7 @@ if __name__ == "__main__":
                 argv,
                 workflow_manager=workflow_manager,
                 executor_factory=scalems.radical.executor_factory,
-                size=config.size,
+                config=config,
             ),
             debug=debug,
         )

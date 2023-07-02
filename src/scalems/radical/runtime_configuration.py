@@ -14,6 +14,7 @@ import dataclasses
 import functools
 import logging
 import os
+import sys
 import typing
 import warnings
 
@@ -243,10 +244,12 @@ class RPResourceParams(typing.TypedDict):
 def configuration(*args, **kwargs) -> RuntimeConfiguration:
     """Get a RADICAL runtime configuration.
 
+    Accepts a single `argparse.Namespace` argument (see `parser`) or key word arguments.
     With no arguments, the command line parser is invoked to try to build a new
     configuration.
 
-    If arguments are provided, try to construct a `scalems.radical.runtime.RuntimeConfiguration`.
+    If key word arguments are provided, try to construct a
+    `scalems.radical.runtime.RuntimeConfiguration`.
 
     See Also:
         :py:func:`current_configuration()` retrieves the configuration for an active
@@ -254,12 +257,16 @@ def configuration(*args, **kwargs) -> RuntimeConfiguration:
     """
     from scalems.radical import parser
 
-    # Warning: (bool(args) or bool(kwargs)) != (args or kwargs).
-    # Using `len` for readability.
-    if len(args) > 0 or len(kwargs) > 0:
-        config = RuntimeConfiguration(*args, **kwargs)
+    if args:
+        if len(args) + len(kwargs) > 1:
+            raise TypeError("Too many positional arguments.")
+    if kwargs:
+        config = RuntimeConfiguration(**kwargs)
     else:
-        namespace, _ = parser.parse_known_args()
+        if len(args) == 1 and isinstance(args[0], argparse.Namespace):
+            namespace = args[0]
+        else:
+            namespace, _ = parser.parse_known_args(sys.argv)
         rp_resource_params = {"PilotDescription": {"access_schema": namespace.access}}
         if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:
             user_options = _PilotDescriptionProxy.normalize_values(namespace.pilot_option)

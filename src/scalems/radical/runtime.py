@@ -522,6 +522,8 @@ def executor_factory(manager: scalems.workflow.WorkflowManager, params: RuntimeC
     if params is None:
         warnings.warn("executor_factory called without explicit configuration.")
         params = scalems.radical.runtime_configuration.configuration()
+    elif not isinstance(params, RuntimeConfiguration):
+        raise ValueError("scalems.radical executor_factory *params* must be a RuntimeConfiguration instance.")
 
     executor = RPDispatchingExecutor(
         editor_factory=weakref.WeakMethod(manager.edit_item),

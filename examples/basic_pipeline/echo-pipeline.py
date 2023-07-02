@@ -94,9 +94,14 @@ class TaskHandle(typing.Generic[_ResultT]):
         return result.return_value
 
 
-async def main(text, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, size: int):
+async def main(
+    text, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, config: argparse.Namespace
+):
     session: scalems.radical.runtime.RPDispatchingExecutor
-    async with scalems.execution.dispatch(workflow_manager, executor_factory=executor_factory) as session:
+    runtime_configuration = scalems.radical.runtime_configuration.configuration(config)
+    async with scalems.execution.dispatch(
+        workflow_manager, executor_factory=executor_factory, params=runtime_configuration
+    ) as session:
         # submit a single pipeline task to pilot job
         # task_handle = await TaskHandle.submit(
         #     func=sender,
@@ -126,7 +131,7 @@ async def main(text, *, workflow_manager: scalems.workflow.WorkflowManager, exec
                 args=(text,),
                 requirements={"ranks": 2, "cores_per_rank": 2, "threading_type": "OpenMP"},
             )
-            for i in range(size)
+            for i in range(config.size)
         )
 
         # Localize all the results.
@@ -196,7 +201,7 @@ if __name__ == "__main__":
                 argv,
                 workflow_manager=workflow_manager,
                 executor_factory=scalems.radical.executor_factory,
-                size=config.size,
+                config=config,
             ),
             debug=debug,
         )

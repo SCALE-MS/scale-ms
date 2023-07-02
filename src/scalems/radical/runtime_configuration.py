@@ -15,6 +15,8 @@ import functools
 import logging
 import os
 import typing
+import warnings
+
 from scalems.radical.exceptions import RPConfigurationError
 from radical import pilot as rp
 
@@ -123,6 +125,14 @@ class RuntimeConfiguration:
     enable_raptor: bool = False
 
     def __post_init__(self):
+        if "PilotDescription" not in self.rp_resource_params:
+            self.rp_resource_params["PilotDescription"] = dict()
+
+        if "exit_on_error" not in self.rp_resource_params["PilotDescription"]:
+            self.rp_resource_params["PilotDescription"]["exit_on_error"] = False
+        elif self.rp_resource_params["PilotDescription"]["exit_on_error"]:
+            warnings.warn("Allowing RP Pilot to exit_on_error can prevent scalems from shutting down cleanly.")
+
         hpc_platform_label = self.execution_target
         access = self.rp_resource_params["PilotDescription"].get("access_schema")
         try:
@@ -250,12 +260,7 @@ def configuration(*args, **kwargs) -> RuntimeConfiguration:
         config = RuntimeConfiguration(*args, **kwargs)
     else:
         namespace, _ = parser.parse_known_args()
-        rp_resource_params = {
-            "PilotDescription": {
-                "access_schema": namespace.access,
-                "exit_on_error": False,
-            }
-        }
+        rp_resource_params = {"PilotDescription": {"access_schema": namespace.access}}
         if namespace.pilot_option is not None and len(namespace.pilot_option) > 0:
             user_options = _PilotDescriptionProxy.normalize_values(namespace.pilot_option)
             rp_resource_params["PilotDescription"].update(user_options)

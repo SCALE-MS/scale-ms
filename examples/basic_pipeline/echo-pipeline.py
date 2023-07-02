@@ -33,6 +33,7 @@ import typing
 import scalems.radical
 import scalems.call
 import scalems.execution
+import scalems.radical.task
 import scalems.workflow
 
 
@@ -81,12 +82,12 @@ class TaskHandle(typing.Generic[_ResultT]):
         # Wait for input preparation
         call_handle = await self._call_handle
         rp_task_result_future = asyncio.create_task(
-            scalems.radical.runtime.subprocess_to_rp_task(call_handle, dispatcher=self._dispatcher)
+            scalems.radical.task.subprocess_to_rp_task(call_handle, dispatcher=self._dispatcher)
         )
         # Wait for submission and completion
         rp_task_result = await rp_task_result_future
         result_future = asyncio.create_task(
-            scalems.radical.runtime.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
+            scalems.radical.task.wrapped_function_result_from_rp_task(call_handle, rp_task_result)
         )
         # Wait for results staging.
         result = await result_future

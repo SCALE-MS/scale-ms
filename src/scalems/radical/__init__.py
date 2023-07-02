@@ -34,15 +34,14 @@ See Also:
 # TODO: Consider converting to a namespace package to improve modularity of
 #  implementation.
 
-__all__ = ["configuration", "executor_factory", "parser", "workflow_manager"]
+__all__ = ["executor_factory", "parser", "workflow_manager"]
 
 import asyncio
 import logging
 
 import scalems.workflow
 from ..invocation import make_parser as _make_parser
-from .runtime import configuration
-from .runtime import parser as _runtime_parser
+from .configuration import parser as _runtime_parser
 from .runtime import executor_factory
 
 logger = logging.getLogger(__name__)

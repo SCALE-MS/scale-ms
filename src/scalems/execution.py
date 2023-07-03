@@ -92,14 +92,16 @@ The details of work dispatching are not yet strongly specified or fully encapsul
 
 from __future__ import annotations
 
-__all__ = ("AbstractWorkflowUpdater", "RuntimeManager", "dispatch", "manage_execution", "Queuer")
+__all__ = ("AbstractWorkflowUpdater", "RuntimeManager", "dispatch", "manage_execution", "Queuer", "ScalemsExecutor")
 
 import abc
 import asyncio
+import concurrent.futures
 import contextlib
 import contextvars
 import logging
 import queue as _queue
+import typing_extensions
 import typing
 
 import scalems.exceptions
@@ -133,6 +135,21 @@ We allow multiple dispatchers to be active, but each dispatcher must
 
 
 _queuer_lock = asyncio.Lock()
+
+
+current_executor: contextvars.ContextVar[typing.Optional[ScalemsExecutorT]] = contextvars.ContextVar(
+    "current_executor", default=None
+)
+"""Reference the active ScalemsExecutor instance in the current context, if any.
+
+Tasks submitted through an executor will have a copy of the context in which they
+were submitted. This module-level state allows utilities like :py:func:`scalems.submit`
+and :py:func:`scalems.executable` to operate in terms of the
+:py:func:`~scalems.execution.executor()` context manager.
+
+This ContextVar should be manipulated only by the :py:func:`scalems.execution.executor()`
+context manager.
+"""
 
 
 class AbstractWorkflowUpdater(abc.ABC):
@@ -202,6 +219,52 @@ class RuntimeDescriptor:
 
 
 _BackendT = typing.TypeVar("_BackendT")
+
+_T = typing.TypeVar("_T")
+_P = typing_extensions.ParamSpec("_P")
+
+
+class ScalemsExecutor(concurrent.futures.Executor, abc.ABC):
+    """Provide a task launching facility.
+
+    Implements :py:class:`concurrent.futures.Executor` while encapsulating the
+    interactions with scalems.runtime.RuntimeManager.
+    """
+
+    @abc.abstractmethod
+    def submit(
+        self, fn: typing.Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs
+    ) -> concurrent.futures.Future[_T]:
+        """Submits a callable to be executed with the given arguments.
+
+        Schedules the callable to be executed as fn(*args, **kwargs) and returns
+        a Future instance representing the execution of the callable.
+
+        Implementations of the abstract method should use
+        :py:func:`contextvars.copy_context()` to preserve ContextVars from the
+        point at which `submit` was called.
+
+        Returns:
+            A Future representing the given call.
+        """
+        raise NotImplementedError
+
+    @abc.abstractmethod
+    def shutdown(self, wait=True, *, cancel_futures=False):
+        """Shutdown the executor scope.
+
+        Implements `concurrent.futures.Executor.shutdown`.
+
+        After shutdown, the executor instance accepts no new tasks.
+        Contrary to the implication for :py:func:`concurrent.futures.Executor.shutdown()`,
+        the scalems executor does not explicitly release any resources when shutdown
+        is called. Resources are released as the queued work completes.
+        """
+        # There is no base class implementation to call.
+        raise NotImplementedError
+
+
+ScalemsExecutorT = typing.TypeVar("ScalemsExecutorT", bound=ScalemsExecutor)
 
 
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):

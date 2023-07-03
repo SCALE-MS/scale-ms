@@ -7,6 +7,7 @@ import pytest
 import radical.pilot as rp
 import radical.utils as ru
 
+import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.runtime
@@ -108,3 +109,8 @@ async def test_runtime_context_management(rp_venv, pilot_description):
         async with scalems.radical.manager.launch(workflow, runtime_config) as runtime_manager:
             rm_info: dict = await runtime_manager.runtime_session.resources
             assert rm_info["requested_cores"] >= pilot_description.cores
+            # # Get a non-raptor (CLI executable) context.
+            with await scalems.radical.executor.provision_executor(
+                runtime_manager, worker_requirements=None, task_requirements={"ranks": 2}
+            ):
+                ...

@@ -1,23 +1,24 @@
 """Manage the RADICAL Pilot start-up and shut-down.
 
-The provided Runtime class encapsulates stateful resources that, once acquired,
-should be shut down explicitly. Runtime instances may be used as context managers to
+The provided RuntimeSession class encapsulates stateful resources that, once acquired,
+should be shut down explicitly. RuntimeSession instances may be used as context managers to
 ensure the proper protocol is followed, or the caller can take responsibility for
-calling Runtime.close() to shut down.
+calling RuntimeSession.close() to shut down.
+TODO: Fix!
 
-Note: Consider whether Runtime context manager is reentrant or multi-use.
+Note: Consider whether RuntimeSession context manager is reentrant or multi-use.
 
-The Runtime state encapsulates several nested states. A Session, TaskManager,
-and PilotManager must be created for the Runtime to be usable. Additionally, Pilots and
-scheduler tasks may be added or removed during the Runtime lifetime. To better support
-the alternate scenarios when a Runtime instance may be provided to a scalems.radical
+The RuntimeSession state encapsulates several nested states. A Session, TaskManager,
+and PilotManager must be created for the RuntimeSession to be usable. Additionally, Pilots and
+scheduler tasks may be added or removed during the RuntimeSession lifetime. To better support
+the alternate scenarios when a RuntimeSession instance may be provided to a scalems.radical
 component in an arbitrary state, consider making the ``with`` block scoped, such that
-it only returns the Runtime instance to its initial state when exiting, rather than
+it only returns the RuntimeSession instance to its initial state when exiting, rather than
 shutting down completely.
 See also https://docs.python.org/3/library/contextlib.html#contextlib.ExitStack
 
 Deferred:
-    Runtime can avoid providing direct access to RP interface, and instead run an
+    RuntimeSession can avoid providing direct access to RP interface, and instead run an
     entire RP Session state machine in a thread (separate from the asyncio event loop
     thread), relaying RP scripting commands through queues, in order to completely
     prevent misuse and to insulate the asyncio event loop from blocking RP commands.

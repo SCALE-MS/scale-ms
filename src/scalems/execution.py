@@ -92,7 +92,7 @@ The details of work dispatching are not yet strongly specified or fully encapsul
 
 from __future__ import annotations
 
-__all__ = ("AbstractWorkflowUpdater", "RuntimeManager", "manage_execution", "Queuer")
+__all__ = ("AbstractWorkflowUpdater", "RuntimeManager", "dispatch", "manage_execution", "Queuer")
 
 import abc
 import asyncio
@@ -207,9 +207,8 @@ _BackendT = typing.TypeVar("_BackendT")
 class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     """Client side manager for dispatching work loads and managing data flow.
 
-    A RuntimeManager is instantiated within the scope of the
-    `scalems.workflow.WorkflowManager.dispatch` context manager using the
-    *executor_factory* provided to `scalems.execution.dispatch`.
+    A RuntimeManager is instantiated for a `scalems.workflow.WorkflowManager`
+    using the *executor_factory* provided to `scalems.execution.dispatch`.
     """
 
     get_edit_item: typing.Callable[[], typing.Callable]

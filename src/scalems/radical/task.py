@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+__all__ = (
+    "RPTaskFailure",
+    "RPFinalTaskState",
+    "get_directory_archive",
+    "rp_task",
+    "submit",
+    "subprocess_to_rp_task",
+    "wrapped_function_result_from_rp_task",
+    "write_archive",
+)
+
 import asyncio
 import copy
 import dataclasses

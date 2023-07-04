@@ -17,8 +17,10 @@ but there is not a consistent concurrency model for all dispatchers.
 ScaleMS provides abstractions to insulate scripting from particular implementations
 or concurrency primitives (such as the need to call :py:func:`asyncio.run`).
 
-The following diagram uses the :py:mod:`scalems.radical` execution module
-to illustrate the workflow execution.
+The following diagram shows the relationships between the WorkflowManager,
+the Executor, and the RuntimeManager for a particular execution backend.
+For a concrete example of execution on RADICAL Pilot, refer to the
+:py:mod:`scalems.radical` execution module documentation.
 
 .. uml::
 
@@ -179,7 +181,10 @@ class AbstractWorkflowUpdater(abc.ABC):
         ...
 
 
-class RuntimeDescriptor:
+_RuntimeType = typing.TypeVar("_RuntimeType")
+
+
+class RuntimeDescriptor(typing.Generic[_RuntimeType]):
     """Data Descriptor class for (backend-specific) runtime state access.
 
     TODO: Consider making this class generic in terms of the backend/configuration
@@ -196,14 +201,14 @@ class RuntimeDescriptor:
                 f"with an existing non-None {self.private_name} member."
             )
 
-    def __get__(self, instance, owner):
+    def __get__(self, instance, owner) -> _RuntimeType | "RuntimeDescriptor":
         # Note that instance==None when called through the *owner* (as a class attribute).
         if instance is None:
             return self
         else:
             return getattr(instance, self.private_name, None)
 
-    def __set__(self, instance, value):
+    def __set__(self, instance, value: _RuntimeType):
         if getattr(instance, self.private_name, None) is not None:
             raise APIError("Cannot overwrite an existing runtime state.")
         setattr(instance, self.private_name, value)
@@ -267,7 +272,7 @@ class ScalemsExecutor(concurrent.futures.Executor, abc.ABC):
 ScalemsExecutorT = typing.TypeVar("ScalemsExecutorT", bound=ScalemsExecutor)
 
 
-class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
+class RuntimeManager(typing.Generic[_BackendT, _RuntimeType], abc.ABC):
     """Client side manager for dispatching work loads and managing data flow.
 
     A RuntimeManager is instantiated for a `scalems.workflow.WorkflowManager`
@@ -287,7 +292,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
     _loop: asyncio.AbstractEventLoop
     _queue_runner_task: typing.Union[None, asyncio.Task] = None
 
-    runtime = RuntimeDescriptor()
+    runtime = RuntimeDescriptor[_RuntimeType]()
     """Get/set the current runtime state information.
 
     Attempting to overwrite an existing *runtime* state raises an APIError.
@@ -366,7 +371,7 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         """
         pass
 
-    def queue(self):
+    def command_queue(self):
         # TODO: Only expose queue while in an active context manager.
         return self._command_queue
 
@@ -458,11 +463,9 @@ class RuntimeManager(typing.Generic[_BackendT], abc.ABC):
         # Note that this coroutine could take a long time and could be
         # cancelled at several points.
         cancelled_error = None
-        # The dispatching protocol is immature.
-        # Initially, we don't expect contention for the lock, and if there is
+        # We don't expect contention for the lock, and if there is
         # contention, it probably represents an unintended race condition
         # or systematic dead-lock.
-        # TODO: Clarify dispatcher state machine and remove/replace assertions.
         async with _queuer_lock:
             runtime = self.runtime
             # This method is not thread safe, but we try to make clear as early as
@@ -595,7 +598,7 @@ async def dispatch(workflow_manager, *, executor_factory, queuer: "Queuer" = Non
         # Dispatching state may be reentrant, but it does not make sense to
         # re-enter through this call structure.
         if queuer is None:
-            queuer = Queuer(source=workflow_manager, command_queue=executor.queue())
+            queuer = Queuer(source=workflow_manager, command_queue=executor.command_queue())
 
     try:
         # Manage scope of executor operation with a context manager.
@@ -666,7 +669,7 @@ async def dispatch(workflow_manager, *, executor_factory, queuer: "Queuer" = Non
                 assert not isinstance(executor_exception, asyncio.CancelledError)
                 logger.exception("Executor task finished with exception", exc_info=executor_exception)
         else:
-            if not executor.queue().empty():
+            if not executor.command_queue().empty():
                 # TODO: Handle non-empty queue.
                 # There are various reasons that the queue might not be empty and
                 # we should clean up properly instead of bailing out or compounding
@@ -722,10 +725,11 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
         "add_item" while in an executing context.)
 
     """
-    queue = executor.queue()
+    queue = executor.command_queue()
     updater = executor.updater()
     # Get a reference to the runtime, since it is removed from the executor before
     # RuntimeManager.__aexit__() shuts down this task.
+    # Note that the interface for _RuntimeType is not currently well specified.
     runtime = executor.runtime
 
     # Acknowledge that the coroutine is running and will immediately begin processing
@@ -1057,3 +1061,70 @@ class Queuer:
 
     def exception(self) -> typing.Union[None, Exception]:
         return self._exception
+
+
+class ScalemsExecutorFactory(typing.Protocol):
+    """Get a context manager for scoped execution resources from the runtime manager.
+
+    This scope encompasses the RP Raptor task dispatching, managing the
+    life cycle of one Raptor scheduler task and one or more homogeneous Workers
+    (with a single resource requirements description).
+
+    The returned executor supports the concurrent.futures.Executor interface,
+    and has a unique identifier that maps to the associated Raptor task.
+
+    Example::
+
+        with scalems.workflow.scope(workflow, close_on_exit=True):
+            with scalems.radical.runtime.launch(workflow, runtime_config) as runtime_context:
+                async with scalems.execution.executor(
+                        runtime_context,
+                        worker_requirements=[{}]*N,
+                        task_requirements={}) as executor:
+                    task: concurrent.futures.Future = executor.submit(fn, *args, **kwargs)
+                    task: asyncio.Task = asyncio.create_task(loop.run_in_executor(executor, fn, *args))
+
+    """
+
+    def __call__(
+        self, runtime_context: RuntimeManager, *args, **kwargs
+    ) -> contextlib.AbstractAsyncContextManager[ScalemsExecutor]:
+        ...
+
+
+# TODO: Migrate to new RuntimeManager interface and generalize scalems.radical.runtime.executor.
+@contextlib.asynccontextmanager
+def executor(
+    runtime: RuntimeManager[_BackendT, ScalemsExecutorT],
+    *,
+    worker_requirements: typing.Sequence[dict],
+    task_requirements: dict = None,
+) -> ScalemsExecutorT:
+    """Get a context manager for scoped execution resources from the runtime manager.
+
+    This scope encompasses the RP Raptor task dispatching, managing the
+    life cycle of one Raptor scheduler task and one or more homogeneous Workers
+    (with a single resource requirements description).
+
+    The returned executor supports the concurrent.futures.Executor interface,
+    and has a unique identifier that maps to the associated Raptor task.
+
+    Example::
+
+        with scalems.workflow.scope(workflow, close_on_exit=True):
+            with scalems.radical.runtime.launch(workflow, runtime_config) as runtime_context:
+                async with scalems.execution.executor(
+                        runtime_context,
+                        worker_requirements=[{}]*N,
+                        task_requirements={}) as executor:
+                    task: concurrent.futures.Future = executor.submit(fn, *args, **kwargs)
+                    task: asyncio.Task = asyncio.create_task(loop.run_in_executor(executor, fn, *args))
+
+    Args:
+        runtime:
+        worker_requirements: A dictionary of worker requirements
+            (TaskDescription fields) for each worker to launch
+        task_requirements: A dictionary of (homogeneous) task requirements
+            (TaskDescription fields) for the tasks to be submitted in the subsequent scope.
+
+    """

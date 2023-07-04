@@ -1,5 +1,6 @@
 """Test the scalems.radical.runtime module."""
 import asyncio
+import concurrent.futures
 import logging
 import warnings
 
@@ -110,7 +111,20 @@ async def test_runtime_context_management(rp_venv, pilot_description):
             rm_info: dict = await runtime_manager.runtime_session.resources
             assert rm_info["requested_cores"] >= pilot_description.cores
             # # Get a non-raptor (CLI executable) context.
-            with await scalems.radical.executor.provision_executor(
-                runtime_manager, worker_requirements=None, task_requirements={"ranks": 2}
+            command_queue = asyncio.Queue()
+            executor = await scalems.radical.executor.provision_executor(
+                runtime_manager, worker_requirements=None, task_requirements={"ranks": 2}, command_queue=command_queue
+            )
+            executor.shutdown(wait=False, cancel_futures=False)
+            await asyncio.to_thread(
+                concurrent.futures.wait,
+                fs=(executor._shutdown,),
+                timeout=None,
+                return_when=concurrent.futures.ALL_COMPLETED,
+            )
+            executor._shutdown.result()
+
+            async with scalems.radical.executor.executor(
+                runtime_manager, worker_requirements=[{}], task_requirements={"ranks": 2}
             ):
                 ...

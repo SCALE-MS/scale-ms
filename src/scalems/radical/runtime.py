@@ -206,7 +206,7 @@ def current_configuration() -> typing.Optional[RuntimeConfiguration]:
     return _configuration.get(None)
 
 
-class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguration]):
+class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguration, RuntimeSession]):
     """Client side manager for work dispatched through RADICAL Pilot.
 
     Extends :py:class:`scalems.execution.RuntimeManager`
@@ -256,7 +256,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         super().__init__(editor_factory=editor_factory, datastore=datastore, loop=loop, configuration=configuration)
 
     @contextlib.contextmanager
-    def runtime_configuration(self):
+    def runtime_configuration(self) -> RuntimeConfiguration:
         """Provide scoped Configuration.
 
         Merge the runtime manager's configuration with the global configuration,

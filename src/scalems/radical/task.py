@@ -718,6 +718,8 @@ def _describe_raptor_task(item: scalems.workflow.Task, raptor_id: str, pre_exec:
     return task_description
 
 
+# TODO: Normalize, unify, incorporate into ScalemsExecutor.submit()
+# Currently called by WorkflowUpdater.submit()
 async def submit(
     *,
     item: scalems.workflow.Task,

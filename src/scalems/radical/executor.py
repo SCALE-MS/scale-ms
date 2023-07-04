@@ -407,11 +407,11 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
 
             # vars_context = contextvars.copy_context()
             f = concurrent.futures.Future()
-            w = _WorkItem(f, fn, args, kwargs)
+            # w = _WorkItem(f, fn, args, kwargs)
 
             # vars_context.run(...)
-            self._work_queue.put(w)
-            self._adjust_thread_count()
+            # self._work_queue.put(w)
+            # self._adjust_thread_count()
             return f
 
     def shutdown(self, wait=True, *, cancel_futures=False):
@@ -495,12 +495,6 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
             #  or infer one from other time limits.
             try:
                 await self._queue_runner_task
-            except asyncio.CancelledError as e:
-                raise e
-            except:
-                logger.exception(f"Unhandled exception when stopping queue handler {repr(self._queue_runner_task)}.")
-            else:
-                logger.debug("Queue runner task completed.")
             finally:
                 if not self._command_queue.empty():
                     logger.error("Command queue never emptied.")
@@ -516,10 +510,11 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
                     results = await asyncio.gather(*self.submitted_tasks)
                     # TODO: Log something useful about the results.
                     assert len(results) == len(self.submitted_tasks)
+            logger.debug("Queue runner task completed.")
         except asyncio.CancelledError as e:
             logger.debug(f"{self.__class__.__qualname__} context manager received cancellation while exiting.")
             cancelled_error = e
-        except:
+        except Exception:
             logger.exception(f"Exception while stopping {repr(self._queue_runner_task)}.")
 
         if runtime.raptor is not None:
@@ -638,11 +633,12 @@ async def provision_executor(
                 name="get-scheduler",
             )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         return _executor
-    except:
+    except Exception as e:
         if isinstance(runner_task, asyncio.Task):
             runner_task.cancel()
         if isinstance(runtime_context.runtime_session.raptor, rp.Task):
             runtime_context.runtime_session.raptor.cancel()
+        raise e
 
 
 executor: scalems.execution.ScalemsExecutorFactory

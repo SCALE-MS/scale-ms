@@ -12,6 +12,7 @@ RADICAL Pilot installation
 --------------------------
 RADICAL Pilot has some tricky interactions with Python environment virtualization
 and manipulation that lead to some caveats.
+
 * Do not try to use "editable" installs.
 * Explicitly *activate* the virtual environment before running a script that uses RP.
 
@@ -27,6 +28,7 @@ pytest
 ------
 We use a few pytest plugins. To install them first, it should be sufficient to
 use the :file:`requirements-testing.txt` file in the root of the repository.
+
 ::
 
     pip install -r requirements-testing.txt
@@ -60,8 +62,8 @@ tests in :file:`tests/`. Refer to :file:`tests/conftest.py` or use
 :command:`pytest tests --help` (look for the ``custom options:`` section).
 
 A typical invocation of the test suites in :file:`tests/`
- (including Python interpreter options, pytest options, and options specific to the scalems test fixtures)
- frequently looks something like the followin::
+(including Python interpreter options, pytest options, and options specific to the scalems test fixtures)
+frequently looks something like the following::
     python -X dev -m pytest -x -rA -l --log-cli-level debug tests/ --rp-venv $VIRTUAL_ENV --rp-resource docker.login --rp-access ssh
 
 Acceptance tests

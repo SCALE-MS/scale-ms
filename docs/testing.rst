@@ -59,7 +59,9 @@ We install several pytest markers and command line options for the
 tests in :file:`tests/`. Refer to :file:`tests/conftest.py` or use
 :command:`pytest tests --help` (look for the ``custom options:`` section).
 
-::
+A typical invocation of the test suites in `tests/`
+ (including Python interpreter options, pytest options, and options specific to the scalems test fixtures)
+ frequently looks something like the followin::
     python -X dev -m pytest -x -rA -l --log-cli-level debug tests/ --rp-venv $VIRTUAL_ENV --rp-resource docker.login --rp-access ssh
 
 Acceptance tests

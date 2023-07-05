@@ -69,6 +69,7 @@ intersphinx_mapping = {
     "radical.utils": ("https://radicalutils.readthedocs.io/en/stable", None),
     "msgpack": ("https://msgpack-python.readthedocs.io/en/latest/", None),
     "mpi4py": ("https://mpi4py.readthedocs.io/en/stable/", None),
+    "pytest": ("https://docs.pytest.org/en/latest/", None),
 }
 
 # -- Options for HTML output -------------------------------------------------

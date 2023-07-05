@@ -15,13 +15,13 @@ and manipulation that lead to some caveats.
 * Do not try to use "editable" installs.
 * Explicitly *activate* the virtual environment before running a script that uses RP.
 
-`radical.pilot` will probably not find the data files or entry point scripts that
-it relies on unless you first "source" the `activate` script for a venv containing
-a regular `radical.pilot` installation.
+:py:mod:`radical.pilot` will probably not find the data files or entry point scripts that
+it relies on unless you first "source" the ``activate`` script for a venv containing
+a regular :py:mod:`radical.pilot` installation.
 Perform testing with the virtual environment active.
 Do not try to
 exercise the installation or virtual environment through other techniques, such
-as invoking a Python venv by explicitly calling the sym-linked `.../bin/python`.
+as invoking a Python venv by explicitly calling the sym-linked :file:`.../bin/python`.
 
 pytest
 ------
@@ -59,7 +59,7 @@ We install several pytest markers and command line options for the
 tests in :file:`tests/`. Refer to :file:`tests/conftest.py` or use
 :command:`pytest tests --help` (look for the ``custom options:`` section).
 
-A typical invocation of the test suites in `tests/`
+A typical invocation of the test suites in :file:`tests/`
  (including Python interpreter options, pytest options, and options specific to the scalems test fixtures)
  frequently looks something like the followin::
     python -X dev -m pytest -x -rA -l --log-cli-level debug tests/ --rp-venv $VIRTUAL_ENV --rp-resource docker.login --rp-access ssh

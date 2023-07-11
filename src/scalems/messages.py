@@ -2,6 +2,12 @@
 
 Message types and protocol support for control signals,
 queue management, and work dispatching.
+
+The `QueueItem` classes are simple key-value pairs for use in local message-passing
+queues.
+
+The `Command` classes are richer structures that ensure (de)serializability for
+use between the client and (remote) runtime managers.
 """
 __all__ = ("Command", "QueueItem", "CommandQueueControlItem", "CommandQueueAddItem", "StopCommand")
 
@@ -16,7 +22,7 @@ logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
 
 
-class QueueItem(dict, typing.MutableMapping[str, typing.Union[str, bytes]]):
+class QueueItem(dict, typing.MutableMapping[str, typing.Any]):
     """Queue items are either workflow items or control messages.
 
     Control messages are indicated by the key ``'command'``, and are described
@@ -27,7 +33,10 @@ class QueueItem(dict, typing.MutableMapping[str, typing.Union[str, bytes]]):
     """
 
     def _hexify(self):
-        """Allow binary fields to be printable."""
+        """Allow binary fields to be printable.
+
+        Non-bytes values are returned without conversion.
+        """
         for key, value in self.items():
             if isinstance(value, bytes):
                 value = value.hex()
@@ -79,7 +88,7 @@ class CommandQueueAddItem(QueueItem, typing.MutableMapping[str, bytes]):
             if isinstance(v, bytes):
                 super().__setitem__(k, v)
             else:
-                raise APIError(f"Unsupported add_item key: {repr(v)}")
+                raise APIError(f"Unsupported add_item value: {repr(v)}")
         else:
             raise APIError(f"Unsupported command: {repr(k)}")
 
@@ -254,14 +263,19 @@ class AddItem(Command[str]):
 
     key: typing.ClassVar = "add_item"
 
-    def __init__(self, encoded_item: str):
-        # TODO: This should be a public scalems schema, but is currently assumed
-        #  to be scalems.radical.raptor.ScalemsRaptorWorkItem.
-        self._encoded_item = encoded_item
+    # TODO: This should be a public scalems schema, but is currently assumed
+    #  to be a JSON-serialized scalems.radical.raptor.ScalemsRaptorWorkItem.
+    _encoded_item: str
+
+    # def __init__(self):
+    #     # With a Protocol parent, we need an __init__ to establish this as a concrete class.
+    #     ...
 
     @classmethod
-    def create(cls, command: str) -> "Command":
-        return cls(command)
+    def create(cls, command: str) -> "AddItem":
+        item = cls()
+        item._encoded_item = command
+        return item
 
     def encode(self):
         return {self.key: self._encoded_item}

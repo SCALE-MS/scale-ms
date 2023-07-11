@@ -324,7 +324,7 @@ async def test_worker(pilot_description, rp_venv):
             add_item_task_description.cpu_processes = 1
             add_item_task_description.cpu_process_type = (rp.SERIAL,)
             add_item_task_description.mode = scalems.radical.raptor.CPI_MESSAGE
-            add_item_task_description.metadata = scalems.messages.AddItem(json.dumps(work_item)).encode()
+            add_item_task_description.metadata = scalems.messages.AddItem.create(json.dumps(work_item)).encode()
             # TODO: Let this be the responsibility of the submitter internals.
             if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
                 add_item_task_description.environment["SCALEMS_COVERAGE"] = "TRUE"

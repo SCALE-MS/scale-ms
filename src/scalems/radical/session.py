@@ -13,6 +13,8 @@ import uuid
 import warnings
 import weakref
 
+import typing_extensions
+
 from scalems.exceptions import APIError
 from scalems.exceptions import ProtocolError
 from scalems.radical.runtime_configuration import RuntimeConfiguration
@@ -406,7 +408,15 @@ async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> 
     return runtime
 
 
-async def get_pilot_resources(pilot: rp.Pilot):
+class RmInfo(typing_extensions.TypedDict):
+    # Refer to https://github.com/radical-cybertools/radical.pilot/issues/2973
+    # for evolution of a more stable interface.
+    # TODO: Create a scalems issue to come back and update this
+    requested_cores: int
+    requested_gpus: int
+
+
+async def get_pilot_resources(pilot: rp.Pilot) -> RmInfo:
     def log_pilot_state(fut: asyncio.Task[str]):
         if not fut.cancelled():
             if e := fut.exception():
@@ -423,10 +433,9 @@ async def get_pilot_resources(pilot: rp.Pilot):
 
     pilot_state.add_done_callback(log_pilot_state)
     await pilot_state
-    rm_info: dict = pilot.resource_details.get("rm_info")
+    rm_info: RmInfo = pilot.resource_details.get("rm_info")
     logger.debug(f"Pilot {pilot.uid} resources: {str(rm_info)}")
     if rm_info is not None:
-        assert isinstance(rm_info, dict)
         assert "requested_cores" in rm_info and isinstance(rm_info["requested_cores"], int)
-        assert "requested_gpus" in rm_info and isinstance(rm_info["requested_gpus"], typing.SupportsFloat)
+        assert "requested_gpus" in rm_info and isinstance(rm_info["requested_gpus"], int)
         return rm_info.copy()

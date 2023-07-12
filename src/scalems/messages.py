@@ -267,10 +267,6 @@ class AddItem(Command[str]):
     #  to be a JSON-serialized scalems.radical.raptor.ScalemsRaptorWorkItem.
     _encoded_item: str
 
-    # def __init__(self):
-    #     # With a Protocol parent, we need an __init__ to establish this as a concrete class.
-    #     ...
-
     @classmethod
     def create(cls, command: str) -> "AddItem":
         item = cls()

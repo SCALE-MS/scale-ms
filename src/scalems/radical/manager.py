@@ -7,6 +7,7 @@ __all__ = ("launch", "RuntimeManager")
 import asyncio
 import atexit
 import contextlib
+import dataclasses
 import logging
 import os
 import threading
@@ -67,6 +68,17 @@ def _python_exit():
 atexit.register(_python_exit)
 
 
+@dataclasses.dataclass(frozen=True)
+class ResourceToken:
+    """Represent allocated resources.
+
+    By using an identifiable object instead of just a native value type, the
+    issuer can identify distinct but equivalent allocations.
+    """
+
+    cpu_cores: int
+
+
 class RuntimeManager:
     """Runtime resources for SCALE-MS workflow execution, backed by RADICAL Pilot.
 
@@ -117,6 +129,67 @@ class RuntimeManager:
         self.runtime_configuration = configuration
 
         self.runtime_session = runtime
+
+        resource_pool = {"pilot_cores": 0, "max_cores": 0}
+        resource_pool_lock = threading.Lock()
+
+        def apply_runtime_resources(f):
+            rm_info: scalems.radical.session.RmInfo = f.result()
+            with resource_pool_lock:
+                resource_pool["pilot_cores"] += rm_info["requested_cores"]
+                resource_pool["max_cores"] = rm_info["requested_cores"]
+
+        runtime.resources.add_done_callback(apply_runtime_resources)
+
+        self._resource_pool = resource_pool
+        self._resource_pool_lock = resource_pool_lock
+        self._resource_pool_update_condition = threading.Condition(resource_pool_lock)
+        self._tokens = weakref.WeakKeyDictionary()
+
+    def acquire(self, *, cores: int):
+        """Lock resources from the RuntimeManager, such as for a RPExecutor.
+
+        Blocks blocks the current thread until the resource becomes available.
+
+        Returns:
+            ResourceToken that MUST be provided to a `release()` method call to return resource to the pool.
+        """
+        with self.shutdown_lock():
+            if self._shutdown:
+                raise scalems.exceptions.ScopeError("Cannot allocate resources while shutting down.")
+            if cores > self._resource_pool["max_cores"]:
+                raise scalems.exceptions.DispatchError("Requested resources cannot be acquired.")
+            cv = self._resource_pool_update_condition
+            with cv:
+                while not cv.wait_for(lambda: self._resource_pool["pilot_cores"] >= cores, timeout=30):
+                    if self._shutdown:
+                        logger.info("RuntimeManager {self} began shutting down before resources could be acquired.")
+                        return
+                    logger.debug(f"Waiting to acquire {cores} cores from {self}.")
+                self._resource_pool["pilot_cores"] -= cores
+                token = ResourceToken(cpu_cores=cores)
+                _finalizer = weakref.finalize(
+                    token, logger.critical, f"{token} abandoned without calling RuntimeManager.release()!"
+                )
+                self._tokens[token] = _finalizer
+                return token
+
+    def release(self, token: typing.Optional[ResourceToken]):
+        """Return resources to the pool.
+
+        MUST be called after an `acquire()`.
+        """
+        if token is None:
+            # During shutdown, a pending `acquire()` may produce a null token.
+            return
+        with self._resource_pool_update_condition:
+            if token not in self._tokens:
+                logger.error(f"{token} is not valid with this RuntimeManager.")
+                return
+            self._tokens[token].detach()
+            del self._tokens[token]
+            self._resource_pool["pilot_cores"] += token.cpu_cores
+            self._resource_pool_update_condition.notify_all()
 
     @staticmethod
     async def cpi(command: str, runtime: RuntimeSession):

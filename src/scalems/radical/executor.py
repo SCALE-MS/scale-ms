@@ -698,6 +698,31 @@ async def executor(
     # TODO: manage command_queue through which the Executor coordinates with the run time.
     #  It is probably owned by RuntimeManager, which provides the CPI interface.
 
+    requirements = [task_requirements]
+    if worker_requirements is not None:
+        requirements.extend(worker_requirements)
+    if any(deprecated_key in desc for deprecated_key in ("cpu_processes", "cpu_threads") for desc in requirements):
+        message = (
+            "Deprecated key used in RP requirements. "
+            "Use `ranks` and `cores_per_rank` instead of `cpu_processes` and `cpu_threads`"
+        )
+        warnings.warn(message, DeprecationWarning)
+
+    if worker_requirements is not None:
+        worker_cores = sum(
+            reqs.get("ranks", reqs.get("cpu_processes", 1)) * reqs.get("cores_per_rank", reqs.get("cpu_threads", 1))
+            for reqs in worker_requirements
+        )
+    else:
+        worker_cores = task_requirements.get(
+            "ranks", task_requirements.get("cpu_processes", 1)
+        ) * task_requirements.get("cores_per_rank", task_requirements.get("cpu_threads", 1))
+    master_cores = 1
+    cores_required = master_cores + worker_cores
+    resource_token = await asyncio.to_thread(runtime_context.acquire, cores=cores_required)
+    if resource_token is None:
+        return
+
     _current_executor: RPExecutor
     _current_executor = await provision_executor(
         runtime_context,
@@ -771,3 +796,4 @@ async def executor(
             logger.error("Bug: Executor left tasks in the queue without raising an exception.")
 
         logger.debug("Exiting dispatch context.")
+        runtime_context.release(resource_token)

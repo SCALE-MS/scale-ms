@@ -581,7 +581,7 @@ class ClientWorkerRequirements:
     pre_exec: tuple[str] = ()
     """Lines of shell expressions to be evaluated before launching the worker process."""
 
-    named_env: str = None
+    named_env: typing.Optional[str] = None
     """A registered virtual environment known to the raptor manager.
 
     Warnings:
@@ -665,25 +665,23 @@ def raptor_script() -> str:
     return _raptor_script
 
 
-async def raptor_input(
-    *, filestore: _store.FileStore, worker_pre_exec: list, worker_venv: str
-) -> _file.AbstractFileReference:
+async def raptor_input(*, filestore: _store.FileStore, worker_pre_exec: list) -> _file.AbstractFileReference:
     """Provide the input file for a SCALE-MS Raptor script.
 
     Args:
-        worker_venv (str) : Directory path for the Python virtual environment in which
-            to execute the worker.
         worker_pre_exec (list[str]): List of shell command lines to execute in the worker
             environment before its launch script.
         filestore: (local) FileStore that will manage the generated AbstractFileReference.
 
+    See Also:
+        :py:func:`scalems.radical.runtime_configuration.get_pre_exec()`
     """
     if not isinstance(filestore, _store.FileStore) or filestore.closed or not filestore.directory.exists():
         raise ValueError(f"{filestore} is not a usable FileStore.")
 
     # This is the initial Worker submission. The Raptor may submit other workers later,
     # but we should try to make this one as usable as possible.
-    task_metadata = worker_requirements(pre_exec=worker_pre_exec, worker_venv=worker_venv)
+    task_metadata = worker_requirements(pre_exec=worker_pre_exec, ranks_per_worker=1, cores_per_rank=1)
 
     # TODO(#248): Decide on how to identify the workers from the client side.
     # We can't know the worker identity until the raptor task has called submit_workers()
@@ -727,26 +725,25 @@ async def raptor_input(
         return add_file_task.result()
 
 
-def worker_requirements(*, pre_exec: typing.Iterable[str], worker_venv: str) -> ClientWorkerRequirements:
+def worker_requirements(
+    *, pre_exec: typing.Iterable[str], ranks_per_worker: int, cores_per_rank=1, gpus_per_rank=0
+) -> ClientWorkerRequirements:
     """Get the requirements for the work load, as known to the client.
 
     TODO: Inspect workflow to optimize reusability of the initial Worker submission.
     """
-    # TODO: calculate cores.
+    # TODO: calculate cores and reconcile TaskDescription / WorkerDescription inputs.
     # rp_config = scalems.radical.runtime_configuration.configuration()
     # pilot_description = rp_config.rp_resource_params["PilotDescription"]
     # available_cores = pilot_description.get("cores")
     # if not available_cores:
     #     cores_per_node =
     #     ...
-    cores_per_worker = 1
-    gpus_per_worker = 0
-
     workload_metadata = ClientWorkerRequirements(
-        named_env=worker_venv,
+        named_env=None,
         pre_exec=tuple(pre_exec),
-        cpu_processes=cores_per_worker,
-        gpus_per_process=gpus_per_worker,
+        cpu_processes=ranks_per_worker,
+        gpus_per_process=gpus_per_rank,
     )
 
     return workload_metadata
@@ -1408,7 +1405,7 @@ See Also:
 
 def worker_description(
     *,
-    named_env: str,
+    named_env: typing.Optional[str],
     worker_file: str,
     cores_per_process: int = None,
     cpu_processes: int = None,
@@ -1442,7 +1439,7 @@ def worker_description(
         descr.gpus_per_rank = gpus_per_process
     if named_env is not None:
         # descr.named_env=None
-        logger.debug(f"Ignoring named_env={named_env}. Parameter is currently unused.")
+        logger.warning(f"Ignoring named_env={named_env}. Parameter is currently unused.")
     descr.pre_exec = list(pre_exec)
     if cpu_processes is not None:
         descr.ranks = cpu_processes
@@ -1749,7 +1746,6 @@ async def get_scheduler(
     pre_exec: typing.Iterable[str],
     task_manager: rp.TaskManager,
     filestore: FileStore,
-    scalems_env: str,
 ):
     """Establish the radical.pilot.raptor.Master task.
 
@@ -1832,7 +1828,7 @@ async def get_scheduler(
     # _original_callback_duration = asyncio.get_running_loop().slow_callback_duration
     # asyncio.get_running_loop().slow_callback_duration = 0.5
     config_file = await asyncio.create_task(
-        raptor_input(filestore=filestore, worker_pre_exec=list(pre_exec), worker_venv=scalems_env),
+        raptor_input(filestore=filestore, worker_pre_exec=list(pre_exec)),
         name="get-raptor-input",
     )
     # asyncio.get_running_loop().slow_callback_duration = _original_callback_duration

@@ -376,8 +376,6 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
                         pre_exec=list(get_pre_exec(config)),
                         task_manager=task_manager,
                         filestore=self.datastore,
-                        scalems_env="scalems_venv",
-                        # TODO: normalize ownership of this name.
                     ),
                     name="get-scheduler",
                 )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.

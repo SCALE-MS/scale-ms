@@ -18,7 +18,8 @@ dependencies = [
     "dill",
     "mpi4py",
     "packaging",
-    "radical.pilot >= 1.33"
+    "radical.pilot >= 1.33",
+    "typing_extensions"
 ]
 
 [project.urls]

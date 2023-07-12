@@ -133,7 +133,9 @@ class RuntimeManager:
         resource_pool = {"pilot_cores": 0, "max_cores": 0}
         resource_pool_lock = threading.Lock()
 
-        def apply_runtime_resources(f):
+        def apply_runtime_resources(f: asyncio.Future):
+            if f.cancelled() or f.exception():
+                return
             rm_info: scalems.radical.session.RmInfo = f.result()
             with resource_pool_lock:
                 resource_pool["pilot_cores"] += rm_info["requested_cores"]

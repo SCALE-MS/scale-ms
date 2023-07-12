@@ -36,6 +36,7 @@ from scalems.exceptions import ScaleMSError
 from scalems.identifiers import TypeIdentifier
 from scalems.radical.runtime_configuration import get_pre_exec
 from scalems.radical.exceptions import RPInternalError
+from scalems.radical.session import RmInfo
 
 if typing.TYPE_CHECKING:
     from scalems.radical.runtime import RPDispatchingExecutor
@@ -414,7 +415,7 @@ async def subprocess_to_rp_task(
         raise ValueError("Invalid attribute for RP TaskDescription.") from e
 
     task_cores = subprocess_task_description.cores_per_rank * subprocess_task_description.cpu_processes
-    rm_info = await dispatcher.runtime.resources
+    rm_info: RmInfo = await dispatcher.runtime.resources
     pilot_cores = rm_info["requested_cores"]
     # TODO: Account for Worker cores.
     if config.enable_raptor:

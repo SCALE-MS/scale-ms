@@ -627,8 +627,6 @@ async def provision_executor(
                     pre_exec=raptor_pre_exec,
                     task_manager=runtime_context.runtime_session.task_manager(),
                     filestore=runtime_context.datastore,
-                    scalems_env="scalems_venv",
-                    # TODO: normalize ownership of this name.
                 ),
                 name="get-scheduler",
             )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.

@@ -411,7 +411,7 @@ async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> 
 class RmInfo(typing_extensions.TypedDict):
     # Refer to https://github.com/radical-cybertools/radical.pilot/issues/2973
     # for evolution of a more stable interface.
-    # See issue #367 
+    # See issue #367
     requested_cores: int
     requested_gpus: int
 

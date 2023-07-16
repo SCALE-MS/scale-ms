@@ -62,7 +62,10 @@ def test_master_configuration_details(rp_venv):
     # However, we are not currently using `named_env`. See #90.
     configuration = RaptorConfiguration(
         worker=ClientWorkerRequirements(
-            named_env="scalems_test_ve", cpu_processes=worker_processes, gpus_per_process=gpus_per_process
+            named_env="scalems_test_ve",
+            cpu_processes=worker_processes,
+            cores_per_process=1,
+            gpus_per_rank=gpus_per_process,
         ),
         versioned_modules=list(versioned_modules),
     )

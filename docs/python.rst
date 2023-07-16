@@ -103,116 +103,64 @@ Core Function implementations provided with the SCALE-MS package.
 
 .. autofunction:: executable
 
-.. py:currentmodule:: scalems.commands
+*TBD*
 
-.. autofunction:: extend_sequence
+.. todo:: Define the core interface
 
-.. autofunction:: logical_and
-
-.. autofunction:: logical_not
+..  .. py:currentmodule:: scalems.commands
+    .. autofunction:: extend_sequence
+    .. autofunction:: logical_and
+    .. autofunction:: logical_not
 
 Dynamic functions
 =================
 
-Dynamic functions generate operations during graph execution.
+*TBD:* Dynamic functions generate operations during graph execution.
 
-.. autofunction:: map
+.. todo:: Dynamic workflow commands
 
-.. autofunction:: reduce
-
-.. autofunction:: while_loop
-
-.. autofunction:: poll
+..    .. autofunction:: map
+    .. autofunction:: reduce
+    .. autofunction:: while_loop
+    .. autofunction:: poll
 
 Data shaping functions
 ======================
 
-Establish and manipulate data flow topology.
+*TBD:* Establish and manipulate data flow topology.
 
-.. autofunction:: desequence
+.. todo:: Data shaping functions
 
-.. autofunction:: resequence
+..    .. autofunction:: desequence
+    .. autofunction:: resequence
 
 Helpers
 =======
 
-Tools for dynamically generating Functions.
+*TBD* Tools for dynamically generating Functions.
 
-.. autofunction:: function_wrapper
+.. todo:: metaprogramming tools
 
-.. autofunction:: subgraph
+..  .. autofunction:: function_wrapper
+    .. autofunction:: subgraph
 
-Speculative functions
-=====================
+..  Speculative functions
+    =====================
 
-These functions are probably not explicitly necessary, or at least not
-appropriate for the high level interface.
+    These functions are probably not explicitly necessary, or at least not
+    appropriate for the high level interface.
 
-.. autofunction:: gather
-
-.. autofunction:: scatter
-
-.. py:function:: broadcast
-
-.. py:function:: concatenate(iterable: Iterable[T]) -> T
-
-    Equivalent to ``reduce(extend_sequence, iterable)``
-
-.. py:function:: partial
-
-    Provide an alternative to :py:func:`functools.partial` that plays well with
-    SCALE-MS checkpointing and dispatched execution.
+..  .. autofunction:: gather
+    .. autofunction:: scatter
+    .. py:function:: broadcast
+    .. py:function:: concatenate(iterable: Iterable[T]) -> T
+       Equivalent to ``reduce(extend_sequence, iterable)``
+    .. py:function:: partial
+        Provide an alternative to :py:func:`functools.partial` that plays well with
+        SCALE-MS checkpointing and dispatched execution.
 
 Base classes
 ============
-
-.. py:class:: Subgraph
-
-    Base class with which to define Functions in terms of sub-graphs.
-
-    Proposed alternative to the subgraph-builder context manager provided by
-    subgraph().
-
-    Example::
-
-        # Create a subgraph Function with several Variables.
-        #
-        # * *simulation* names an input/output Variable.
-        # * *conformation* names an output Variable.
-        # * *P* names an internal state and output Variable.
-        # * *is_converged* names an output Variable.
-        #
-        class MyFusedOperation(Subgraph):
-            # The Subgraph metaclass applies special handling to these class variables
-            # because of their type.
-            simulation = Subgraph.InputOutputVariable(simulate)
-            conformation = Subgraph.OutputVariable(default=simulation.conformation)
-            P = Subgraph.OutputVariable(default=scalems.float(0., shape=(N, N)))
-            is_converged = Subgraph.OutputVariable(default=False)
-
-            # Update the simulation input at the beginning of an iteration.
-            simulation.update(modify_input(input=simulation, conformation=conformation))
-
-            # The Subgraph metaclass will hide these variables from clients.
-            md = simulate(input=simulation)
-            allframes = scalems.concatenate(md.trajectory)
-            adaptive_msm = analysis.msm_analyzer(allframes, P)
-
-            # Update Variables at the end of an iteration.
-            simulation.update(md)
-            P.update(adaptive_msm.transition_matrix)
-            conformation.update(adaptive_msm.conformation)
-            is_converged.update(adaptive_msm.is_converged)
-
-            # That's all. The class body defined here is passed to the Subgraph
-            # metaclass to generate the actual class definition, which will be
-            # a SCALE-MS compatible Function that supports a (hidden) iteration
-            # protocol, accessible with the `while_loop` dynamic Function.
-
-        loop = scalems.while_loop(function=MyFusedOperation,
-                                  condition=scalems.logical_not(MyFusedOperation.is_converged),
-                                  simulation=initial_input)
-        loop.run()
 
 .. seealso:: :doc:`data`
 

@@ -277,7 +277,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
 
         Design notes:
             Instance configuration is coupled to module state except as allowed
-            through `contextvars.copy()`.
+            through :py:func:`contextvars.copy()`.
         """
         if _configuration.get(None):
             raise scalems.exceptions.APIError("A scalems.radical runtime is already active.")

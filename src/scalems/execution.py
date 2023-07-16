@@ -776,7 +776,9 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
             if "control" in command:
                 logger.debug(f"Execution manager received {command['control']} command for {runtime}.")
                 try:
-                    await executor.cpi(command["control"], runtime)
+                    # TODO(#335): We have to update this model.
+                    # await executor.cpi(command["control"], runtime)
+                    logger.debug(f"This code path ignores control commands. Dropping {command['control']}.")
                 except scalems.exceptions.ScopeError as e:
                     logger.debug(
                         f"Control command \"{command['control']}\" ignored due to inactive RuntimeManager.", exc_info=e

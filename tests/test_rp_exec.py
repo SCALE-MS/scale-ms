@@ -194,7 +194,8 @@ async def test_raptor_master(pilot_description, rp_venv):
 
             # Bypass the scalems machinery and submit an instruction directly to the raptor task.
             # TODO: Use scalems.radical.runtime.submit()
-            raptor: rp.Task = dispatcher.runtime.raptor
+            raptor: rp.Task = dispatcher.raptor
+            assert raptor is not None and raptor.state not in rp.FINAL
             hello_command_description = rp.TaskDescription(
                 from_dict={
                     "raptor_id": raptor.uid,
@@ -316,7 +317,8 @@ async def test_worker(pilot_description, rp_venv):
             # Submit a raptor task
             # Bypass the scalems machinery and submit an instruction directly to the raptor task.
             # TODO: Use scalems.radical.runtime.submit()
-            raptor: rp.Task = dispatcher.runtime.raptor
+            raptor: rp.Task = dispatcher.raptor
+            assert raptor is not None and raptor.state not in rp.FINAL
 
             add_item_task_description = rp.TaskDescription()
             add_item_task_description.raptor_id = raptor.uid

@@ -371,7 +371,7 @@ async def subprocess_to_rp_task(
     TODO:
         This logic should be integrated into a :py:func:`WorkflowManager.submit()`
         stack (currently :py:func:`WorkflowManager.add_item()`)
-        and `manage_execution` loop. We really should have special handling for
+        and `manage_raptor` loop. We really should have special handling for
         wrapped function calls as distinguished from command line executables
         through "overloads" (dispatching) of the task submission.
         Also, we should not be exposing the *dispatcher* to the user.
@@ -389,7 +389,7 @@ async def subprocess_to_rp_task(
         mode=rp.TASK_EXECUTABLE,
     )
     if config.enable_raptor:
-        subprocess_dict["raptor_id"] = dispatcher.runtime.raptor.uid
+        subprocess_dict["raptor_id"] = dispatcher.raptor.uid
     # Capturing stdout/stderr is a potentially unusual or unexpected behavior for
     # a Python function runner, and may collide with user assumptions or native
     # behaviors of third party tools. We will specify distinctive names for the RP
@@ -430,7 +430,7 @@ async def subprocess_to_rp_task(
     pilot_cores = rm_info["requested_cores"]
     # TODO: Account for Worker cores.
     if config.enable_raptor:
-        raptor_task: rp.Task = dispatcher.runtime.raptor
+        raptor_task: rp.Task = dispatcher.raptor
         raptor_cores = raptor_task.description["ranks"] * raptor_task.description["cores_per_rank"]
     else:
         raptor_cores = 0

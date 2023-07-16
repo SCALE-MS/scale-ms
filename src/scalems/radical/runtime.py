@@ -80,7 +80,7 @@ See Also:
     client_executor -> client_runtime: set raptor
     return
 
-    client_executor ->> scalems.execution **: create_task(manage_execution)
+    client_executor ->> scalems.execution **: create_task(manage_raptor)
     client_executor -> scalems.execution: await runner_started
     RuntimeManager <-- client_executor: asyncio.Task
     RuntimeManager -> RuntimeManager: set runner_task
@@ -180,7 +180,7 @@ from .runtime_configuration import get_pre_exec
 from .runtime_configuration import RuntimeConfiguration
 from .session import runtime_session
 from .session import RuntimeSession
-from .raptor import get_scheduler
+from .raptor import coro_get_scheduler
 from .task import submit
 from ..store import FileStore
 from ..execution import AbstractWorkflowUpdater
@@ -229,6 +229,9 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
 
     runtime: RuntimeSession
     """See `scalems.execution.RuntimeManager.runtime`"""
+
+    raptor: typing.Optional[rp.raptor_tasks.Raptor] = None
+    """Raptor scheduler (master task)."""
 
     def __init__(
         self,
@@ -359,25 +362,21 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
             # We could choose another approach and change our assumptions, if appropriate.
             logger.debug("Entering RP dispatching context. Waiting for rp.Session.")
 
-            _runtime: RuntimeSession = await runtime_session(loop=self._loop, configuration=config)
+            self.runtime = await runtime_session(loop=self._loop, configuration=config)
 
             # TODO: Asynchronous data staging optimization.
             #  Allow input data staging to begin before scheduler is in state EXECUTING and
             #  before Pilot is in state PMGR_ACTIVE.
 
-            assert _runtime.raptor is None
+            assert self.raptor is None
 
             # Get a scheduler task IFF raptor is explicitly enabled.
             if config.enable_raptor:
-                task_manager = _runtime.task_manager()
-                # Note that get_scheduler is a coroutine that, itself, returns a rp.Task.
-                # We await the result of get_scheduler, then store the scheduler Task.
-                _runtime.raptor = await asyncio.create_task(
-                    get_scheduler(
-                        pre_exec=list(get_pre_exec(config)),
-                        task_manager=task_manager,
-                        filestore=self.datastore,
-                    ),
+                pilot = self.runtime.pilot()
+                # Note that coro_get_scheduler is a coroutine that, itself, returns a rp.Task.
+                # We await the result of coro_get_scheduler, then store the scheduler Task.
+                self.raptor = await asyncio.create_task(
+                    coro_get_scheduler(pre_exec=list(get_pre_exec(config)), pilot=pilot, filestore=self.datastore),
                     name="get-scheduler",
                 )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         except asyncio.CancelledError as e:
@@ -385,8 +384,6 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         except Exception as e:
             logger.exception("Exception while connecting RADICAL Pilot.", exc_info=e)
             raise DispatchError("Failed to launch SCALE-MS raptor task.") from e
-
-        self.runtime = _runtime
 
         if self.runtime is None or self.runtime.session.closed:
             raise ProtocolError("Cannot process queue without a RP Session.")
@@ -403,7 +400,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         return runner_task
 
     @staticmethod
-    async def cpi(command: str, runtime: RuntimeSession):
+    async def cpi(command: str, raptor: rp.raptor_tasks.Raptor):
         """Send a control command to the raptor scheduler.
 
         Implements :py:func:`scalems.execution.RuntimeManager.cpi()`
@@ -412,17 +409,10 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         """
         timeout = 180
 
-        logger.debug(f'Received command "{command}" for runtime {runtime}.')
-        if runtime is None:
-            raise scalems.exceptions.ScopeError("Cannot issue control commands without an active RuntimeManager.")
-        raptor: rp.Task = runtime.raptor
+        logger.debug(f'Received command "{command}" for runtime {raptor}.')
+        if raptor is None or raptor.state in rp.FINAL:
+            raise scalems.exceptions.ScopeError("Cannot issue control commands without an active Raptor session.")
         logger.debug(f"Preparing command for {repr(raptor)}.")
-        if raptor is None:
-            raise scalems.exceptions.ScopeError(
-                f"Cannot issue control commands without an active RuntimeManager. {runtime}"
-            )
-        if raptor.state in rp.FINAL:
-            raise scalems.exceptions.ScopeError(f"Raptor scheduler is not available. {repr(raptor)}")
         assert raptor.uid
         message = scalems.messages.Control.create(command)
         td = rp.TaskDescription(
@@ -434,7 +424,7 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
             }
         )
         logger.debug(f"Submitting {str(td.as_dict())}")
-        (task,) = await asyncio.to_thread(runtime.task_manager().submit_tasks, [td])
+        (task,) = await asyncio.to_thread(raptor.submit_tasks, [td])
         logger.debug(f"Submitted {str(task.as_dict())}. Waiting...")
         # Warning: we can't wait on the final state of such an rp.Task unless we
         # _also_ watch the scheduler itself, because there are various circumstances
@@ -466,6 +456,9 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
 
         Overrides :py:class:`scalems.execution.RuntimeManager`
         """
+        # Note that __aexit__() deletes self.runtime before calling
+        # runtime_shutdown to prevent re-entrance. We will address such race
+        # conditions differently in later updates.
         # TODO: Move this to a RuntimeSession.close() method.
         session: rp.Session = getattr(runtime, "session", None)
         if session is None:
@@ -473,14 +466,16 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         if session.closed:
             logger.error("RuntimeSession is already closed?!")
         else:
-            if runtime.raptor is not None:
+            raptor = self.raptor
+            if raptor is not None:
+                del self.raptor
                 # Note: The __aexit__ for the RuntimeManager makes sure that a `stop`
                 # is issued after the work queue is drained, if the scheduler task has
                 # not already ended. We could check the status of this stop message...
-                if runtime.raptor.state not in rp.FINAL:
-                    logger.info(f"Waiting for RP Raptor raptor task {runtime.raptor.uid} to complete...")
-                    runtime.raptor.wait(rp.FINAL, timeout=60)
-                if runtime.raptor.state not in rp.FINAL:
+                if raptor.state not in rp.FINAL:
+                    logger.info(f"Waiting for RP Raptor raptor task {raptor.uid} to complete...")
+                    raptor.wait(rp.FINAL, timeout=60)
+                if raptor.state not in rp.FINAL:
                     # Cancel the raptor.
                     logger.warning("Canceling the raptor scheduling task.")
                     # Note: the effect of CANCEL is to send SIGTERM to the shell that
@@ -488,22 +483,21 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
                     # TODO: Report incomplete tasks and handle the consequences of terminating the
                     #  Raptor processes early.
                     task_manager = runtime.task_manager()
-                    task_manager.cancel_tasks(uids=runtime.raptor.uid)
+                    task_manager.cancel_tasks(uids=raptor.uid)
                 # As of https://github.com/radical-cybertools/radical.pilot/pull/2702,
                 # we do not expect `cancel` to block, so we must wait for the
                 # cancellation to succeed. It shouldn't take long, but it is not
                 # instantaneous or synchronous. We hope that a minute is enough.
-                final_state = runtime.raptor.wait(state=rp.FINAL, timeout=10)
-                logger.debug(f"Final state: {final_state}")
-                logger.info(f"Master scheduling task state {runtime.raptor.state}: {repr(runtime.raptor)}.")
-                if runtime.raptor.stdout:
+                final_state = raptor.wait(state=rp.FINAL, timeout=10)
+                logger.info(f"Master scheduling task state {final_state}: {repr(raptor)}.")
+                if raptor.stdout:
                     # TODO(#229): Fetch actual stdout file.
-                    logger.debug(runtime.raptor.stdout)
-                if runtime.raptor.stderr:
+                    logger.debug(raptor.stdout)
+                if raptor.stderr:
                     # TODO(#229): Fetch actual stderr file.
                     # Note that all of the logging output goes to stderr, it seems,
                     # so we shouldn't necessarily consider it an error level event.
-                    logger.debug(runtime.raptor.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
+                    logger.debug(raptor.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
 
             runtime.close()
 

@@ -5,9 +5,11 @@ from __future__ import annotations
 __all__ = ("RPExecutor", "executor", "provision_executor")
 
 import asyncio
+import atexit
 import concurrent.futures
 import contextlib
 import contextvars
+import functools
 import logging
 import queue as _queue
 import threading
@@ -15,7 +17,6 @@ import typing
 import warnings
 import weakref
 from typing import Callable, Sequence, Optional, TypeVar
-from typing import Union
 
 from typing_extensions import ParamSpec
 
@@ -23,351 +24,368 @@ import radical.pilot as rp
 
 import scalems.execution
 from scalems.exceptions import MissingImplementationError
-from scalems.messages import QueueItem
+from scalems.identifiers import EphemeralIdentifier
+from scalems.messages import Control
 from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.manager import RuntimeManager
-from scalems.radical.raptor import get_scheduler
+from scalems.radical.raptor import launch_scheduler
+from scalems.radical.raptor import raptor_input
 from scalems.radical.runtime_configuration import get_pre_exec
 
 if typing.TYPE_CHECKING:
-    from scalems.radical.session import RuntimeSession
+    # from scalems.radical.session import RuntimeSession
+    from weakref import ReferenceType
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
 
 
-_queuer: contextvars.ContextVar[Queuer] = contextvars.ContextVar("_queuer")
-"""Identify an asynchronous queued dispatching context.
+# The following infrastructure logic is borrowed from concurrent.futures.thread
+# What we really want, though, is to make sure that these hooks are handled before
+#  the event loop is closed.
+# TODO: Make sure that event loop is still active, and perform our shutdown hooks
+#  before the event loop shuts down.
+_rp_work_queues = weakref.WeakKeyDictionary()
+"""Keep track of the active executor queues in the current runtime.
 
-Non-asyncio-aware functions may need to behave
-differently when we know that asynchronous context switching could happen.
-We allow multiple dispatchers to be active, but each dispatcher must
-1. contextvars.copy_context()
-2. set itself as the dispatcher in the new Context.
-3. run within the new Context.
-4. ensure the Context is destroyed (remove circular references)
+Map (weak references to) tasks to the queues in which they are managed.
+Analogous to the way concurrent.futures.thread tracks the ThreadPoolExecutor
+threads and work queues.
 """
 
+_shutdown = False
+# Lock that ensures that new executors are not created while the interpreter is
+# shutting down. Must be held while mutating _runtime_queues and _shutdown.
+# Warning: don't copy this while locked, such as by forking.
+_global_shutdown_lock = threading.Lock()
 
-_queuer_lock = asyncio.Lock()
+
+def _python_exit():
+    global _shutdown
+    with _global_shutdown_lock:
+        _shutdown = True
+    items = list(_rp_work_queues.items())
+    # TODO: Update to something that will allow completion of anything that was
+    #  trying to get the _global_shutdown_lock or that is affected by _shutdown=True
+    for t, q in items:
+        q.put(None)
+    for t, q in items:
+        t.join()
 
 
-async def manage_execution(
-    *,
-    processing_state: asyncio.Event,
-    command_queue: asyncio.Queue,
-    runtime_manager: scalems.radical.manager.RuntimeManager,
-    updater: WorkflowUpdaterPlaceholder,
-):
-    """Process workflow messages until a stop message is received.
+atexit.register(_python_exit)
 
-    Caller should make sure to handle any remaining queue items if the task throws
-    an exception.
+
+class BrokenExecutor(scalems.radical.exceptions.ScaleMSRadicalError):
+    """Executor is in an unrecoverable error state and cannot accept new tasks."""
+
+
+# Note: The scalems implementation will be an adaptation of the scalems.call machinery.
+class _RemoteWorkItem:
+    """Local representation of work dispatched for remote execution.
+
+    Any exceptions from the remote work will not contain regular stack traces.
+    Instead, the message and execption type will be reported, but the exception
+    will appear to originate from :py:func:`_RemoteWorkItem.run()`
     """
-    queue = command_queue
 
-    runtime_session: scalems.radical.session.RuntimeSession = runtime_manager.runtime_session
+    def __init__(self, future, fn, args, kwargs):
+        self.future = future
+        self.fn = fn
+        self.args = args
+        self.kwargs = kwargs
 
-    # TODO: Integrate with WorkflowManager
+    def run(self, *, task_manager: rp.TaskManager, raptor_id: str):
+        # This checks and updates the private concurrent.futures.Future._state.
+        # We may find that scalems needs more granular state and an additional layer.
+        if not self.future.set_running_or_notify_cancel():
+            return
 
-    # Acknowledge that the coroutine is running and will immediately begin processing
-    # queue items.
-    processing_state.set()
-    # Note that if an exception is raised here, the queue will never be processed.
+        try:
+            result = self.fn(*self.args, **self.kwargs)
+        except BaseException as exc:
+            self.future.set_exception(exc)
+            # Break a reference cycle with the exception 'exc'
+            # noinspection PyMethodFirstArgAssignment
+            self = None
+        else:
+            self.future.set_result(result)
 
-    command: QueueItem
+
+def _launch_raptor(executor: RPExecutor, worker_requirements):
+    if executor is None:
+        logger.critical("Executor lost before Raptor session started.")
+        return
+
+    runtime_manager: RuntimeManager = executor.runtime_manager()
+    # WARNING: runtime_manager could start shutting down at an arbitrary point,
+    # and attributes could be set to None.
+    with runtime_manager.shutdown_lock():
+        if runtime_manager.closing():
+            executor._launch_failed()
+            return
+        event_loop: asyncio.AbstractEventLoop = runtime_manager.loop()
+        datastore = runtime_manager.datastore
+        rp_session = runtime_manager.runtime_session
+        # task_manager = rp_session.task_manager()
+        pilot = rp_session.pilot()
+        logger.debug(f"Using RP Session {repr(rp_session)}")
+        del runtime_manager
+    raptor_pre_exec = executor.raptor_pre_exec()
+
+    # TODO(#335): Separate Worker config from Master launch.
+    if worker_requirements is None:
+        ranks_per_worker = 1
+        cores_per_rank = 1
+        gpus_per_rank = 0
+    else:
+        ranks_per_worker = max(reqs.get("ranks", reqs.get("cpu_processes", 1)) for reqs in worker_requirements)
+        cores_per_rank = max(reqs.get("cores_per_rank", reqs.get("cpu_threads", 1)) for reqs in worker_requirements)
+        gpus_per_rank = max(reqs.get("gpus_per_rank", 0) for reqs in worker_requirements)
+    # Warning: was the datastore lifetime management designed to be thread-safe or do we need a lock?
+    f = asyncio.run_coroutine_threadsafe(
+        raptor_input(
+            filestore=datastore,
+            worker_pre_exec=list(raptor_pre_exec),
+            ranks_per_worker=ranks_per_worker,
+            cores_per_rank=cores_per_rank,
+            gpus_per_rank=gpus_per_rank,
+        ),
+        loop=event_loop,
+    )
+    # WARNING: May block for a while during start-up.
+    logger.debug("Waiting for asyncio coroutine to get raptor_input.")
+    config_file = f.result()
+    logger.debug(f"Got config file {config_file}")
+
+    # TODO: Wait for usable Pilot+TaskManager?
+    assert isinstance(pilot, rp.Pilot)
+
+    # TODO: Wait on a Semaphore or Condition until we know that cores are
+    #  or will be available.
+    # We should do the RuntimeManager.acquire() before leaving the RPExecutor constructor,
+    # or at least before leaving any enclosing context manager, but is RPExecutor.shutdown()
+    # the most appropriate place to do the RuntimeManager.release()? Ultimately, we want to
+    # do the RuntimeManager.release() as soon as we are sure that all of the tasks that hit
+    # this queue will be able to be placed (or are already executing).
+
+    # Get a scheduler task IFF raptor is required.
+    runtime_manager: RuntimeManager = executor.runtime_manager()
+    if runtime_manager is None:
+        logger.error("RuntimeManager lost before Raptor session started.")
+        executor._launch_failed()
+        return
+    logger.debug(f"Launching Raptor in Pilot {pilot}")
+    # WARNING: runtime_manager could start shutting down at an arbitrary point,
+    # and attributes could be set to None.
+    with runtime_manager.shutdown_lock():
+        if runtime_manager.closing():
+            logger.error("RuntimeManager lost before Raptor session started.")
+            executor._launch_failed()
+            return
+        # WARNING: If we allow the context manager to call RuntimeManager.release() before
+        # this point, then we are violating the resource allocation contract.
+        # Similarly for any later calls to start Workers.
+        # TODO: Additional locking or synchronization and/or
+        #  move the resource acquisition/release into this thread.
+        raptor: rp.raptor_tasks.Raptor = launch_scheduler(
+            pre_exec=raptor_pre_exec,
+            pilot=pilot,
+            filestore=datastore,
+            config_file=config_file,
+        )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
+        logger.debug(f"Got Raptor {raptor} in pilot {pilot}.")
+        return raptor
+
+
+def _run_queue(*, work_queue, executor_reference, raptor: rp.raptor_tasks.Raptor):
+    stop_issued = False
     while True:
         # Once we have awaited asyncio.Queue.get(), we _must_ have a corresponding
         # asyncio.Queue.task_done(). For tidiness, we immediately enter a `try` block
         # with a `finally` suite. Don't separate these without considering the Queue
         # protocol.
-        command = await queue.get()
-        try:
-            # Allow external tasks to cause this loop to end.
-            if command is None:
-                return
-            if not len(command.items()) == 1:
-                raise scalems.exceptions.ProtocolError("Expected a single key-value pair.")
+        # command = await queue.get()
+        command = work_queue.get(block=True)
+        logger.debug(f"Got command queue item {command}.")
+        if command is not None:
             logger.debug(f"Processing command {repr(command)}")
 
-            # TODO(#23): Use formal RPC protocol.
-            if "control" in command:
-                logger.debug(f"Execution manager received {command['control']} command for {runtime_session}.")
-                try:
-                    await runtime_manager.cpi(command["control"], runtime_session)
-                except scalems.exceptions.ScopeError as e:
-                    logger.debug(
-                        f"Control command \"{command['control']}\" ignored due to inactive RuntimeManager.", exc_info=e
-                    )
-                    # We should probably break here, too, right?
-                    # TODO: Handle command results and take appropriate action on failures.
-                if command["control"] == "stop":
-                    # End queue processing.
-                    break
-            if "add_item" not in command:
-                # This will end queue processing. Tasks already submitted may still
-                # complete. Tasks subsequently added will update the static part of
-                # the workflow (WorkflowManager) and be eligible for dispatching in
-                # another dispatching session.
-                # If we need to begin to address the remaining queued items before
-                # this (the queue processor) task is awaited, we could insert a
-                # Condition here to alert some sort of previously scheduled special
-                # tear-down task.
-                raise MissingImplementationError(f"Executor has no implementation for {str(command)}.")
+            # TODO: Set stop_issued if it is a STOP command.
 
-            # TODO: Handle queue items.
-            raise MissingImplementationError
+            if isinstance(command, _RemoteWorkItem):
+                # command.run()
+                # Unlike concurrent.futures.ThreadPoolExecutor, the task will
+                # not have completed by the time the dispatching function returns.
+                # We may have to provide references to the runner or subscribe
+                # additional callbacks to the Future so that resources can be
+                # freed or errors can be logged, etc.
+                _executor = executor_reference()
+                if _executor is not None:
+                    _executor._submitted_tasks.add(command.future)
+                del _executor
+                # TODO: Handle queue items.
+                raise MissingImplementationError
 
-        except Exception as e:
-            logger.debug("Leaving queue runner due to exception.")
-            raise e
-        finally:
-            logger.debug('Releasing "{}" from command queue.'.format(str(command)))
-            queue.task_done()
-
-
-class Queuer:
-    """Maintain the active dispatching state for a managed workflow.
-
-    The Queuer, WorkflowManager, and Executor lifetimes do not need to be
-    coupled, but their periods of activity should be synchronized in certain ways
-    (aided using the Python context manager protocol).
-
-    The Queuer must have access to an active Executor while the Queuer
-    is active.
-
-    When entering the Queuer context manager, a task is created to transfer items
-    from the dispatch queue to the execution queue. The task is allowed to drain the
-    queue before the context manager yields to the ``with`` block. The task will
-    continue to process the queue asynchronously if new items appear.
-
-    When exiting the Queuer context manager, the items currently in the
-    dispatching queue are processed and the the dispatcher task is finalized.
-
-    The dispatcher queue is a queue.SimpleQueue so that WorkflowManager.add_item()
-    can easily use a concurrency-safe callback to add items whether or not the
-    dispatcher is active.
-    """
-
-    command_queue: asyncio.Queue
-    """Target queue for dispatched commands."""
-
-    # source: WorkflowManager
-    # """Owner of the workflow items being queued."""
-
-    _dispatcher_queue: _queue.SimpleQueue
-
-    _queue_runner_task: asyncio.Task
-    """Queue, owned by this object, of Workflow Items being processed for dispatch."""
-
-    def __init__(self, source, command_queue: asyncio.Queue):
-        """Create a queue-based workflow dispatcher.
-
-        Initialization and deinitialization occurs through
-        the Python (async) context manager protocol.
-        """
-
-        # self.source = source
-        self._dispatcher_queue = _queue.SimpleQueue()
-        self.command_queue = command_queue
-        self._exception = None
-        self._queuer_context_token: Optional[contextvars.Token] = None
-
-    def queue(self):
-        return self._dispatcher_queue
-
-    def put(self, item):
-        assert len(item) == 1
-        key = list(item.keys())[0]
-        if key not in {"command", "add_item"}:
-            raise scalems.exceptions.APIError("Unrecognized queue item representation.")
-        self._dispatcher_queue.put(item)
-
-    async def __aenter__(self):
-        try:
-            # Get a lock while the state is changing.
-            # Warning: The dispatching protocol is immature.
-            # Initially, we don't expect contention for the lock,
-            # and if there is contention, it probably represents
-            # an unintended race condition or systematic dead-lock.
-            # TODO: Clarify dispatcher state machine and remove/replace assertions.
-            async with _queuer_lock:
-                if _queuer.get(None):
-                    raise scalems.exceptions.APIError("There is already an active dispatcher in this Context.")
-                self._queuer_context_token = _queuer.set(self)
-                # Launch queue processor (proxy executor).
-                runner_started = asyncio.Event()
-                runner_task = asyncio.create_task(self._queue_runner(runner_started))
-                await runner_started.wait()
-                self._queue_runner_task = runner_task
-
-                # TODO: Add lock context for WorkflowManager event hooks
-                #  rather than assume the UI and event loop are always in the same thread.
-
-            return self
-        except Exception as e:
-            self._exception = e
-            raise e
-
-    async def _single_iteration_queue(self, source: _queue.SimpleQueue, target: asyncio.Queue):
-        """Transfer one queue item.
-
-        If a *stop* command is encountered, self-cancel after transfering command.
-
-        To avoid race conditions while stopping queue processing,
-        place a *stop* command in *source* and asyncio.shield() a call
-        to this coroutine in a *try: ... except: ...* block.
-
-        Note that the caller will then receive CancelledError after *stop* command has
-        been transferred.
-
-        Raises:
-            queue.Empty if *source* is empty
-            asyncio.CancelledError when cancelled or *stop* is received.
-
-        """
-        command: QueueItem = source.get_nowait()
-        logger.debug(f"Processing command {repr(command)}")
-
-        await target.put(command)
-
-        # TODO: Use formal RPC protocol.
-        if "control" in command:
-            # Note that we don't necessarily need to stop managing the dispatcher queue
-            # at this point, but the Executor will be directed to shut down,
-            # so we must not put anything else onto the command queue until we have a
-            # new command queue or a new executor.
-            if command["control"] == "stop":
-                raise asyncio.CancelledError()
+            if raptor.state in rp.FINAL:
+                _executor = executor_reference()
+                if _executor is not None:
+                    _executor._dispatcher_failed()
+                del _executor
             else:
-                raise scalems.exceptions.ProtocolError("Unknown command: {}".format(command["control"]))
+                # Don't hang onto the reference while waiting on queue.get()
+                del command
+                continue
+
+        # If queue item is None, pretend it was a "stop" command, though we
+        # don't have a Future to attach to.
+        if raptor.state not in rp.FINAL and not stop_issued:
+            stop_issued = True
+            td = rp.TaskDescription(
+                from_dict={
+                    "raptor_id": raptor.uid,
+                    "mode": scalems.radical.raptor.CPI_MESSAGE,
+                    "metadata": Control.create("stop").encode(),
+                    "uid": EphemeralIdentifier(),
+                }
+            )
+            # TODO: Let the RuntimeManager provide a ThreadPoolExecutor for RP UI calls.
+            (task,) = raptor.submit_tasks([td])
+            logger.debug(f"Converted None to RP task with 'stop' command {task}")
+
+        # Allow external tasks to cause this loop to end.
+        # Exit if:
+        #   - The interpreter is shutting down OR
+        #   - The executor that owns the worker has been collected OR
+        #   - The executor that owns the worker has been shutdown.
+        if (_executor := executor_reference()) is None or _shutdown or _executor._shutdown:
+            if _executor is not None:
+                _executor._shutdown = True
+            # Don't hang onto the reference while waiting on queue.get()
+            del _executor
+            break  # TODO: As a function, return True if we've sent a STOP command.
         else:
-            if "add_item" not in command:
-                # TODO: We might want a call-back or Event to force errors before the
-                #  queue-runner task is awaited.
-                raise MissingImplementationError(f"Executor has no implementation for {str(command)}")
-        return command
+            # This is the logic in concurrent.futures.ThreadPoolExecutor. I'm not sure
+            # why it is useful. If we see this warning in practice, we can try to understand
+            # the behavior better and replace this warning with better design notes.
+            logger.warning("Executor thread found queued None item, but was not directed to shut down.")
+    return stop_issued
 
-    async def _queue_runner(self, processing_state: asyncio.Event):
-        processing_state.set()
-        while True:
-            try:
-                await asyncio.shield(
-                    self._single_iteration_queue(source=self._dispatcher_queue, target=self.command_queue)
-                )
-            except _queue.Empty:
-                # Wait a moment and try again.
-                await asyncio.sleep(0.5)
 
-    async def _drain_queue(self):
-        """Wait until the dispatcher queue is empty, then return.
+# Note: This is a free function instead of a member function so that it can
+# run in a separate thread without coupling tightly to the lifetime of the executor
+# or its other members. The function is part of the RPExecutor implementation,
+# and interacts with "private" member variables. Technical concerns might be
+# alleviated (while suppressing "private member access" warnings) by making the
+# function a @staticmethod, but it seems debatable whether that would help or
+# hurt readability.
+def manage_raptor(
+    executor_reference,
+    *,
+    work_queue: _queue.Queue,
+    worker_requirements: Optional[Sequence[dict]],
+    task_requirements: dict,
+) -> None:
+    """Run a task dispatching session for the RP backend.
 
-        Use in place of join() for event-loop treatment of *queue.SimpleQueue*.
-        """
-        while not self._dispatcher_queue.empty():
-            await asyncio.sleep(0.1)
+    Manage a work queue either for RP Raptor tasks or for traditional RP executables.
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):  # noqa: C901
-        """Clean up at context exit.
+    Process workflow messages until a stop message is received.
 
-        Drain the dispatching queue and exit.
+    If *worker_requirements* is not None, the configured RuntimeManager MUST allow
+    raptor sessions to be created.
 
-        Unsubscribes from the WorkflowManager add_item hook, deactivates the
-        dispatching context, and exits.
-        Does not cancel or send instructions to the Executor managing the command queue.
-        """
-        # Note that this coroutine could take a long time and could be cancelled at
-        # several points.
-        cancelled_error = None
-        # The dispatching protocol is immature. Initially, we don't expect contention
-        # for the lock, and if there is contention, it probably represents an
-        # unintended race condition or systematic dead-lock.
-        # TODO: Clarify dispatcher state machine and remove/replace assertions.
-        async with _queuer_lock:
-            try:
-                # self.source.unsubscribe("add_item", self.put)
-                _queuer.reset(self._queuer_context_token)
+    Warning:
+        Run only in a non-root thread!
+        This function makes blocking calls that rely on progress in the asyncio
+        event loop.
 
-                # Stop the dispatcher.
-                logger.debug("Stopping the SCALEMS RP dispatching queue runner.")
+    Returns:
+        None because this is run through the `threading.Thread` interface and simply joined.
+    """
+    # raptor: Optional[rp.raptor_tasks.Raptor] = None
+    try:
+        # Launch raptor session.
+        raptor = _launch_raptor(executor_reference(), worker_requirements)
+        if raptor is None:
+            return
+    except BaseException:
+        logger.critical("Exception launching raptor session: ", exc_info=True)
+        _executor = executor_reference()
+        if _executor is not None:
+            _executor._launch_failed()
+            del _executor
+        return
 
-                # Wait for the queue to drain or the queue runner to exit or fail.
-                drain = asyncio.create_task(self._drain_queue())
-                done, pending = await asyncio.wait(
-                    {drain, self._queue_runner_task}, return_when=asyncio.FIRST_COMPLETED
-                )
-                assert len(done) > 0
-                if self._queue_runner_task not in done:
-                    if drain in done:
-                        self._queue_runner_task.cancel()
-                done, _ = await asyncio.wait({self._queue_runner_task})
-                assert self._queue_runner_task in done
-                if not self._queue_runner_task.cancelled():
-                    exception = self._queue_runner_task.exception()
-                else:
-                    exception = None
-                if exception:
-                    logger.exception("Queuer queue processing encountered exception", exc_info=exception)
-                    if self._exception:
-                        logger.error("Queuer is already holding an exception.")
-                    else:
-                        self._exception = exception
+    task_description_template = task_requirements.copy()
+    task_description_template.update({"raptor_id": raptor.uid})
+    # TODO: Wait for Raptor to start?
 
-            except asyncio.CancelledError as e:
-                logger.debug("Queuer context manager received cancellation while exiting.")
-                cancelled_error = e
-            except Exception as e:
-                logger.exception("Exception while stopping dispatcher.", exc_info=e)
-                if self._exception:
-                    logger.error("Queuer is already holding an exception.")
-                else:
-                    self._exception = e
-            finally:
-                # Should we do any other clean-up here?
-                ...
-        if cancelled_error:
-            raise cancelled_error
+    # TODO: Integrate with WorkflowManager
 
-        # Only return true if an exception should be suppressed (because it was handled).
-        # TODO: Catch internal exceptions for useful logging and user-friendliness.
-        if exc_type is not None:
-            return False
-
-    def exception(self) -> Union[None, Exception]:
-        return self._exception
+    stop_issued = False
+    """Whether or not the queue processed a "stop" command."""
+    try:
+        # Run queue
+        stop_issued = _run_queue(work_queue=work_queue, executor_reference=executor_reference, raptor=raptor)
+    except BaseException:
+        logger.critical("Leaving queue runner due to exception.", exc_info=True)
+    # finally:
+    #     # logger.debug('Releasing "{}" from command queue.'.format(str(command)))
+    #     # asyncio queues require that we acknowledge that we are done handling the task.
+    #     # queue.task_done()
+    if raptor is not None and raptor.state not in rp.FINAL:
+        raptor: rp.raptor_tasks.Raptor
+        # shutdown raptor session:
+        if not stop_issued:
+            # TODO: Send a more aggressive control.stop to raptor once we have such a concept
+            td = rp.TaskDescription(
+                from_dict={
+                    "raptor_id": raptor.uid,
+                    "mode": scalems.radical.raptor.CPI_MESSAGE,
+                    "metadata": Control.create("stop").encode(),
+                    "uid": EphemeralIdentifier(),
+                }
+            )
+            # TODO: Let the RuntimeManager provide a ThreadPoolExecutor for RP UI calls.
+            (task,) = raptor.submit_tasks([td])
+        logger.info(f"Waiting for RP Raptor raptor task {raptor.uid} to complete...")
+        # Note: 60 seconds may not be long enough to cleanly shut down the raptor session,
+        # but we are trying to shut down this thread. To allow more time for clean-up,
+        # send an actual control.stop through the work queue (instead of None) and wait
+        # for it to complete.
+        raptor.wait(rp.FINAL, timeout=60)
+        if raptor.state not in rp.FINAL:
+            # Cancel the raptor.
+            logger.warning("Canceling the raptor scheduling task.")
+            # Note: the effect of CANCEL is to send SIGTERM to the shell that
+            # launched the task process.
+            # TODO: Report incomplete tasks and handle the consequences of terminating the
+            #  Raptor processes early.
+            raptor.cancel()
+        # According to the RP docs, task cancellation immediately moves the local
+        # Task representation to a state of rp.CANCELED (which is in rp.FINAL), even
+        # if asynchronous operations later update the Task to DONE or FAILED.
+        final_state = raptor.state
+        logger.info(f"Master scheduling task state {final_state}: {repr(raptor)}.")
+        if raptor.state not in rp.FINAL:
+            logger.critical(f"Raptor task {repr(raptor)} in state {final_state} instead of FINAL.")
+        if raptor.stdout:
+            # TODO(#229): Fetch actual stdout file.
+            logger.debug(raptor.stdout)
+        if raptor.stderr:
+            # TODO(#229): Fetch actual stderr file.
+            # Note that all of the logging output goes to stderr, it seems,
+            # so we shouldn't necessarily consider it an error level event.
+            logger.debug(raptor.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
+        _executor = executor_reference()
+        if _executor is not None:
+            del _executor.raptor
+        del _executor
 
 
 _P = ParamSpec("_P")
 _T = TypeVar("_T")
-
-
-class WorkflowUpdaterPlaceholder(scalems.execution.AbstractWorkflowUpdater):
-    """Placeholder for the updater required by manage_execution."""
-
-    async def submit(self, *, item: scalems.workflow.Task) -> asyncio.Task:
-        """Submit work to update a workflow item.
-
-        Args:
-            item: managed workflow item as produced by
-                  WorkflowManager.edit_item()
-
-        Returns:
-            watcher task for a coroutine that has already started.
-
-        The returned Task is a watcher task to confirm completion of or allow
-        cancellation of the dispatched work. Additional hidden Tasks may be
-        responsible for updating the provided item when results are available,
-        so the result of this task is not necessarily directly interesting to
-        the execution manager.
-
-        The caller check for unexpected cancellation or early failure. If the task has
-        not failed or been canceled by the time *submit()* returns, then we can
-        conclude that the task has been appropriately bound to the workfow item.
-
-        TODO: This needs to be updated and simplified in the style of
-         `scalems.concurrent.Executor.submit()` with appropriate hooks and callbacks.
-        """
-        raise NotImplementedError
 
 
 class RPExecutor(scalems.execution.ScalemsExecutor):
@@ -377,18 +395,78 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
         `executor` provides a context manager suited for scalems usage.
     """
 
+    raptor: Optional[rp.raptor_tasks.Raptor] = None
+
     def __init__(
-        self, runtime_manager: RuntimeManager, *, command_queue: asyncio.Queue, manage_execution: asyncio.Task
+        self,
+        runtime_manager: RuntimeManager,
+        *,
+        worker_requirements: Optional[Sequence[dict]],
+        task_requirements: dict,
     ):
         self.runtime_manager = weakref.ref(runtime_manager)
         self._pre_exec = list(get_pre_exec(runtime_manager.runtime_configuration))
-        self._shutdown_lock = threading.Lock()
-        self._shutdown = False
 
-        self._queue_runner_task = manage_execution
-        self._command_queue = command_queue
-        self._work_queue = _queue.Queue()
-        self.submitted_tasks = set()
+        # self._command_queue = command_queue
+        work_queue = _queue.Queue[Optional[_RemoteWorkItem]]()
+        self._work_queue = work_queue
+
+        # Note that we will need some sort of semaphore or other mechanism to
+        # detect resource contention that should delay the launch of the
+        # RP Raptor rp.task. We could acquire a Semaphore for each core we need,
+        # but if we can't ensure that no other thread is reserving cores then we
+        # could deadlock. A threading.Condition (mediating access to the core accounting)
+        # may be more appropriate.
+        self._pilot_cores = threading.Semaphore(0)
+        # TODO: Subscribe to the RuntimeManager to get this incremented for available
+        #  cores and as cores become available.
+        # TODO: Release any cores acquired when shutting down!
+
+        self._threads = set()
+        self._broken = False
+        self._shutdown = False
+        self._shutdown_lock = threading.Lock()
+
+        # Items in _work_queue get submitted to RP and are then resolved asynchronously
+        # in other threads. In order to know when work is actually completed and resources
+        # can be freed, we have to separately account for tasks in flight.
+        self._submitted_tasks = set()
+
+        def _finalizer_callback(_: ReferenceType):
+            work_queue.put(None)
+
+        runner_args = (weakref.ref(self, _finalizer_callback),)
+        # Note: We probably need to make sure that the RPExecutor referent is kept alive
+        # (at least if there are any `submit()` calls) until the worker thread doesn't need it
+        # (and we're sure no dynamic tasks are adaptively submitting additional tasks to
+        # the same executor).
+        # TODO: Use contextvars to copy the state of the nested context managers for the launched thread.
+        runner_kwargs = {
+            "work_queue": work_queue,
+            "task_requirements": task_requirements,
+            "worker_requirements": worker_requirements,
+        }
+        # TODO: Do we need to capture a `contextvars.copy_context()`?
+        # Consider providing more useful cross-referencing identifier.
+        thread_name = f"RPExecutor-{id(self)}-{manage_raptor.__name__}"
+        ctx = contextvars.copy_context()
+        func_call = functools.partial(ctx.run, manage_raptor, *runner_args, **runner_kwargs)
+        t = threading.Thread(
+            name=thread_name,
+            target=func_call,
+        )
+        t.start()
+        self._queue_runner_task = t
+        _rp_work_queues[t] = self._work_queue
+
+    def raptor_pre_exec(self):
+        """Shell lines to execute before launching Raptor components.
+
+        Allows inspection of the sequence of shell commands that are inserted
+        into RP launch scripts for Raptor Scheduler/Master and Worker Tasks
+        managed by this Executor (generated from the RuntimeConfiguration).
+        """
+        return self._pre_exec.copy()
 
     def submit(self, fn: Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs) -> concurrent.futures.Future[_T]:
         """Schedule a function call and get a Future for the result.
@@ -397,25 +475,73 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
         See `executor()`
         """
         with self._shutdown_lock, self.runtime_manager().shutdown_lock():
-            # if self._broken:
-            #     raise BrokenThreadPool(self._broken)
+            if self._broken:
+                raise BrokenExecutor(self._broken)
 
             if self._shutdown:
-                raise RuntimeError("cannot schedule new futures after shutdown")
-            # if _shutdown:
-            #     raise RuntimeError("cannot schedule new futures after " "interpreter shutdown")
+                raise RuntimeError("Cannot submit tasks after beginning Executor shutdown")
+            if _shutdown:
+                raise RuntimeError("Cannot schedule new futures after interpreter shutdown")
 
-            # vars_context = contextvars.copy_context()
             f = concurrent.futures.Future()
-            # w = _WorkItem(f, fn, args, kwargs)
+            # Note that the submitted function will see the contextvars.Context
+            # that was copied when the worker thread was started.
+            item = _RemoteWorkItem(f, fn, args, kwargs)
 
-            # vars_context.run(...)
-            # self._work_queue.put(w)
-            # self._adjust_thread_count()
+            self._work_queue.put(item)
+
+            # TODO: Somewhere in here, we need to do bookkeeping with respect to
+            #  Worker lifetimes and resource requirements.
+            self._check_dispatcher_state()
             return f
+
+    def _check_dispatcher_state(self):
+        # If we need to lock resources from the RuntimeManager to suppress the
+        # launch of subsequent RPExecutor dispatcher tasks, we could do it here.
+        # Some things we might check for:
+        # * did submit get called after the `executor` context manager ended?
+        # * has another RPExecutor come into scope through a new `executor` context manager?
+        # * does continuing to submit to this executor cause problems because of the above?
+        # This is a place we could deal with the consequences of tasks that generate
+        # additional tasks dynamically/adaptively after calling shutdown(wait=False, cancel_futures=False)
+        ...
+
+        # If the "worker" has died, react appropriately.
+        raptor: rp.raptor_tasks.Raptor = self.raptor
+        if raptor.state in rp.FINAL:
+            self._dispatcher_failed()
+
+    def _launch_failed(self):
+        logger.debug("Executor._launch_failed() triggered.")
+        with self._shutdown_lock:
+            self._broken = "Raptor session failed to launch. The RPExecutor is not usable."
+            # Drain work queue and mark pending futures failed
+            while True:
+                try:
+                    work_item = self._work_queue.get_nowait()
+                except _queue.Empty:
+                    break
+                if work_item is not None:
+                    work_item.future.set_exception(BrokenExecutor(self._broken))
+                    # TODO: Cancel any RP Tasks that are already submitted.
+
+    def _dispatcher_failed(self):
+        logger.debug("Executor._dispatcher_failed() triggered.")
+        with self._shutdown_lock:
+            self._broken = "Raptor session finished unexpectedly. The RPExecutor is not usable."
+            # Drain work queue and mark pending futures failed
+            while True:
+                try:
+                    work_item = self._work_queue.get_nowait()
+                except _queue.Empty:
+                    break
+                if work_item is not None:
+                    work_item.future.set_exception(BrokenExecutor(self._broken))
+                    # TODO: Cancel any RP Tasks that are already submitted.
 
     def shutdown(self, wait=True, *, cancel_futures=False):
         """Implement Executor.shutdown()."""
+        logger.debug(f"Executor {self} got shutdown(wait={wait}, cancel_futures={cancel_futures})")
         ...
         with self._shutdown_lock:
             # First:
@@ -423,135 +549,53 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
             # all pending tasks complete.
             if not self._shutdown:
                 self._shutdown = True
-            if not isinstance(self._shutdown, concurrent.futures.Future):
-                runtime_manager: RuntimeManager = self.runtime_manager()
-                if runtime_manager is None:
-                    logger.error("Executor outlived its RuntimeManager.")
-                loop: asyncio.AbstractEventLoop = runtime_manager._loop
-                self._shutdown = asyncio.run_coroutine_threadsafe(self.finalize(), loop=loop)
 
             # Second:
             if cancel_futures:
-                # Issue a cancel to all incomplete tasks.
-                #         # Drain all work items from the queue, and then cancel their
-                #         # associated futures.
-                #         while True:
-                #             try:
-                #                 work_item = self._work_queue.get_nowait()
-                #             except queue.Empty:
-                #                 break
-                #             if work_item is not None:
-                #                 work_item.future.cancel()
-                ...
-            # # Send a wake-up to prevent threads calling
-            # # _work_queue.get(block=True) from permanently blocking.
-            # self._work_queue.put(None)
+                # Drain all work items from the queue, and then cancel their
+                # associated futures.
+                logger.debug("Canceling Futures.")
+                while True:
+                    try:
+                        work_item = self._work_queue.get_nowait()
+                    except _queue.Empty:
+                        break
+                    if work_item is not None:
+                        work_item.future.cancel()
+
+            # Send a wake-up to prevent threads calling
+            # _work_queue.get(block=True) from permanently blocking.
+            self._work_queue.put(None)
+            # TODO: Instead, put an explicit ControlStop message for cleaner behavior.
+            # self._work_queue.put(CommandQueueControlItem(command="stop"))
         # Finally:
         if wait:
-            # Wait for tasks to be `done`
-            ...
             # WARNING: We can't block on a concurrent.futures.Future from the event loop thread
             # if it depends on the event loop iterating!
             if threading.current_thread() == threading.main_thread():
-                warnings.warn("concurrent.futures.Future is probably about to deadlock with the asyncio event loop.")
-            self._shutdown.result()
+                warnings.warn(
+                    "Ignoring wait=True in RPExecutor.shutdown() on main thread to avoid event loop deadlock."
+                )
+            # Wait for dispatcher thread to be done.
+            logger.debug(f"Waiting for queue runner thread {self._queue_runner_task} to complete.")
+            self._queue_runner_task.join()
+            # If the worker thread finishes, it will delete the instance member:
+            assert self.raptor is None
+            # Wait for tasks to be `done`. RP Tasks complete asynchronously outside of
+            # the dispatching function's loop, resolving our Tasks through callbacks.
+            # Note that our infrastructure needs to register callbacks that make sure
+            # that no Future remains unresolved due to a failure in another task.
+            if self._submitted_tasks:
+                logger.debug("Resolving remaining Futures.")
+                concurrent.futures.wait(
+                    self._submitted_tasks, timeout=None, return_when=concurrent.futures.ALL_COMPLETED
+                )
         # Shutdown may "complete" while Tasks are still pending. The instance
         # can remain usable as a container for the pending tasks so that the
         # enclosing RuntimeManager scope can finalize the remaining tasks.
-
-    async def finalize(self):
-        """Resolve pending tasks and release resources.
-
-        Wait for Tasks to complete and then shutdown runtime resources.
-        """
-        # TODO: Allow timed loop for occasional inspection, logging, or forced cancellation.
-        if self.submitted_tasks:
-            done, pending = await asyncio.wait(self.submitted_tasks, return_when=asyncio.ALL_COMPLETED)
-        # TODO: Check final Task status.
-
-        _manager: scalems.radical.manager.RuntimeManager = self.runtime_manager()
-        runtime: RuntimeSession = _manager.runtime_session
-        session: rp.Session = getattr(runtime, "session", None)
-        if session is None:
-            raise scalems.exceptions.APIError(f"No Session in {runtime}.")
-        if session.closed:
-            logger.error("RuntimeSession is already closed?!")
-
-        cancelled_error = None
-        try:
-            # Stop the executor.
-            logger.debug("Stopping workflow execution.")
-            # TODO: Make sure that nothing else will be adding items to the
-            #  queue from this point.
-            # We should establish some assurance that the next line represents
-            # the last thing that we will put in the queue.
-            self._command_queue.put_nowait({"control": "stop"})
-            # TODO: Consider what to do differently when we want to cancel work
-            #  rather than just finalize it.
-
-            # Currently, the queue runner does not place subtasks,
-            # so there is only one thing to await.
-            # TODO: We should probably allow the user to provide some sort of timeout,
-            #  or infer one from other time limits.
-            try:
-                await self._queue_runner_task
-            finally:
-                if not self._command_queue.empty():
-                    logger.error("Command queue never emptied.")
-
-                if len(self.submitted_tasks) == 0:
-                    logger.debug("No tasks to wait for. Continuing to shut down.")
-                else:
-                    # Wait for the tasks.
-                    # For scalems.radical, the returned values are the rp.Task
-                    # objects in their final states.
-                    # QUESTION: How long should we wait before canceling tasks?
-                    # TODO: Handle some sort of job maximum wall time parameter.
-                    results = await asyncio.gather(*self.submitted_tasks)
-                    # TODO: Log something useful about the results.
-                    assert len(results) == len(self.submitted_tasks)
-            logger.debug("Queue runner task completed.")
-        except asyncio.CancelledError as e:
-            logger.debug(f"{self.__class__.__qualname__} context manager received cancellation while exiting.")
-            cancelled_error = e
-        except Exception:
-            logger.exception(f"Exception while stopping {repr(self._queue_runner_task)}.")
-
-        if runtime.raptor is not None:
-            # Note: The __aexit__ for the RuntimeManager makes sure that a `stop`
-            # is issued after the work queue is drained, if the scheduler task has
-            # not already ended. We could check the status of this stop message...
-            if runtime.raptor.state not in rp.FINAL:
-                logger.info(f"Waiting for RP Raptor raptor task {runtime.raptor.uid} to complete...")
-                runtime.raptor.wait(rp.FINAL, timeout=60)
-            if runtime.raptor.state not in rp.FINAL:
-                # Cancel the raptor.
-                logger.warning("Canceling the raptor scheduling task.")
-                # Note: the effect of CANCEL is to send SIGTERM to the shell that
-                # launched the task process.
-                # TODO: Report incomplete tasks and handle the consequences of terminating the
-                #  Raptor processes early.
-                task_manager = runtime.task_manager()
-                task_manager.cancel_tasks(uids=runtime.raptor.uid)
-            # As of https://github.com/radical-cybertools/radical.pilot/pull/2702,
-            # we do not expect `cancel` to block, so we must wait for the
-            # cancellation to succeed. It shouldn't take long, but it is not
-            # instantaneous or synchronous. We hope that a minute is enough.
-            final_state = runtime.raptor.wait(state=rp.FINAL, timeout=10)
-            logger.debug(f"Final state: {final_state}")
-            logger.info(f"Master scheduling task state {runtime.raptor.state}: {repr(runtime.raptor)}.")
-            if runtime.raptor.stdout:
-                # TODO(#229): Fetch actual stdout file.
-                logger.debug(runtime.raptor.stdout)
-            if runtime.raptor.stderr:
-                # TODO(#229): Fetch actual stderr file.
-                # Note that all of the logging output goes to stderr, it seems,
-                # so we shouldn't necessarily consider it an error level event.
-                logger.debug(runtime.raptor.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
-        logger.debug("RPExecutor shut down.")
-
-        if cancelled_error:
-            raise cancelled_error
+        # WARNING: Make sure that the RuntimeManager or a ContextVar keeps the Executor
+        # referent alive while the manage_raptor thread or any other collaborators need it,
+        # since callers may drop the reference after `shutdown` returns.
 
 
 async def provision_executor(
@@ -559,7 +603,6 @@ async def provision_executor(
     *,
     worker_requirements: Optional[Sequence[dict]],
     task_requirements: dict,
-    command_queue: asyncio.Queue,
 ) -> RPExecutor:
     """Produce an appropriate RPExecutor.
 
@@ -585,58 +628,11 @@ async def provision_executor(
     # Inspect task_requirements for compatibility with runtime_context.
     ...
 
-    _updater = WorkflowUpdaterPlaceholder()
-
-    runner_task: Optional[asyncio.Task] = None
-    try:
-        runner_started = asyncio.Event()
-        runner_task: asyncio.Task = asyncio.create_task(
-            manage_execution(
-                processing_state=runner_started,
-                runtime_manager=runtime_context,
-                command_queue=command_queue,
-                updater=_updater,
-            )
-        )
-        await runner_started.wait()
-        if runner_task.done():
-            if runner_task.cancelled():
-                raise scalems.exceptions.DispatchError("Runner unexpectedly canceled while starting dispatching.")
-            else:
-                e = runner_task.exception()
-                if e:
-                    logger.exception("Runner task failed with an exception.", exc_info=e)
-                    raise e
-                else:
-                    logger.warning("Runner task stopped unusually early, but did not raise an exception.")
-
-        if worker_requirements is None:
-            return RPExecutor(runtime_context, command_queue=command_queue, manage_execution=runner_task)
-
-        # else: provision a Raptor master and worker(s)
-        _executor = RPExecutor(runtime_context, command_queue=command_queue, manage_execution=runner_task)
-
-        raptor_pre_exec = _executor._pre_exec.copy()
-
-        # Get a scheduler task IFF raptor is required.
-        if runtime_context.runtime_configuration.enable_raptor:
-            # Note that get_scheduler is a coroutine that, itself, returns a rp.Task.
-            # We await the result of get_scheduler, then store the scheduler Task.
-            runtime_context.runtime_session.raptor = await asyncio.create_task(
-                get_scheduler(
-                    pre_exec=raptor_pre_exec,
-                    task_manager=runtime_context.runtime_session.task_manager(),
-                    filestore=runtime_context.datastore,
-                ),
-                name="get-scheduler",
-            )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
-        return _executor
-    except Exception as e:
-        if isinstance(runner_task, asyncio.Task):
-            runner_task.cancel()
-        if isinstance(runtime_context.runtime_session.raptor, rp.Task):
-            runtime_context.runtime_session.raptor.cancel()
-        raise e
+    _executor = RPExecutor(
+        runtime_context, worker_requirements=worker_requirements, task_requirements=task_requirements
+    )
+    logger.debug(f"Provisioned Executor {_executor}")
+    return _executor
 
 
 executor: scalems.execution.ScalemsExecutorFactory
@@ -692,10 +688,6 @@ async def executor(
     if (_current_executor := scalems.execution.current_executor.get(None)) is not None:
         raise scalems.exceptions.ProtocolError(f"Executor {_current_executor} is already active.")
 
-    command_queue = asyncio.Queue()
-    # TODO: manage command_queue through which the Executor coordinates with the run time.
-    #  It is probably owned by RuntimeManager, which provides the CPI interface.
-
     requirements = [task_requirements]
     if worker_requirements is not None:
         requirements.extend(worker_requirements)
@@ -706,55 +698,59 @@ async def executor(
         )
         warnings.warn(message, DeprecationWarning)
 
+    # TODO: Move resource acquisition into RPExecutor initializer, probably in the manager_raptor thread itself.
+    master_cores = 1
+    task_cores = task_requirements.get("ranks", task_requirements.get("cpu_processes", 1)) * task_requirements.get(
+        "cores_per_rank", task_requirements.get("cpu_threads", 1)
+    )
     if worker_requirements is not None:
-        worker_cores = sum(
+        worker_cores = [
             reqs.get("ranks", reqs.get("cpu_processes", 1)) * reqs.get("cores_per_rank", reqs.get("cpu_threads", 1))
             for reqs in worker_requirements
-        )
+        ]
+        cores_required = master_cores + sum(worker_cores)
+        if task_cores > max(worker_cores):
+            raise RPConfigurationError(f"Cannot run tasks with {task_cores} with worker cores {worker_cores}")
     else:
-        worker_cores = task_requirements.get(
-            "ranks", task_requirements.get("cpu_processes", 1)
-        ) * task_requirements.get("cores_per_rank", task_requirements.get("cpu_threads", 1))
-    master_cores = 1
-    cores_required = master_cores + worker_cores
+        cores_required = master_cores + task_cores
     resource_token = await asyncio.to_thread(runtime_context.acquire, cores=cores_required)
     if resource_token is None:
         return
+    # end (block to be moved)
 
     _current_executor: RPExecutor
     _current_executor = await provision_executor(
         runtime_context,
         worker_requirements=worker_requirements,
         task_requirements=task_requirements,
-        command_queue=command_queue,
     )
 
-    token = scalems.execution.current_executor.set(_current_executor)
-    assert token.old_value is contextvars.Token.MISSING
+    # FIXME: The Context has already been copied for the manage_raptor thread
+    #  in the RPExecutor constructor before we set this ContextVar.
+    context_token = scalems.execution.current_executor.set(_current_executor)
+    if context_token.old_value is not contextvars.Token.MISSING:
+        logger.critical(f"Probable race condition: Executor context already contains {context_token.old_value}")
 
-    queuer = Queuer(source=None, command_queue=command_queue)
-
+    logger.debug(f"Entering managed context for Executor {_current_executor}")
     try:
-        # When leaving the following `with` suite, Queuer.__aexit__ sends a *stop*
-        # command to the queue.
-        async with queuer:
-            # Any exceptions encountered while in the `executor` context manager scope
-            # will be injected after the following `yield`. The Queuer has the option
-            # to handle and suppress them, but we don't expect it to yet.
-            yield _current_executor
-        # The *stop* command will be picked up by sms.execution.manage_execution()
-        # (as the RuntimeManager's *runner_task*), which will be awaited in
-        # RPExecutor.finalize().
+        yield _current_executor
     except Exception as e:
         logger.exception("Unhandled exception while in dispatching context.")
         raise e
     finally:
-        # Note: copies of the Context will retain references to the executor.
-        assert scalems.execution.current_executor.get() == _current_executor
-        scalems.execution.current_executor.reset(token)
+        logger.debug(f"Finalizing context of Executor {_current_executor}")
         asyncio.create_task(
             asyncio.to_thread(_current_executor.shutdown, wait=False, cancel_futures=False), name="executor_shutdown"
         )
+        # Note: copies of the Context will retain references to the executor.
+        _context_executor = scalems.execution.current_executor.get(None)
+        if _context_executor != _current_executor:
+            logger.critical(
+                "Race condition in Executor scoping. "
+                f"{_context_executor} became active while {_current_executor} was active."
+            )
+        else:
+            scalems.execution.current_executor.reset(context_token)
         # TODO: Make sure the RuntimeManager looks for and handles executor exceptions.
         # executor_exception = _current_executor.exception()
         # if executor_exception:
@@ -771,21 +767,8 @@ async def executor(
         # executor. We will have a different Executor implementation where tasks are actually
         # executed, and we can document that this `executor_scope` version of the
         # protocol needs to be avoided or used carefully when tasks need to submit tasks.
-        dispatcher_exception = queuer.exception()
-        if dispatcher_exception:
-            if isinstance(dispatcher_exception, asyncio.CancelledError):
-                logger.info("Dispatching queue processor cancelled.")
-            else:
-                assert not isinstance(dispatcher_exception, asyncio.CancelledError)
-                logger.exception("Queuer encountered exception.", exc_info=dispatcher_exception)
-        else:
-            if not queuer.queue().empty():
-                logger.error(
-                    "Queuer finished while items remain in dispatcher queue. "
-                    "Approximate size: {}".format(queuer.queue().qsize())
-                )
 
-        if not _current_executor._command_queue.empty() or not _current_executor._work_queue.empty():
+        if not _current_executor._work_queue.empty():
             # TODO: Handle non-empty queue.
             # There are various reasons that the queue might not be empty and
             # we should clean up properly instead of bailing out or compounding
@@ -793,5 +776,7 @@ async def executor(
             # TODO: Check for extraneous extra *stop* commands.
             logger.error("Bug: Executor left tasks in the queue without raising an exception.")
 
-        logger.debug("Exiting dispatch context.")
+        logger.debug(f"Exiting dispatch context for {_current_executor}.")
+
+        # TODO: Release the resources in manage_raptor when we actually know they are freed.
         runtime_context.release(resource_token)

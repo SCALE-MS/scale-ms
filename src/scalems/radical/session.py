@@ -39,9 +39,6 @@ class RuntimeSession:
         in conftest.py at or before revision 41b965a27c5af9abc115677b738085c35766b5b6.
     """
 
-    raptor: typing.Optional[rp.Task] = None
-    """The active raptor scheduler task, if any."""
-
     resources: typing.Optional[asyncio.Task[dict]] = None
     """The active Pilot resources, if any.
 
@@ -73,8 +70,7 @@ class RuntimeSession:
             session = session.uid
         if pilot := self._pilot:
             pilot = pilot.uid
-        raptor_id = getattr(self.raptor, "uid", None)
-        representation = f'<RuntimeSession "{session}" pilot:"{pilot}" raptor:"{raptor_id}">'
+        representation = f'<RuntimeSession "{session}" pilot:"{pilot}">'
         return representation
 
     async def wait_closed(self):
@@ -109,11 +105,6 @@ class RuntimeSession:
                 self.resources.cancel()
             else:
                 self._loop.call_soon_threadsafe(self.resources.cancel)
-
-        # TODO: Properly close raptor session. This includes sending a "stop" to the
-        #     raptor scheduler instead of letting it get a `Task.cancel()` (i.e. a SIGTERM).
-        if self.raptor is not None:
-            del self.raptor
 
         if self._pilot is not None:
             del self._pilot
@@ -306,6 +297,8 @@ class RuntimeSession:
 
             logger.debug("Requesting Pilot: {}".format(repr(pilot_description.as_dict())))
             task_manager = self.task_manager()
+            if not task_manager:
+                raise APIError("Cannot get/set Pilot before setting TaskManager.")
 
             pilot = self._new_pilot(
                 session=self.session,
@@ -329,6 +322,9 @@ class RuntimeSession:
         if pilot.pmgr.uid != pilot_manager.uid:
             raise APIError("Pilot must be associated with a PilotManager already configured.")
 
+        # TODO: If new, the Pilot referenced will still be starting up. It seems like we
+        #  don't know when or if the Pilot will ever actually start. But maybe we should use
+        #  a Future to allow for synchronization or error detection.
         return pilot
 
 

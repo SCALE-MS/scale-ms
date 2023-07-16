@@ -13,6 +13,7 @@ import os
 import threading
 import typing
 import weakref
+from time import monotonic as _time
 
 import scalems.exceptions
 import scalems.execution
@@ -21,6 +22,7 @@ import scalems.workflow
 import scalems.radical.raptor
 from scalems.exceptions import DispatchError
 from scalems.identifiers import EphemeralIdentifier
+from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.runtime_configuration import RuntimeConfiguration
 from scalems.radical.session import runtime_session
 from scalems.radical.session import RuntimeSession
@@ -113,6 +115,11 @@ class RuntimeManager:
             raise ValueError("Caller must specify a venv to be activated by the execution agent for dispatched tasks.")
 
         self._exception = None
+        # Note that the event loop in the root thread has a default ThreadPoolExecutor,
+        # but we may want a separate small (single-thread?) ThreadPoolExecutor to
+        # compartmentalize offloading of sequenced (queued) RP commands. We might even
+        # prefer a ProcessPoolExecutor so that we can definitively terminate a hung
+        # RP UI (e.g. SIGTERM).
         self._loop: asyncio.AbstractEventLoop = loop
         self._shutdown = False
         self._shutdown_lock = threading.Lock()
@@ -148,7 +155,13 @@ class RuntimeManager:
         self._resource_pool_update_condition = threading.Condition(resource_pool_lock)
         self._tokens = weakref.WeakKeyDictionary()
 
-    def acquire(self, *, cores: int):
+    def acquire(
+        self,
+        *,
+        cores: int,
+        timeout: typing.Optional[float] = None,
+        # subscriber: SomeInterface
+    ):
         """Lock resources from the RuntimeManager, such as for a RPExecutor.
 
         Blocks blocks the current thread until the resource becomes available.
@@ -156,14 +169,41 @@ class RuntimeManager:
         Returns:
             ResourceToken that MUST be provided to a `release()` method call to return resource to the pool.
         """
+        # Optional limit on remaining time to wait
+        wait_time = timeout
+        if wait_time is not None:
+            end_time = _time() + wait_time
+        else:
+            end_time = None
         with self.shutdown_lock():
             if self._shutdown:
                 raise scalems.exceptions.ScopeError("Cannot allocate resources while shutting down.")
+            if not self.runtime_session.resources.done():
+                if threading.current_thread() == threading.main_thread():
+                    raise scalems.exceptions.APIError(
+                        "RuntimeManager.acquire() may only be called in the main (event loop) thread "
+                        "after RuntimeSession.resources.done() is True."
+                    )
+                wait_for_resources = asyncio.run_coroutine_threadsafe(
+                    asyncio.wait_for(self.runtime_session.resources, timeout), self._loop
+                )
+                # Warning: the following could still TimeoutError if the event loop is very congested.
+                wait_for_resources.result(timeout=timeout + 1 if timeout is not None else None)
             if cores > self._resource_pool["max_cores"]:
-                raise scalems.exceptions.DispatchError("Requested resources cannot be acquired.")
+                raise RPConfigurationError("Requested resources cannot be acquired.")
             cv = self._resource_pool_update_condition
             with cv:
-                while not cv.wait_for(lambda: self._resource_pool["pilot_cores"] >= cores, timeout=30):
+                # Interval for checking exit conditions and providing logger output.
+                interval = 30
+                while not cv.wait_for(lambda: self._resource_pool["pilot_cores"] >= cores, timeout=interval):
+                    if wait_time is not None:
+                        wait_time = end_time - _time()
+                        if wait_time <= 0:
+                            raise scalems.exceptions.DispatchError(
+                                f"Requested resources cannot be acquired in {timeout} seconds."
+                            )
+                        if wait_time < interval:
+                            interval = wait_time + 1
                     if self._shutdown:
                         logger.info("RuntimeManager {self} began shutting down before resources could be acquired.")
                         return
@@ -171,7 +211,9 @@ class RuntimeManager:
                 self._resource_pool["pilot_cores"] -= cores
                 token = ResourceToken(cpu_cores=cores)
                 _finalizer = weakref.finalize(
-                    token, logger.critical, f"{token} abandoned without calling RuntimeManager.release()!"
+                    token,
+                    logger.critical,
+                    f"{token} abandoned without calling RuntimeManager.release()! Leaking {cores} cores.",
                 )
                 self._tokens[token] = _finalizer
                 return token
@@ -194,19 +236,20 @@ class RuntimeManager:
             self._resource_pool_update_condition.notify_all()
 
     @staticmethod
-    async def cpi(command: str, runtime: RuntimeSession):
+    async def cpi(command: str, runtime: RuntimeSession, raptor: typing.Optional[rp.Task] = None):
         """Send a control command to the raptor scheduler.
 
         Implements :py:func:`scalems.execution.RuntimeManager.cpi()`
 
-        TODO: Unify with new raptor cpi feature.
+        TODO: Unify with new raptor rpc features.
+        See https://github.com/radical-cybertools/radical.pilot/blob/devel/examples/misc/raptor_simple.py
         """
         timeout = 180
 
         logger.debug(f'Received command "{command}" for runtime {runtime}.')
         if runtime is None:
             raise scalems.exceptions.ScopeError("Cannot issue control commands without an active RuntimeManager.")
-        raptor: rp.Task = runtime.raptor
+        # raptor: rp.Task = runtime.raptor
         logger.debug(f"Preparing command for {repr(raptor)}.")
         if raptor is None:
             raise scalems.exceptions.ScopeError(
@@ -231,6 +274,8 @@ class RuntimeManager:
         # _also_ watch the scheduler itself, because there are various circumstances
         # in which the Task may never reach a rp.FINAL state.
 
+        # TODO: Can we do this without so many separate concurrent.futures.Futures from
+        #  the event loop's ThreadPoolExecutor?
         command_watcher = asyncio.create_task(
             asyncio.to_thread(task.wait, state=rp.FINAL, timeout=timeout), name="cpi-watcher"
         )
@@ -250,6 +295,9 @@ class RuntimeManager:
 
     async def wait_closed(self):
         return await self.runtime_session.wait_closed()
+
+    def closing(self):
+        return self._shutdown
 
     def close(self):
         """Manage tear down of the RADICAL Pilot Session and resources.
@@ -285,6 +333,7 @@ class RuntimeManager:
                 return
             self._shutdown = True
         runtime: RuntimeSession = self.runtime_session
+        logger.debug(f"Shutting down {runtime}")
 
         # TODO: Collect or cancel outstanding tasks, shut down executors, and
         #  synchronize the workflow state.
@@ -364,6 +413,9 @@ class RuntimeManager:
         # TODO: Catch internal exceptions for useful logging and user-friendliness.
         if exc_type is not None:
             return False
+
+    def loop(self):
+        return self._loop
 
 
 @contextlib.asynccontextmanager
@@ -446,9 +498,6 @@ async def launch(
         _runtime: RuntimeSession = await runtime_session(
             configuration=runtime_configuration, loop=workflow_manager.loop()
         )
-
-        # Raptor session will be initialized and attached in the executor context, if needed.
-        assert _runtime.raptor is None
 
         runtime_manager = RuntimeManager(
             datastore=workflow_manager.datastore(),

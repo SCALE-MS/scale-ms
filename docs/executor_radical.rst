@@ -11,8 +11,8 @@ execution module interface
 
 .. autofunction:: scalems.radical.workflow_manager
 
-scalems.radical.runtime support module
---------------------------------------
+scalems.radical support module
+------------------------------
 
 .. automodule:: scalems.radical.runtime
 
@@ -27,14 +27,14 @@ scalems.radical.runtime support module
     :undoc-members:
     :members:
 
-.. autoclass:: scalems.radical.runtime.RuntimeSession
+.. autoclass:: scalems.radical.session.RuntimeSession
     :members:
 
-.. autofunction:: scalems.radical.runtime.rp_task
+.. autofunction:: scalems.radical.task.rp_task
 
-.. autofunction:: scalems.radical.runtime.scalems_callback
+.. autofunction:: scalems.radical.task.scalems_callback
 
-.. autofunction:: scalems.radical.runtime.submit
+.. autofunction:: scalems.radical.task.submit
 
 scalems.radical.raptor
 ----------------------

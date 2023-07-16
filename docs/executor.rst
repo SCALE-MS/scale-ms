@@ -16,6 +16,8 @@ scalems.execution
 .. autoclass:: RuntimeManager
     :members:
 
+.. autofunction:: dispatch
+
 .. autofunction:: manage_execution
 
 scalems.workflow
@@ -66,11 +68,11 @@ Additional internal details
 Collaborations
 ~~~~~~~~~~~~~~
 
-.. autofunction:: scalems.radical.runtime.subprocess_to_rp_task
+.. autofunction:: scalems.radical.task.subprocess_to_rp_task
 
-.. autofunction:: scalems.radical.runtime.wrapped_function_result_from_rp_task
+.. autofunction:: scalems.radical.task.wrapped_function_result_from_rp_task
 
-.. autoclass:: scalems.radical.runtime.RPTaskResult
+.. autoclass:: scalems.radical.task.RPTaskResult
     :members:
 
 Support for execution module authors: :py:mod:`scalems.invocation`

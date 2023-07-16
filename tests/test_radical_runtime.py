@@ -7,12 +7,14 @@ import pytest
 import radical.pilot as rp
 import radical.utils as ru
 
+import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.runtime
 import scalems.radical.session
 from scalems.exceptions import APIError
 import scalems.radical.runtime
+from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.session import RuntimeSession
 
 logger = logging.getLogger(__name__)
@@ -108,3 +110,67 @@ async def test_runtime_context_management(rp_venv, pilot_description):
         async with scalems.radical.manager.launch(workflow, runtime_config) as runtime_manager:
             rm_info: dict = await runtime_manager.runtime_session.resources
             assert rm_info["requested_cores"] >= pilot_description.cores
+            # Get a non-raptor (CLI executable) context.
+            executor = await scalems.radical.executor.provision_executor(
+                runtime_manager,
+                worker_requirements=None,
+                task_requirements={"ranks": 2},
+            )
+            await asyncio.to_thread(executor.shutdown, wait=True, cancel_futures=True)
+
+            # TODO(#335) Actually respect worker_requirements and task_requirements.
+            # Test trivial raptor case
+            async with scalems.radical.executor.executor(
+                runtime_manager, worker_requirements=[{"ranks": 1}], task_requirements={"ranks": 1}
+            ):
+                ...
+
+            # Test resource allocation errors
+            with pytest.raises(RPConfigurationError):
+                async with scalems.radical.executor.executor(
+                    runtime_manager, worker_requirements=[{}], task_requirements={"ranks": 2}
+                ):
+                    ...
+            with pytest.raises(RPConfigurationError):
+                # Doesn't account for 1 core for the Raptor master
+                async with scalems.radical.executor.executor(
+                    runtime_manager, worker_requirements=None, task_requirements={"ranks": rm_info["requested_cores"]}
+                ):
+                    ...
+            with pytest.raises(RPConfigurationError):
+                # Doesn't account for 1 core for the Raptor master
+                async with scalems.radical.executor.executor(
+                    runtime_manager, worker_requirements=[{"ranks": rm_info["requested_cores"]}], task_requirements={}
+                ):
+                    ...
+
+            # TODO(#335) Provision multiple workers
+            # with pytest.raises(scalems.exceptions.DispatchError):
+            #     # Note that one core is needed for the master, so we should only
+            #     # be able to request N-1 cores for workers.
+            #     async with scalems.radical.executor.executor(
+            #         runtime_manager,
+            #         worker_requirements=[{"ranks": 1}] * pilot_description.cores,
+            #         task_requirements={"ranks": 1},
+            #     ):
+            #         ...
+
+            # The last successful Raptor session above will probably still be finishing,
+            # so we expect this next call to exercise the predicated condition in
+            # RuntimeManager.acquire()
+            logger.debug("Entering final executor scope.")
+            async with scalems.radical.executor.executor(
+                runtime_manager,
+                worker_requirements=[{"ranks": rm_info["requested_cores"] - 1}],
+                task_requirements={"ranks": 2},
+            ):
+                ...
+                logger.debug("Leaving final executor scope.")
+            # Raptor task may still be running at this point, since the scalems context manager
+            # calls shutdown with `wait=False`.
+            # TODO: We should not let runtime_manager shut down, until the dependent executors are shut down.
+            logger.debug("Leaving RuntimeManager context.")
+
+        logger.debug("Left RuntimeManager context.")
+        assert not executor._queue_runner_task.is_alive()
+        assert executor._work_queue.empty()

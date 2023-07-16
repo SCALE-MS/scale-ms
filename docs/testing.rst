@@ -2,18 +2,39 @@
 Testing
 =======
 
-Describe testing categories and tools.
-
 Python test scripts in the repository :file:`tests/` directory are run with
-:py:mod:`pytest`::
+:py:mod:`pytest`.
 
-    python -m pytest tests/
+Dependencies
+============
 
+RADICAL Pilot installation
+--------------------------
+RADICAL Pilot has some tricky interactions with Python environment virtualization
+and manipulation that lead to some caveats.
+
+* Do not try to use "editable" installs.
+* Explicitly *activate* the virtual environment before running a script that uses RP.
+
+:py:mod:`radical.pilot` will probably not find the data files or entry point scripts that
+it relies on unless you first "source" the ``activate`` script for a venv containing
+a regular :py:mod:`radical.pilot` installation.
+Perform testing with the virtual environment active.
+Do not try to
+exercise the installation or virtual environment through other techniques, such
+as invoking a Python venv by explicitly calling the sym-linked :file:`.../bin/python`.
+
+pytest
+------
 We use a few pytest plugins. To install them first, it should be sufficient to
 use the :file:`requirements-testing.txt` file in the root of the repository.
+
 ::
 
     pip install -r requirements-testing.txt
+
+Test data
+=========
 
 Some test scripts or examples rely on data that lives in a separate
 `testdata <https://github.com/SCALE-MS/testdata>`__ repository.
@@ -28,9 +49,6 @@ and update the submodule or otherwise acquire the test data.
 Unit tests, system tests, and integration tests
 ===============================================
 
-.. todo:: Describe the scopes of software component and interface testing,
-    testing policies, infrastructure.
-
 The test suite in :file:`tests/` includes a lot of integration tests that probe
 interactions with full RADICAL Pilot sessions because we have had problems
 reproducing viable execution environments and because we use RP features and
@@ -42,6 +60,11 @@ reproducible testing environments.
 We install several pytest markers and command line options for the
 tests in :file:`tests/`. Refer to :file:`tests/conftest.py` or use
 :command:`pytest tests --help` (look for the ``custom options:`` section).
+
+A typical invocation of the test suites in :file:`tests/`
+(including Python interpreter options, pytest options, and options specific to the scalems test fixtures)
+frequently looks something like the following::
+    python -X dev -m pytest -x -rA -l --log-cli-level debug tests/ --rp-venv $VIRTUAL_ENV --rp-resource docker.login --rp-access ssh
 
 Acceptance tests
 ================

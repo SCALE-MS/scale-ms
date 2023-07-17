@@ -12,9 +12,7 @@ Workflow Manager
 ----------------
 
 Managed workflows are dispatched to custom execution back-ends through
-:py:func:`run`, which accepts a WorkflowManager creation function as its argument.
-Most of the customization hooks are provided through the implementing module.
-I.e. the *manager_factory* argument has its ``__module__`` attribute queried
+:py:func:`run`. Argument ``__module__`` attributes are queried
 to get the implementing *module*.
 
 .. py:currentmodule:: <module>
@@ -29,6 +27,8 @@ For example, in the `scalems.radical` module,
         sys.exit(scalems.invocation.run(
             manager_factory=scalems.radical.workflow_manager,
             executor_factory=scalems.radical.executor_factory))
+
+.. warning:: The invocation protocol and backend module hooks are likely to evolve under :issue:`345`.
 
 Required Attributes
 ~~~~~~~~~~~~~~~~~~~
@@ -117,18 +117,6 @@ import scalems.workflow
 from scalems import ScriptEntryPoint
 
 _reentrance_guard = threading.Lock()
-
-
-# We can import scalems.context and set module state before using runpy to
-# execute the script in the current process. This allows us to preconfigure a
-# default execution manager.
-
-# TODO: Consider whether we want launched scripts to have `__name__` set to `__main__` or not.
-
-# TODO: Consider whether we want to parse execution module arguments, including handling chained `-m`.
-#     Consider generalizing this boilerplate.
-
-# TODO: Support REPL (e.g. https://github.com/python/cpython/blob/3.8/Lib/asyncio/__main__.py)
 
 
 def run_dispatch(work, *, workflow_manager: scalems.workflow.WorkflowManager, executor_factory, config):

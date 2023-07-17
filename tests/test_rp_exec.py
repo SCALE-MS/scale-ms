@@ -29,6 +29,7 @@ import scalems.context
 import scalems.execution
 import scalems.identifiers
 import scalems.messages
+import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.task
@@ -176,7 +177,7 @@ async def test_raptor_master(pilot_description, rp_venv):
     loop.set_debug(True)
 
     # Configure module.
-    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
+    runtime_config = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -184,83 +185,90 @@ async def test_raptor_master(pilot_description, rp_venv):
     )
 
     timeout = 180
-    manager = scalems.radical.workflow_manager(loop)
-    with scalems.workflow.scope(manager, close_on_exit=True):
-        async with scalems.execution.dispatch(
-            manager, executor_factory=scalems.radical.executor_factory, params=params
-        ) as dispatcher:
-            assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
-            logger.debug(f"test_raptor_master Session is {repr(dispatcher.runtime.session)}")
+    workflow_manager = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(workflow_manager, close_on_exit=True):
+        assert not loop.is_closed()
+        async with scalems.radical.manager.launch(
+            workflow_manager=workflow_manager, runtime_configuration=runtime_config
+        ) as runtime_manager:
+            async with scalems.radical.executor.executor(
+                runtime_manager, worker_requirements=[{}], task_requirements={}
+            ) as executor:
+                assert isinstance(executor, scalems.radical.executor.RPExecutor)
+                runtime_manager: scalems.radical.manager.RuntimeManager = executor.runtime_manager()
+                logger.debug(f"test_raptor_master Session is {repr(runtime_manager.runtime_session.session)}")
+                del runtime_manager
 
-            # Bypass the scalems machinery and submit an instruction directly to the raptor task.
-            # TODO: Use scalems.radical.runtime.submit()
-            raptor: rp.Task = dispatcher.raptor
-            assert raptor is not None and raptor.state not in rp.FINAL
-            hello_command_description = rp.TaskDescription(
-                from_dict={
-                    "raptor_id": raptor.uid,
-                    "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": scalems.messages.HelloCommand().encode(),
-                    "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
-                }
-            )
-            # TODO: Let this be the responsibility of the submitter internals.
-            if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
-                hello_command_description.environment["SCALEMS_COVERAGE"] = "TRUE"
-            logger.debug(f"Submitting {str(hello_command_description.as_dict())}")
-            (hello_task,) = await asyncio.to_thread(
-                dispatcher.runtime.task_manager().submit_tasks, [hello_command_description]
-            )
-            logger.debug(f"Submitted {str(hello_task.as_dict())}. Waiting...")
-            hello_state = await asyncio.to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
-            logger.debug(str(hello_task.as_dict()))
+                # TODO: Use RPExecutor.submit() and scalems.submit()
+                # Bypass the scalems machinery and submit an instruction directly to the raptor task.
+                # TODO: We have to wait for the Raptor instance to be created...
+                raptor: rp.Task = executor.raptor
+                assert raptor is not None and raptor.state not in rp.FINAL
+                hello_command_description = rp.TaskDescription(
+                    from_dict={
+                        "raptor_id": raptor.uid,
+                        "mode": scalems.radical.raptor.CPI_MESSAGE,
+                        "metadata": scalems.messages.HelloCommand().encode(),
+                        "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
+                    }
+                )
+                # TODO: Let this be the responsibility of the submitter internals.
+                if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
+                    hello_command_description.environment["SCALEMS_COVERAGE"] = "TRUE"
+                logger.debug(f"Submitting {str(hello_command_description.as_dict())}")
+                (hello_task,) = await asyncio.to_thread(
+                    dispatcher.runtime.task_manager().submit_tasks, [hello_command_description]
+                )
+                logger.debug(f"Submitted {str(hello_task.as_dict())}. Waiting...")
+                hello_state = await asyncio.to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
+                logger.debug(str(hello_task.as_dict()))
 
-            stop_command_description = rp.TaskDescription(
-                from_dict={
-                    "raptor_id": raptor.uid,
-                    "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": scalems.messages.Control.create("stop").encode(),
-                    "uid": f"command-stop--{scalems.identifiers.EphemeralIdentifier()}",
-                }
-            )
-            logger.debug(f"Submitting {str(stop_command_description.as_dict())}")
-            (stop_task,) = await asyncio.to_thread(
-                dispatcher.runtime.task_manager().submit_tasks, [stop_command_description]
-            )
+                stop_command_description = rp.TaskDescription(
+                    from_dict={
+                        "raptor_id": raptor.uid,
+                        "mode": scalems.radical.raptor.CPI_MESSAGE,
+                        "metadata": scalems.messages.Control.create("stop").encode(),
+                        "uid": f"command-stop--{scalems.identifiers.EphemeralIdentifier()}",
+                    }
+                )
+                logger.debug(f"Submitting {str(stop_command_description.as_dict())}")
+                (stop_task,) = await asyncio.to_thread(
+                    dispatcher.runtime.task_manager().submit_tasks, [stop_command_description]
+                )
 
-            # We expect the status update -> DONE, even if self.stop() was called during result_cb for the task.
-            stop_watcher = asyncio.create_task(
-                asyncio.to_thread(stop_task.wait, state=rp.FINAL, timeout=timeout), name="stop-watcher"
-            )
+                # We expect the status update -> DONE, even if self.stop() was called during result_cb for the task.
+                stop_watcher = asyncio.create_task(
+                    asyncio.to_thread(stop_task.wait, state=rp.FINAL, timeout=timeout), name="stop-watcher"
+                )
 
-            raptor_watcher = asyncio.create_task(
-                asyncio.to_thread(raptor.wait, state=rp.FINAL, timeout=timeout), name="raptor-watcher"
-            )
-            # If raptor task fails, stop-watcher will never complete.
-            done, pending = await asyncio.wait(
-                (stop_watcher, raptor_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
-            )
+                raptor_watcher = asyncio.create_task(
+                    asyncio.to_thread(raptor.wait, state=rp.FINAL, timeout=timeout), name="raptor-watcher"
+                )
+                # If raptor task fails, stop-watcher will never complete.
+                done, pending = await asyncio.wait(
+                    (stop_watcher, raptor_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
+                )
 
-            if raptor_watcher not in done:
-                await asyncio.wait_for(raptor_watcher, timeout=10)
-            logger.debug(f"raptor-task state: {raptor.state}")
-            if raptor.state == rp.DONE and stop_watcher in pending:
-                # Waiting longer doesn't seem to help.
-                # logger.debug("Waiting a little longer for the stop task to wrap up.")
-                # await asyncio.wait_for(stop_watcher, timeout=timeout)
-                # TODO(#289) Reconcile expectations regarding stop-task state updates.
-                # The prescribed behavior is that the task _should_ reach final state.
-                # The following assertion will alert us to the bug fix in scalems or rp that
-                # is preventing expected behavior. When it ceases to be true, then we should
-                # adjust our assumptions about the behavior of tasks that include
-                # a `Master.stop()` in the result_cb.
-                assert stop_task.state not in rp.FINAL
-            if not stop_watcher.done():
-                logger.debug(f"Canceling {stop_task}.")
-                stop_watcher.cancel()
-            logger.debug(f"stop-task state: {stop_task.state}")
+                if raptor_watcher not in done:
+                    await asyncio.wait_for(raptor_watcher, timeout=10)
+                logger.debug(f"raptor-task state: {raptor.state}")
+                if raptor.state == rp.DONE and stop_watcher in pending:
+                    # Waiting longer doesn't seem to help.
+                    # logger.debug("Waiting a little longer for the stop task to wrap up.")
+                    # await asyncio.wait_for(stop_watcher, timeout=timeout)
+                    # TODO(#289) Reconcile expectations regarding stop-task state updates.
+                    # The prescribed behavior is that the task _should_ reach final state.
+                    # The following assertion will alert us to the bug fix in scalems or rp that
+                    # is preventing expected behavior. When it ceases to be true, then we should
+                    # adjust our assumptions about the behavior of tasks that include
+                    # a `Master.stop()` in the result_cb.
+                    assert stop_task.state not in rp.FINAL
+                if not stop_watcher.done():
+                    logger.debug(f"Canceling {stop_task}.")
+                    stop_watcher.cancel()
+                logger.debug(f"stop-task state: {stop_task.state}")
 
-            assert raptor.state == rp.DONE
+                assert raptor.state == rp.DONE
 
     assert hello_state == rp.DONE
     assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)
@@ -287,7 +295,7 @@ async def test_worker(pilot_description, rp_venv):
     loop = asyncio.get_event_loop()
     loop.set_debug(True)
 
-    params = scalems.radical.runtime_configuration.RuntimeConfiguration(
+    runtime_config = scalems.radical.runtime_configuration.RuntimeConfiguration(
         execution_target=pilot_description.resource,
         target_venv=rp_venv,
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
@@ -301,13 +309,12 @@ async def test_worker(pilot_description, rp_venv):
     )
 
     timeout = 120
-    manager = scalems.radical.workflow_manager(loop)
-    with scalems.workflow.scope(manager, close_on_exit=True):
+    workflow_manager = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(workflow_manager, close_on_exit=True):
         assert not loop.is_closed()
-        # Enter the async context manager for the default dispatcher
-        async with scalems.execution.dispatch(
-            manager, executor_factory=scalems.radical.executor_factory, params=params
-        ) as dispatcher:
+        async with scalems.radical.manager.launch(
+            workflow_manager=workflow_manager, runtime_configuration=runtime_config
+        ) as runtime_manager:
             # We have now been through RPDispatchingExecutor.runtime_startup().
             assert isinstance(dispatcher, scalems.radical.runtime.RPDispatchingExecutor)
             logger.debug(f"Session is {repr(dispatcher.runtime.session)}")

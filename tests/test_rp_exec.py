@@ -78,7 +78,7 @@ async def test_rp_future(rp_runtime):
         cpu_processes=1,
     )
     task_description = rp.TaskDescription(from_dict=task_description_dict)
-    task_description.uid = "test-rp-future-1"
+    task_description.uid = "test-rp-future-rp-cancellation-propagation"
 
     # Test propagation of RP cancellation behavior
     task: rp.Task = tmgr.submit_tasks(task_description)
@@ -97,7 +97,7 @@ async def test_rp_future(rp_runtime):
     assert task.state == rp.states.CANCELED
 
     # Test propagation of asyncio watcher task cancellation.
-    task_description.uid = "test-rp-future-2"
+    task_description.uid = "test-rp-future-asyncio-cancellation-propagation"
     task: rp.Task = tmgr.submit_tasks(task_description)
 
     rp_future: asyncio.Task = await scalems.radical.task.rp_task(task)
@@ -129,7 +129,7 @@ async def test_rp_future(rp_runtime):
     assert task.state in (rp.states.CANCELED,)
 
     # Test run to completion
-    task_description.uid = "test-rp-future-3"
+    task_description.uid = "test-rp-future-completion"
     watcher = asyncio.create_task(asyncio.to_thread(tmgr.submit_tasks, task_description), name="rp_submit")
     try:
         task: rp.Task = await asyncio.wait_for(watcher, timeout=timeout)
@@ -373,79 +373,6 @@ async def test_worker(pilot_description, rp_venv):
             # TODO: Update the RPDispatchingExecutor to send the stop rpc call.
 
 
-# def test_rp_raptor_remote_docker(sdist, rp_task_manager):
-#     """Test the core RADICAL Pilot functionality that we rely on through ssh-based execution."""
-#     import radical.pilot as rp
-#     tmgr = rp_task_manager
-#
-#     # TODO: How can we recover successful workflow stages from previous failed Sessions?
-#     #
-#     # The client needs to note the sandbox locations from runs. SCALEMS can
-#     # then manage / maintain state tracking or state discovery to optimize workflow recovery.
-#     # Resumed workflows can make reference to sandboxes from previous sessions
-#     # (RCT work in progress: https://github.com/radical-cybertools/radical.pilot/tree/feature/sandboxes
-#     # slated for merge in 2021 Q2 to support `sandbox://` URIs).
-#
-#     # define a raptor.scalems raptor and launch it within the pilot
-#     pwd   = os.path.dirname(__file__)
-#     td    = rp.TaskDescription(
-#             {
-#                 'uid'          :  'raptor.scalems',
-#                 'executable'   :  'python3',
-#                 'arguments'    : ['./scalems_test_master.py', '%s/scalems_test_cfg.json'  % pwd],
-#                 'input_staging': ['%s/scalems_test_cfg.json'  % pwd,
-#                                   '%s/scalems_test_master.py' % pwd,
-#                                   '%s/scalems_test_worker.py' % pwd]
-#             })
-#     scheduler = tmgr.submit_tasks(td)
-#
-#     # define raptor.scalems tasks and submit them to the raptor
-#     tds = list()
-#     for i in range(2):
-#         uid  = 'scalems.%06d' % i
-#         # ------------------------------------------------------------------
-#         # work serialization goes here
-#         # This dictionary is interpreted by rp.raptor.Master.
-#         work = json.dumps({'mode'      :  'call',
-#                            'cores'     :  1,
-#                            'timeout'   :  10,
-#                            'data'      : {'method': 'hello',
-#                                           'kwargs': {'world': uid}}})
-#         # ------------------------------------------------------------------
-#         tds.append(rp.TaskDescription({
-#                            'uid'       : uid,
-# The *executable* field is ignored by the ScaleMSMaster that receives this submission.
-#                            'executable': 'scalems',
-#                            'scheduler' : 'raptor.scalems', # 'scheduler' references the task implemented as a
-#                            'arguments' : [work]  # Processed by raptor.Master._receive_tasks
-#         }))
-#
-#     tasks = tmgr.submit_tasks(tds)
-#     assert len(tasks) == len(tds)
-#     # 'arguments' gets wrapped in a Request at the Master by _receive, then
-#     # picked up by the Worker in _request_cb. Then picked up in forked interpreter
-#     # by Worker._dispatch, which checks the *mode* of the Request and dispatches
-#     # according to native or registered mode implementations. (e.g. 'call' (native) or 'scalems')
-#
-#     # task process is launched with Python multiprocessing (native) module and added to self._pool.
-#     # When the task runs, it's result triggers _result_cb
-#
-#     # wait for *those* tasks to complete and report results
-#     tmgr.wait_tasks(uids=[t.uid for t in tasks])
-#
-#     # Cancel the raptor.
-#     tmgr.cancel_tasks(uids=scheduler.uid)
-#     # Cancel blocks until the task is done so the following wait it currently redundant,
-#     # but there is a ticket open to change this behavior.
-#     # See https://github.com/radical-cybertools/radical.pilot/issues/2336
-#     # tmgr.wait_tasks([scheduler.uid])
-#
-#     for t in tasks:
-#         print('%s  %-10s : %s' % (t.uid, t.state, t.stdout))
-#         assert t.state == rp.states.DONE
-#         assert t.exit_code == 0
-
-
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 @pytest.mark.asyncio
 async def test_rp_function(pilot_description, rp_venv, tmp_path):
@@ -591,10 +518,3 @@ async def test_rp_executable(pilot_description, rp_venv):
     # Test active context scoping.
     assert scalems.workflow.get_scope() is original_context
     assert not loop.is_closed()
-
-
-@pytest.mark.skip(reason="Unimplemented.")
-@pytest.mark.asyncio
-async def test_batch():
-    """Run a batch of uncoupled tasks, dispatched through RP."""
-    assert False

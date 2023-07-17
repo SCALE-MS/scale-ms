@@ -2,15 +2,10 @@
 
 Example:
 
-    $ python -m scalems.local echo.py
-    $ cat stdout
-
-    $
-
-Example:
-
-    $ python -m scalems.local echo.py hi there
-    $ cat stdout
+    $ python -m scalems.radical --venv=$HOME/testenv --resource=local.github \
+      --access=ssh --pilot-option cores=1 \
+      examples/basic/echo.py hello world
+    $ cat 0*/stdout
     hi there
     $
 
@@ -29,8 +24,5 @@ import scalems
 
 @scalems.app
 def main():
-    cmd = scalems.executable(argv=['/bin/echo'] + sys.argv[1:], stdout='stdout')
+    cmd = scalems.executable(argv=["/bin/echo"] + sys.argv[1:], stdout="stdout")
     # TODO: Allow Future slicing.
-
-# if __name__ == '__main__':
-#     scalems.run(main)

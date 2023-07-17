@@ -43,7 +43,7 @@ Backends
 
 See :doc:`invocation` for user facing module interfaces.
 
-Built-in Execution Modules include `scalems.radical` and `scalems.local`
+Built-in Execution Modules include `scalems.radical`.
 
 For command line usage, an `backend` should support interaction with the
 `scalems.invocation` module.

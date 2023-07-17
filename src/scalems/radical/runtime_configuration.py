@@ -244,7 +244,9 @@ class RPResourceParams(typing.TypedDict):
 def configuration(*args, **kwargs) -> RuntimeConfiguration:
     """Get a RADICAL runtime configuration.
 
-    Accepts a single `argparse.Namespace` argument (see `parser`) or key word arguments.
+    Accepts a single `argparse.Namespace` argument
+    (see :py:func:`~scalems.radical.runtime_configuration.parser`)
+    or key word arguments.
     With no arguments, the command line parser is invoked to try to build a new
     configuration.
 

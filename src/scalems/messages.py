@@ -6,8 +6,8 @@ queue management, and work dispatching.
 The `QueueItem` classes are simple key-value pairs for use in local message-passing
 queues.
 
-The `Command` classes are richer structures that ensure (de)serializability for
-use between the client and (remote) runtime managers.
+The :py:class:`~scalems.messages.Command` classes are richer structures that
+ensure (de)serializability for use between the client and (remote) runtime managers.
 """
 __all__ = ("Command", "QueueItem", "CommandQueueControlItem", "CommandQueueAddItem", "StopCommand")
 

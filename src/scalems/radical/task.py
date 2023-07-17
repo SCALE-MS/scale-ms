@@ -371,7 +371,7 @@ async def subprocess_to_rp_task(
     TODO:
         This logic should be integrated into a :py:func:`WorkflowManager.submit()`
         stack (currently :py:func:`WorkflowManager.add_item()`)
-        and `manage_raptor` loop. We really should have special handling for
+        and :py:func:`manage_raptor` loop. We really should have special handling for
         wrapped function calls as distinguished from command line executables
         through "overloads" (dispatching) of the task submission.
         Also, we should not be exposing the *dispatcher* to the user.

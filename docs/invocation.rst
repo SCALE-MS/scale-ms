@@ -23,8 +23,8 @@ Command line execution
 Use the ``--help`` command line option for an execution module for details about
 available and required command line arguments::
 
-    $ python -m scalems.local --help
-    usage: python -m scalems.local <scalems.local args> script-to-run.py.py <script args>
+    $ python -m scalems.radical --help
+    usage: python -m scalems.radical <scalems.radical args> script-to-run.py.py <script args>
     ...
 
 The base command line parser is provided by :py:func:`scalems.invocation.base_parser`,
@@ -48,15 +48,6 @@ Execution Modules
 =================
 
 `scalems` provides the following built-in execution modules.
-
-scalems.local Python module
----------------------------
-
-.. automodule:: scalems.local
-
-.. _scalems.local command line:
-
-.. autoprogram:: scalems.local:parser
 
 scalems.radical Python module
 -----------------------------

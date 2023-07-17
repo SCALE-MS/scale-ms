@@ -22,13 +22,13 @@ to get the implementing *module*.
 An execution back end :py:mod:`<module>` supports this invocation model by
 implementing a ``__main__`` method that passes a WorkflowManager creation function
 and an *executor_factory* to `scalems.invocation.run`.
-For example, in the `scalems.local` module,
-:file:`scalems/local/__main__.py` contains::
+For example, in the `scalems.radical` module,
+:file:`scalems/radical/__main__.py` contains::
 
     if __name__ == '__main__':
         sys.exit(scalems.invocation.run(
-            manager_factory=scalems.local.workflow_manager,
-            executor_factory=scalems.local.executor_factory))
+            manager_factory=scalems.radical.workflow_manager,
+            executor_factory=scalems.radical.executor_factory))
 
 Required Attributes
 ~~~~~~~~~~~~~~~~~~~

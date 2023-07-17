@@ -352,8 +352,8 @@ async def rp_runtime(rp_configuration, event_loop) -> scalems.radical.session.Ru
         try:
             yield runtime
         finally:
-            runtime.close()
-        assert runtime.session.closed
+            await asyncio.create_task(asyncio.to_thread(runtime.close))
+            await runtime.wait_closed()
 
 
 @pytest.fixture(scope="session")

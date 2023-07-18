@@ -420,7 +420,7 @@ class RuntimeManager:
 
 @contextlib.asynccontextmanager
 async def launch(
-    workflow_manager: scalems.workflow.WorkflowManager, runtime_configuration: RuntimeConfiguration
+    *, workflow_manager: scalems.workflow.WorkflowManager, runtime_configuration: RuntimeConfiguration
 ) -> RuntimeManager:
     """Get a runtime execution context for the managed workflow.
 

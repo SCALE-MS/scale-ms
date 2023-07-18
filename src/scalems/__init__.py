@@ -45,13 +45,20 @@ __all__ = (
 )
 
 import abc
+import asyncio
+import collections.abc
 import functools
 import typing
+
+import typing_extensions
 
 from ._version import __version__
 from .subprocess import executable
 from .workflow import get_scope
 from .logger import logger
+
+if typing.TYPE_CHECKING:
+    import mpi4py.MPI
 
 logger.debug("Imported {}".format(__name__))
 
@@ -90,3 +97,40 @@ def app(func: typing.Callable) -> typing.Callable:
     decorated = functools.update_wrapper(App(func), wrapped=func)
 
     return decorated
+
+
+_P = typing_extensions.ParamSpec("_P")
+_T = typing.TypeVar("_T")
+
+
+@typing.overload
+def submit(
+    fn: collections.abc.Callable[typing_extensions.Concatenate["mpi4py.MPI.Comm", _P], _T],
+    /,
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> asyncio.Task[_T]:
+    ...
+
+
+def submit(fn: typing.Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs) -> asyncio.Task[_T]:
+    """Submit a task to be run by an executor.
+
+    If the executor is configured for MPI tasks, a :py:class:`mpi4py.MPI.Comm`
+    sub-communicator will be provided as a function argument.
+
+    To request that the communicator be provided as a key word argument, include
+    a placeholder key word argument (e.g. `comm=None`). The value will be
+    replaced with a communicator instance in the executor. Otherwise, the
+    executor will insert the communicator before any other positional arguments
+    when calling the function (e.g. `fn(subcomm, *args, **kwargs)`).
+
+    Not thread-safe. Call from the main thread (in which the event loop is running).
+
+    TODO: At some point we need to be able to call this from any thread to support
+     dynamic Task generation.
+    """
+    import scalems.execution
+
+    current_executor = scalems.execution.current_executor.get()
+    return current_executor.submit(fn, *args, **kwargs)

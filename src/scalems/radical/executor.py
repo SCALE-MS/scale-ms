@@ -126,10 +126,10 @@ def _launch_raptor(executor: RPExecutor, worker_requirements):
             return
         event_loop: asyncio.AbstractEventLoop = runtime_manager.loop()
         datastore = runtime_manager.datastore
-        rp_session = runtime_manager.runtime_session
-        # task_manager = rp_session.task_manager()
-        pilot = rp_session.pilot()
-        logger.debug(f"Using RP Session {repr(rp_session)}")
+        runtime_session = runtime_manager.runtime_session
+        rp_session: rp.Session = runtime_session.session
+        pilot: rp.Pilot = runtime_session.pilot()
+        logger.debug(f"Using RP Session {repr(runtime_session)}")
         del runtime_manager
     raptor_pre_exec = executor.raptor_pre_exec()
 
@@ -179,7 +179,8 @@ def _launch_raptor(executor: RPExecutor, worker_requirements):
     # WARNING: runtime_manager could start shutting down at an arbitrary point,
     # and attributes could be set to None.
     with runtime_manager.shutdown_lock():
-        if runtime_manager.closing():
+        # TODO: Confirm what are the conditions that might
+        if runtime_manager.closing() or runtime_session.session.closed or runtime_session.pilot().state in rp.FINAL:
             logger.error("RuntimeManager lost before Raptor session started.")
             executor._launch_failed()
             return
@@ -188,6 +189,46 @@ def _launch_raptor(executor: RPExecutor, worker_requirements):
         # Similarly for any later calls to start Workers.
         # TODO: Additional locking or synchronization and/or
         #  move the resource acquisition/release into this thread.
+
+        # TODO: Something like the following in RuntimeManager or RuntimeSession
+        # raptor_future: concurrent.futures.Future[rp.raptor_tasks.Raptor] = concurrent.futures.Future()
+        #
+        # # Is there an earliest or latest state at which we'd want to call this?
+        # # There isn't actually any chance for cancel in the original code structure.
+        # assert raptor_future.set_running_or_notify_cancel()
+        # try:
+        #     _rp_task = launch_scheduler(
+        #         pre_exec=raptor_pre_exec,
+        #         pilot=pilot,
+        #         filestore=datastore,
+        #         config_file=config_file,
+        #     )
+        # except Exception as e:
+        #     raptor_future.set_exception(e)
+        # else:
+        #     logger.debug(f"Got Raptor {_rp_task} in pilot {pilot}.")
+        #     raptor_future.set_result(_rp_task)
+        #
+        # def propagate_cancel(f: concurrent.futures.Future):
+        #     if f.cancelled() and (raptor := getattr(f, "_rp_task", None)) is not None:
+        #         if raptor.state not in rp.FINAL:
+        #             raptor.cancel()
+        #
+        # def rp_callback(task: rp.Task):
+        #     if task.state == rp.CANCELED:
+        #         del raptor_future._rp_task
+        #         raptor_future.cancel()
+        #     if task.state == rp.FAILED:
+        #         raptor_future.set_exception(
+        #             scalems.exceptions.DispatchError(f"Raptor task {task.uid} failed: {task.as_dict()}")
+        #         )
+        #     if task.state == rp.DONE:
+        #         ...
+        #
+        # raptor_future.add_done_callback(propagate_cancel)
+        #
+        # There is not chance to cancel. We've already set the result.
+        # raptor_future._rp_task.register_callback(rp_callback)
         raptor: rp.raptor_tasks.Raptor = launch_scheduler(
             pre_exec=raptor_pre_exec,
             pilot=pilot,
@@ -285,6 +326,7 @@ def manage_raptor(
     work_queue: _queue.Queue,
     worker_requirements: Optional[Sequence[dict]],
     task_requirements: dict,
+    raptor_future: concurrent.futures.Future[rp.raptor_tasks.Raptor],
 ) -> None:
     """Run a task dispatching session for the RP backend.
 
@@ -300,13 +342,16 @@ def manage_raptor(
         This function makes blocking calls that rely on progress in the asyncio
         event loop.
 
+    Args:
+        raptor_future:
+
     Returns:
         None because this is run through the `threading.Thread` interface and simply joined.
     """
     # raptor: Optional[rp.raptor_tasks.Raptor] = None
     try:
         # Launch raptor session.
-        raptor = _launch_raptor(executor_reference(), worker_requirements)
+        raptor = raptor_future.result()
         if raptor is None:
             return
     except BaseException:
@@ -395,7 +440,7 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
         `executor` provides a context manager suited for scalems usage.
     """
 
-    raptor: Optional[rp.raptor_tasks.Raptor] = None
+    raptor: concurrent.futures.Future[rp.raptor_tasks.Raptor]
 
     def __init__(
         self,
@@ -432,10 +477,18 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
         # can be freed, we have to separately account for tasks in flight.
         self._submitted_tasks = set()
 
+        ctx = contextvars.copy_context()
+
+        # WARNING: The current thread is ambiguous. We need to clearly do this om a separate thread,
+        # but we need to know what executor to use.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _executor:
+            self.raptor = _executor.submit(_launch_raptor, executor=self, worker_requirements=worker_requirements)
+
         def _finalizer_callback(_: ReferenceType):
             work_queue.put(None)
 
-        runner_args = (weakref.ref(self, _finalizer_callback),)
+        executor_reference = weakref.ref(self, _finalizer_callback)
+        runner_args = (executor_reference,)
         # Note: We probably need to make sure that the RPExecutor referent is kept alive
         # (at least if there are any `submit()` calls) until the worker thread doesn't need it
         # (and we're sure no dynamic tasks are adaptively submitting additional tasks to
@@ -445,11 +498,11 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
             "work_queue": work_queue,
             "task_requirements": task_requirements,
             "worker_requirements": worker_requirements,
+            "raptor_future": self.raptor,
         }
         # TODO: Do we need to capture a `contextvars.copy_context()`?
         # Consider providing more useful cross-referencing identifier.
         thread_name = f"RPExecutor-{id(self)}-{manage_raptor.__name__}"
-        ctx = contextvars.copy_context()
         func_call = functools.partial(ctx.run, manage_raptor, *runner_args, **runner_kwargs)
         t = threading.Thread(
             name=thread_name,
@@ -507,7 +560,10 @@ class RPExecutor(scalems.execution.ScalemsExecutor):
         ...
 
         # If the "worker" has died, react appropriately.
-        raptor: rp.raptor_tasks.Raptor = self.raptor
+        # TODO: Make sure raptor.result() doesn't block on event loop.
+        # ERROR: This strategy isn't working. We need to move self.raptor to an entity that
+        # is clearly participating in the event loop and implement it from an asyncio perspective.
+        raptor: rp.raptor_tasks.Raptor = self.raptor.result()
         if raptor.state in rp.FINAL:
             self._dispatcher_failed()
 

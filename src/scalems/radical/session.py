@@ -58,6 +58,7 @@ class RuntimeSession:
         if not isinstance(session, rp.Session) or session.closed:
             raise ValueError("*session* must be an active RADICAL Pilot Session.")
         self._session = session
+        # TODO: Call session.close in a ThreadPoolExecutor that we use for RP UI calls.
         self._session_finalizer = weakref.finalize(self, session.close)
         if loop.is_closed():
             raise ValueError("*loop* must be an active event loop.")

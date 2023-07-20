@@ -6,7 +6,7 @@
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
 [[DockerHub]](https://hub.docker.com/r/scalems/ci)
 
-NSF Awards
+## NSF Awards
 
 * [1835449](https://www.nsf.gov/awardsearch/showAward?AWD_ID=1835449) Matteo Turilli, Rutgers University New Brunswick
 * [1835607](https://www.nsf.gov/awardsearch/showAward?AWD_ID=1835607) Kristen Fichthorn, Pennsylvania State University

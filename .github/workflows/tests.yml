@@ -12,7 +12,7 @@ jobs:
   rp_ssh:
 
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     services:
       mongodb:
         image: mongo
@@ -22,12 +22,20 @@ jobs:
         ports:
         # will assign a random free host port
         - 27017/tcp
+    env:
+      GROMACS: release-2023
+      GMXAPI: "gmxapi"
+      GMX_MPI: "ON"
 
     strategy:
       matrix:
         python-version: ["3.9", "3.10", "3.11"]
 
     steps:
+    - name: Prepare OS
+      run: |
+        sudo apt-get update
+        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libmpich-dev libxml2-dev mpich ninja-build
     - name: Prepare ssh
       # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
       run: |
@@ -41,6 +49,18 @@ jobs:
         ssh-add ~/.ssh/id
         ssh 127.0.0.1 env
     - uses: actions/checkout@v3
+    - name: Prepare ccache variables
+      id: ccache_cache
+      run: |
+        echo "timestamp=$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_OUTPUT
+        echo "dir=$(ccache -k cache_dir)" >> $GITHUB_OUTPUT
+    - name: ccache cache files
+      uses: actions/cache@v3
+      with:
+        path: ${{ steps.ccache_cache.outputs.dir }}
+        key: ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-${{ steps.ccache_cache.outputs.timestamp }}
+        restore-keys: |
+          ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
@@ -68,6 +88,16 @@ jobs:
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         pip freeze
         radical-stack
+    - name: Install GROMACS and gmxapi
+      run: |
+        ccache -s
+        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
+        BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
+        pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
+        source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
+        pip install --verbose "${{ env.GMXAPI }}"
+        ccache -s
+        python -c "import gmxapi; print(gmxapi.__version__)"
     - name: Test local.github with pytest
       timeout-minutes: 20
       env:

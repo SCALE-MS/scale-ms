@@ -66,6 +66,9 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
         cache: 'pip' # caching pip dependencies
+        cache-dependency-path: |
+          **/pyproject.toml
+          **/requirements*.txt
     - name: Increase file limit
       run: |
         sudo sysctl -w fs.file-max=65536
@@ -83,7 +86,6 @@ jobs:
         pip uninstall -y radical.pilot radical.saga radical.utils
         pip install --upgrade -r requirements-testing.txt
         pip install .
-        pip install coverage pymongo pytest-cov
         mkdir -p $HOME/.radical/pilot/configs/
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         pip freeze
@@ -91,7 +93,9 @@ jobs:
     - name: Install GROMACS and gmxapi
       run: |
         ccache -s
+        . $HOME/testenv/bin/activate
         . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
+        pip install -r requirements-gmxapi.txt
         BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
         pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
         source $HOME/install/gromacs-${GROMACS}/bin/GMXRC

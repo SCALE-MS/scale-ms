@@ -1,0 +1,13 @@
+# Requirements for gmxapi Python package.
+# This requirements.txt file is useful in the GitHub Actions testing environment
+# to help us preinstall gmxapi dependencies and to have something that the
+# actions/setup-python caching can hash.
+cmake>=3.16
+importlib_metadata;python_version<"3.8"
+networkx>=2.0
+numpy>1.7
+packaging
+pip>=10.1
+pybind11>=2.6
+setuptools>=42
+wheel

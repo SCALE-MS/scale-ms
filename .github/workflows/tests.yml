@@ -360,3 +360,37 @@ jobs:
       run: |
         flake8 src/ --count --show-source --statistics
         flake8 tests/ --count --show-source --statistics
+
+  gromacs-buid-cache:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GROMACS: v2023.2
+      GMXAPI: "gmxapi"
+      GMX_MPI: "ON"
+    steps:
+      - name: Prepare OS
+        run: |
+          sudo apt-get update
+          sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libmpich-dev libxml2-dev mpich ninja-build
+      - name: Prepare ccache variables
+        id: ccache_cache
+        run: |
+          echo "timestamp=$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_OUTPUT
+          echo "dir=$(ccache -k cache_dir)" >> $GITHUB_OUTPUT
+      - name: ccache cache files
+        uses: actions/cache@v3
+        with:
+          path: ${{ steps.ccache_cache.outputs.dir }}
+          key: ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-${{ steps.ccache_cache.outputs.timestamp }}
+          restore-keys: |
+            ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-
+      - uses: actions/checkout@v3
+      - name: Install GROMACS ${{ env.GROMACS }}
+        run: |
+          ccache -s
+          . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
+          BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
+          ccache -s
+          source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
+          gmx_mpi --version

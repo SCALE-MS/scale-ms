@@ -17,7 +17,6 @@ and the task lifecycle and artifacts management.
 __all__ = ("CallResult", "main", "cli", "serialize_call", "deserialize_result")
 
 import dataclasses
-import functools
 import json
 
 # See __main__.py for the entry point executed for command line invocation.
@@ -384,10 +383,29 @@ def cli(*argv: str):
         return 0
 
 
-# For transfer size and debuggability, let's start by serializing as little
-# as possible. We'll rely on being able to import details in the execution
-# environment (accepting whatever version we get locally) and work from there.
-to_bytes = functools.partial(dill.dumps, byref=True, recurse=False)
+def to_bytes(obj):
+    """Serialize an arbitrary object.
+
+    This is intended as a drop-in "encoder" functor. We could wrap up extra arguments
+    in a `functools.partial` object, but this function is more illustrative.
+
+    WARNING: Unstable interface.
+
+    For transfer size and debuggability, we would prefer to serialize as little
+    as possible. We would like to rely on being able to import details in the execution
+    environment (accepting whatever version we get locally) and work from there.
+    However, ``to_bytes = functools.partial(dill.dumps, byref=True, recurse=False)``
+    is too simplistic. We should use the `dill` utilities to inspect the tree of
+    symbols to see what we can and should import at the execution site or even find
+    a logic tree to try several things.
+
+    For now, though, we'll have to consider that a future optimization and just
+    serialize everything we think we might need.
+
+    If needed, or for testing, override the default values of *byref* and *recurse*
+    in :py:data:`dill.settings`.
+    """
+    return dill.dumps(obj)
 
 
 def from_hex(x: str):

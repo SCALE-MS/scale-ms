@@ -241,8 +241,10 @@ async def test_raptor_master(pilot_description, rp_venv):
                 (stop_watcher, raptor_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
             )
 
-            if raptor_watcher not in done:
-                await asyncio.wait_for(raptor_watcher, timeout=10)
+            if stop_watcher in done and raptor_watcher in pending:
+                # Give a few more seconds for the Master to finish shutting down
+                # after acknowledging the "stop" command.
+                await asyncio.wait((raptor_watcher,), timeout=20, return_when=asyncio.FIRST_COMPLETED)
             logger.debug(f"raptor-task state: {raptor.state}")
             if raptor.state == rp.DONE and stop_watcher in pending:
                 # Waiting longer doesn't seem to help.

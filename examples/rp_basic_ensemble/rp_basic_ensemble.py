@@ -218,26 +218,61 @@ async def main(
     # tpr_input = grompp.output_file['simulation_input']
     tpr_input = grompp.output.file["-o"].result()
 
-    session: scalems.radical.runtime.RPDispatchingExecutor
-    async with scalems.execution.dispatch(
-        manager, executor_factory=scalems.radical.executor_factory, params=runtime_config
-    ) as dispatcher:
-        simulations = tuple(
-            MDRun(
-                tpr_input,
-                runtime_args=mdrun_args,
-                task_ranks=script_config.procs_per_sim,
-                task_cores_per_rank=script_config.threads_per_sim,
-                manager=manager,
-                dispatcher=dispatcher,
-                label=f"{label}-{i}",
-            )
-            for i in range(ensemble_size)
-        )
-        futures = tuple(asyncio.create_task(md.result(), name=md.label) for md in simulations)
-        for future in futures:
-            future.add_done_callback(lambda x: print(f"Task done: {repr(x)}."))
-        return await asyncio.gather(*futures)
+    # session: scalems.radical.runtime.RPDispatchingExecutor
+    # async with scalems.execution.dispatch(
+    #     manager, executor_factory=scalems.radical.executor_factory, params=runtime_config
+    # ) as dispatcher:
+    #     simulations = tuple(
+    #         MDRun(
+    #             tpr_input,
+    #             runtime_args=mdrun_args,
+    #             task_ranks=script_config.procs_per_sim,
+    #             task_cores_per_rank=script_config.threads_per_sim,
+    #             manager=manager,
+    #             dispatcher=dispatcher,
+    #             label=f"{label}-{i}",
+    #         )
+    #         for i in range(ensemble_size)
+    #     )
+    #     futures = tuple(asyncio.create_task(md.result(), name=md.label) for md in simulations)
+    #     for future in futures:
+    #         future.add_done_callback(lambda x: print(f"Task done: {repr(x)}."))
+    #     return await asyncio.gather(*futures)
+
+    workflow = scalems.radical.workflow_manager(loop)
+    # Explicitly activate and deactivate a managed workflow with filesystem-backed metadata,
+    # providing a clear point for filesystem flushing before interpreter shutdown.
+    with scalems.workflow.scope(workflow, close_on_exit=True):
+        # The scalems.workflow module now tracks the currently active WorkflowManager.
+
+        # Explicitly select the RP back-end and configure the Pilot session.
+        with scalems.radical.runtime.launch(workflow, runtime_config) as runtime_context:
+            # The scalems.execution module now tracks the default RuntimeManager,
+            # bound to the provided WorkflowManager.
+
+            # Provision Raptor with known (or knowable) Worker resource requirements.
+            # Defines a scope for tasks with mostly homogeneous runtime requirements,
+            # and allows for an "ensemble scope" in which tasks and data can be more tightly and clearly coupled,
+            # or in which data and compute placement could be better optimized.
+            async with scalems.execution.executor(
+                runtime_context,
+                worker_requirements=[{"ranks": config.procs_per_sim, "cores_per_rank": config.threads_per_sim}]
+                * number_of_workers,
+                task_requirements={"ranks": config.procs_per_sim, "cores_per_rank": config.threads_per_sim},
+            ):
+                # Assuming `tpr_input` is an array-like set of inputs that we want to launch simulations for, as resources allow.
+                simulations: scalems.Task = scalems.map(functools.partial(MDRun, runtime_args=mdrun_args), tpr_input)
+                # task3 has a snapshot (`contextvars.copy()`) of any module-global variables needed
+                # to support asynchronous scheduling and Future fulfillment outside of the `with` block,
+                # allowing us to use this context manager hierarchy for scripting interface / program scoping
+                # without unnecessarily strong coupling to the underlying runtime management.
+                for i, task in enumerate(simulations):
+                    task.label = f"{label}-{i}"
+                    task.add_done_callback(lambda x: print(f"Task done: {repr(x)}."))
+            # Task handles must still be valid outside of the executor context manager in order to schedule
+            # chains of tasks with different resource requirements. Unlike concurrent.futures.Executor, then,
+            # `ScalemsExecutor.__exit__()` should probably default to `self.shutdown(wait=False)`.
+            return await asyncio.gather(*simulations)
 
 
 class MDRun:
@@ -673,3 +708,5 @@ if __name__ == "__main__":
 
     for i, out in enumerate(zip(trajectory, directory)):
         print(f"Trajectory {i}: {out[0]}. Directory archive (zip file) {i}: {out[1]}")
+    # with zipfile.ZipFile('/home/rp/tmp/scalems_0_0/fb714a2170e74e479ce2c2f9e92d66ace4f0941cd5413643c7ceebf82783bf21', 'r') as myzip:
+    #     ...     myzip.namelist()

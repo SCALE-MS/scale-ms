@@ -289,8 +289,8 @@ jobs:
           --size 3 \
           --mdrun-arg maxh 0.01
         for manifest in *.manifest; do
-          for path in $(cat manifest); do
-            test -x $path && ls -ld $path
+          for path in $(cat $manifest); do
+            test -f $path && ls -ld $path
           done
         done
         coverage xml -o coverage2.xml

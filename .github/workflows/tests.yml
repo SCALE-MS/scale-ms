@@ -274,11 +274,16 @@ jobs:
         eval "$(ssh-agent -s)"
         ssh-add ~/.ssh/id
         . $HOME/testenv/bin/activate
+        GMX=$(python -c "from gmxapi.commandline import cli_executable; print(cli_executable())")
+        echo gromacs executable is $GMX
+        $GMX --version
+        # Run some ~30 second simulations
         coverage run --source=scalems,examples --append examples/rp_basic_ensemble/rp_basic_ensemble.py \
           --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=5 \
+          --log-level debug \
           --procs-per-sim 2 \
           --size 3 \
-          --mdrun-arg maxh 0.001
+          --mdrun-arg maxh 0.01
         for manifest in *.manifest; do
           for path in $(cat manifest); do
             test -x $path && ls -ld $path

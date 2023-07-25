@@ -10,7 +10,7 @@ apache-libcloud==3.7.0
     # via radical-saga
 babel==2.12.1
     # via sphinx
-certifi==2023.5.7
+certifi==2023.7.22
     # via requests
 charset-normalizer==3.1.0
     # via requests
@@ -28,10 +28,6 @@ idna==3.4
     # via requests
 imagesize==1.4.1
     # via sphinx
-importlib-metadata==6.6.0
-    # via
-    #   sphinx
-    #   versioningit
 jinja2==3.1.2
     # via sphinx
 markupsafe==2.1.2
@@ -111,11 +107,7 @@ sphinxcontrib-qthelp==1.0.3
     # via sphinx
 sphinxcontrib-serializinghtml==1.1.5
     # via sphinx
-tomli==2.0.1
-    # via versioningit
 urllib3==2.0.2
     # via requests
 versioningit==2.2.0
     # via -r requirements.in
-zipp==3.15.0
-    # via importlib-metadata

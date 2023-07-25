@@ -35,7 +35,7 @@ jobs:
     - name: Prepare OS
       run: |
         sudo apt-get update
-        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libmpich-dev libxml2-dev mpich ninja-build
+        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libopenmpi-dev libxml2-dev openmpi-bin ninja-build
     - name: Prepare ccache variables
       id: ccache_cache
       run: |
@@ -82,7 +82,6 @@ jobs:
     - name: Install dependencies
       timeout-minutes: 10
       run: |
-        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
         which mpiexec
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
@@ -103,7 +102,9 @@ jobs:
         pip install -r requirements-gmxapi.txt
         pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
         source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
+        pip cache remove gmxapi
         pip install --verbose "${{ env.GMXAPI }}"
+        python -c "import gmxapi._gmxapi; assert gmxapi._gmxapi.Context()"
         python -c "import gmxapi; print(gmxapi.__version__)"
     - name: Test local.github with pytest
       timeout-minutes: 20
@@ -171,6 +172,146 @@ jobs:
         name: ${{ github.job }}-${{ matrix.python-version }}
         path: '~/sessions.tgz'
 
+  rp_basic_ensemble:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      mongodb:
+        image: mongo
+        env:
+          MONGO_INITDB_ROOT_USERNAME: root
+          MONGO_INITDB_ROOT_PASSWORD: password
+        ports:
+        # will assign a random free host port
+        - 27017/tcp
+    env:
+      GROMACS: v2023.2
+      GMXAPI: "gmxapi"
+      GMX_MPI: "ON"
+
+    strategy:
+      matrix:
+        python-version: ["3.11"]
+
+    steps:
+    - name: Prepare OS
+      run: |
+        sudo apt-get update
+        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libopenmpi-dev libxml2-dev openmpi-bin ninja-build
+    - name: Prepare ccache variables
+      id: ccache_cache
+      run: |
+        echo "timestamp=$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_OUTPUT
+        echo "dir=$(ccache -k cache_dir)" >> $GITHUB_OUTPUT
+    - name: ccache cache files
+      uses: actions/cache@v3
+      with:
+        path: ${{ steps.ccache_cache.outputs.dir }}
+        key: ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-${{ steps.ccache_cache.outputs.timestamp }}
+        restore-keys: |
+          ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - name: Install GROMACS ${{ env.GROMACS }}
+      run: |
+        ccache -s
+        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
+        BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
+        ccache -s
+    - name: Prepare ssh
+      # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
+      run: |
+        ssh-keygen -f ~/.ssh/id -t ed25519 -N ''
+        echo -n 'from="127.0.0.1" ' | cat - ~/.ssh/id.pub > ~/.ssh/authorized_keys
+        ssh-keyscan 127.0.0.1 >> ~/.ssh/known_hosts
+        chmod og-rw ~
+        ls -la ~/.ssh
+        # Test:
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        ssh 127.0.0.1 env
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip' # caching pip dependencies
+        cache-dependency-path: |
+          **/pyproject.toml
+          **/requirements*.txt
+    - name: Increase file limit
+      run: |
+        sudo sysctl -w fs.file-max=65536
+        ulimit -a
+    - name: Install dependencies
+      timeout-minutes: 10
+      run: |
+        which mpiexec
+        python -m venv $HOME/testenv
+        . $HOME/testenv/bin/activate
+        echo `which python`
+        python --version
+        python -m pip install --upgrade pip setuptools wheel
+        pip uninstall -y radical.pilot radical.saga radical.utils
+        pip install --upgrade -r requirements-testing.txt
+        pip install .
+        mkdir -p $HOME/.radical/pilot/configs/
+        cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
+        pip freeze
+        radical-stack
+    - name: Install gmxapi
+      run: |
+        . $HOME/testenv/bin/activate
+        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
+        pip install -r requirements-gmxapi.txt
+        pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
+        source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
+        pip cache remove gmxapi
+        pip install --verbose "${{ env.GMXAPI }}"
+        python -c "import gmxapi._gmxapi; assert gmxapi._gmxapi.Context()"
+        python -c "import gmxapi; print(gmxapi.__version__)"
+    - name: Command line tests
+      timeout-minutes: 5
+      env:
+        RADICAL_PILOT_DBURL: mongodb://root:password@localhost:${{ job.services.mongodb.ports[27017] }}/admin
+      run: |
+        eval "$(ssh-agent -s)"
+        ssh-add ~/.ssh/id
+        . $HOME/testenv/bin/activate
+        GMX=$(python -c "from gmxapi.commandline import cli_executable; print(cli_executable())")
+        echo gromacs executable is $GMX
+        $GMX --version
+        # Run some ~30 second simulations
+        coverage run --source=scalems,examples --append examples/rp_basic_ensemble/rp_basic_ensemble.py \
+          --venv=$HOME/testenv --resource=local.github --access=ssh --pilot-option cores=5 \
+          --log-level debug \
+          --procs-per-sim 2 \
+          --size 3 \
+          --mdrun-arg maxh 0.01
+        for manifest in *.manifest; do
+          for path in $(cat $manifest); do
+            test -f $path && ls -ld $path
+          done
+        done
+        coverage xml -o coverage2.xml
+    - name: "Upload coverage to Codecov"
+      continue-on-error: true
+      uses: codecov/codecov-action@v3
+      with:
+        token: ${{ secrets.CODECOV_TOKEN }}
+        fail_ci_if_error: true
+        name: codecov-rp-basic-ensemble-${{ matrix.python-version }}
+    - name: Collect artifacts
+      if: ${{ always() }}
+      run: |
+        tar zcf ~/sessions.tgz --exclude '*.tgz' --exclude '*.tar.gz' --exclude '*.pyc' $HOME/radical.pilot.sandbox/rp.session.* ./rp.session.*
+    - name: "Upload artifacts"
+      if: ${{ always() }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ github.job }}-${{ matrix.python-version }}
+        path: '~/sessions.tgz'
+
   rp_ssh_head:
 
     runs-on: ubuntu-latest
@@ -197,7 +338,7 @@ jobs:
     - name: Prepare OS
       run: |
         sudo apt-get update
-        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libmpich-dev libxml2-dev mpich ninja-build
+        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libopenmpi-dev libxml2-dev openmpi-bin ninja-build
     - name: Prepare ccache variables
       id: ccache_cache
       run: |
@@ -244,7 +385,6 @@ jobs:
     - name: Install dependencies
       timeout-minutes: 10
       run: |
-        sudo apt-get update && sudo apt-get install libopenmpi-dev openmpi-bin
         which mpiexec
         python -m venv $HOME/testenv
         . $HOME/testenv/bin/activate
@@ -372,7 +512,7 @@ jobs:
       - name: Prepare OS
         run: |
           sudo apt-get update
-          sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libmpich-dev libxml2-dev mpich ninja-build
+          sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libopenmpi-dev libxml2-dev openmpi-bin ninja-build
       - name: Prepare ccache variables
         id: ccache_cache
         run: |

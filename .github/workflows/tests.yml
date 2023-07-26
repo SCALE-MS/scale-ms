@@ -352,12 +352,6 @@ jobs:
         restore-keys: |
           ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-
     - uses: actions/checkout@v3
-    - name: Install GROMACS ${{ env.GROMACS }}
-      run: |
-        ccache -s
-        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
-        BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
-        ccache -s
     - name: Prepare ssh
       # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
       run: |
@@ -405,15 +399,6 @@ jobs:
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         pip freeze
         radical-stack
-    - name: Install gmxapi
-      run: |
-        . $HOME/testenv/bin/activate
-        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
-        pip install -r requirements-gmxapi.txt
-        pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
-        source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
-        pip install --verbose "${{ env.GMXAPI }}"
-        python -c "import gmxapi; print(gmxapi.__version__)"
     - name: Test local.github with pytest
       timeout-minutes: 20
       env:

@@ -2,6 +2,11 @@
 #     pip install pip-tools
 #     pip-compile
 #
+certifi>=2023.7.22
+# Dependabot wanted certifi updated, but doesn't know about `pip-compile`, and
+# `pip-compile` doesn't update `certifi` automatically because it is a transitive
+# dependency through `request` via `sphinx`
+# See PR #373
 dill
 mpi4py
 packaging

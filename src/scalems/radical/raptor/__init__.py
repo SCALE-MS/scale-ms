@@ -815,6 +815,166 @@ class coverage_file(ContextDecorator):
         return False
 
 
+def raptor():
+    """Entry point for raptor.Master task.
+
+    This function implements the :command:`scalems_raptor` entry point script
+    called by the RADICAL Pilot executor to provide the raptor raptor task.
+
+    During installation, the `scalems` build system creates a :file:`scalems_raptor`
+    `entry point <https://setuptools.pypa.io/en/latest/pkg_resources.html#entry-points>`__
+    script that provides command line access to this function. The Python signature
+    takes no arguments because the function processes command line arguments from `sys.argv`
+
+    .. uml::
+
+        title scalems raptor raptor task lifetime
+        !pragma teoz true
+
+        queue "RP runtime" as scheduler
+
+        box execution
+        box "scalems.radical" #honeydew
+        participant "raptor task"
+        participant ScaleMSRaptor as raptor
+        end box
+        participant worker.py
+        end box
+
+        scheduler -> "raptor task" : stage in
+        ?-> "raptor task" : scalems.radical.raptor.~__main__()
+        activate "raptor task"
+
+        note over "raptor task" : "TODO: Get asyncio event loop?"
+        note over "raptor task" : "TODO: Initialize scalems FileStore"
+
+        "raptor task" -> "raptor task" : from_dict
+        activate "raptor task"
+        return RaptorConfiguration
+        "raptor task" -> raptor **: create ScaleMSRaptor()
+        "raptor task" -> raptor: start()
+
+        ...
+        group CPI [launch workers]
+            scheduler -\\ raptor : request_cb
+            activate raptor
+
+            raptor -> raptor : with configure_worker()
+            activate raptor
+            raptor -> worker.py ** : with _worker_file()
+            activate raptor
+            raptor -> raptor : _configure_worker()
+            activate raptor
+            raptor -> raptor : worker_description()
+            activate raptor
+            return
+            return WorkerDescription
+            deactivate raptor
+            return RaptorWorkerConfig
+            'raptor --> raptor : RaptorWorkerConfig
+            'deactivate raptor
+
+            raptor -> raptor: submit_workers(**config)
+            activate raptor
+            raptor -\\ worker.py
+            activate worker.py
+            raptor --> raptor: UIDs
+            deactivate raptor
+            raptor -> raptor: wait_workers()
+            activate raptor
+            return
+            return
+            deactivate raptor
+
+        scheduler -\\ raptor : result_cb
+        end
+        ...
+
+        group TODO [stop workers]
+            "raptor task" -> raptor : ~__exit__
+            activate raptor
+            raptor -> raptor : ~__exit__
+            activate raptor
+            raptor --> raptor : stop worker (TODO)
+            raptor -> worker.py !! : delete
+            deactivate raptor
+            raptor -> raptor: stop() (TBD)
+        end
+
+        "raptor task" -> raptor: join()
+        deactivate raptor
+        deactivate "raptor task"
+
+        scheduler <-- "raptor task" : stage out
+        deactivate "raptor task"
+
+    """
+    # TODO: Configurable log level?
+    logger.setLevel(logging.DEBUG)
+    character_stream = logging.StreamHandler()
+    character_stream.setLevel(logging.DEBUG)
+    formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    character_stream.setFormatter(formatter)
+    logger.addHandler(character_stream)
+
+    file_logger = logging.FileHandler("scalems.radical.raptor.log")
+    file_logger.setLevel(logging.DEBUG)
+    file_logger.setFormatter(formatter)
+    logging.getLogger("scalems").addHandler(file_logger)
+
+    if not os.environ["RP_TASK_ID"]:
+        warnings.warn("Attempting to start a Raptor without RP execution environment.")
+
+    rp_version = packaging.version.parse(rp.version)
+
+    args = parser.parse_args()
+    if not os.path.exists(args.file):
+        raise RuntimeError(f"File not found: {args.file}")
+    with open(args.file, "r") as fh:
+        configuration = RaptorConfiguration.from_dict(json.load(fh))
+
+    logger.info(f"Launching ScaleMSRaptor task in raptor {rp_version} with {repr(dataclasses.asdict(configuration))}.")
+
+    _raptor = ScaleMSRaptor(configuration)
+    logger.debug(f"Created {repr(_raptor)}.")
+
+    requirements = configuration.worker
+
+    try:
+        _raptor.start()
+        logger.debug(f"Raptor started in PID {os.getpid()}: {' '.join(sys.argv)}.")
+
+        # TODO: Put this in an RPC
+        with _raptor.configure_worker(requirements=requirements) as configs:
+            assert len(configs) == 1
+            worker_submission: rp.TaskDescription = configs[0]
+            assert os.path.isabs(worker_submission.raptor_file)
+            assert os.path.exists(worker_submission.raptor_file)
+            logger.debug(f"Submitting {len(configs)} {worker_submission.as_dict()}")
+            _raptor.submit_workers(descriptions=configs)
+            message = "Submitted workers: "
+            message += ", ".join(_raptor.workers.keys())
+            logger.info(message)
+
+            # Make sure at least one worker comes online.
+            _raptor.wait_workers(count=1)
+            logger.debug("Ready to submit raptor tasks.")
+            # Confirm all workers start successfully or produce useful error
+            #  (then release temporary file).
+            _raptor.wait_workers()
+        for uid, worker in _raptor.workers.items():
+            logger.info(f"Worker {uid} in state {worker['status']}.")
+
+        # As of RP 1.33, `join` waits on a thread that monitors Worker responsiveness until
+        # a termination Event is detected.
+        _raptor.join()
+        logger.debug("Raptor joined.")
+    finally:
+        if sys.exc_info() != (None, None, None):
+            logger.exception("Raptor task encountered exception.")
+        logger.debug("Completed raptor task.")
+
+
 def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:
     """Prepare the arguments for :py:func:`rp.raptor.Master.submit_workers()`.
 

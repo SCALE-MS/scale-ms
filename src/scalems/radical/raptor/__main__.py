@@ -1,6 +1,8 @@
 """Entry point for the Master Task role of the scalems.radical.raptor module.
 
-An alternative to the setuptools generated entry-point script (:file:`scalems_rp_master`).
+Executes :py:func:`scalems.radical.raptor.raptor()`.
+
+Records ``scalems`` `logging` messages to :file:`scalems.radical.raptor.log`.
 """
 
 import sys

@@ -251,9 +251,7 @@ from __future__ import annotations
 __all__ = (
     "ClientWorkerRequirements",
     "RaptorConfiguration",
-    "raptor_script",
     "raptor_input",
-    "raptor",
     "worker_requirements",
     "worker_description",
     "SoftwareCompatibilityError",
@@ -640,40 +638,6 @@ def _(obj: RaptorConfiguration) -> dict:
     return dataclasses.asdict(obj)
 
 
-# TODO: Remove? This is effectively replaced by scalems.radical.raptor.__main__.py
-@functools.cache
-def raptor_script() -> str:
-    """Get the name of the RP raptor raptor script.
-
-    The script to run a RP Task based on a rp.raptor.Master is installed
-    with :py:mod`scalems`. Installation configures an "entry point" script
-    named ``scalems_raptor``, but for generality this function should
-    be used to get the entry point name.
-
-    Before returning, this function confirms the availability of the entry point
-    script in the current Python environment. A client should arrange for
-    the script to be called in the execution environment and to confirm
-    that the (potentially remote) entry point matches the expected API.
-
-    Returns:
-        str: Installed name of the entry point wrapper for :py:func:`~scalems.radical.raptor.raptor()`
-
-    """
-    try:
-        # TODO(Pyhon 3.10): Use importlib.metadata.entry_points(group='console_scripts')?
-        import pkg_resources
-    except ImportError:
-        pkg_resources = None
-    _raptor_script = "scalems_raptor"
-    if pkg_resources is not None:
-        # It is not hugely important if we cannot perform this test.
-        # In reality, this should be performed at the execution site, and we can/should
-        # remove the check here once we have effective API compatibility checking.
-        # See https://github.com/SCALE-MS/scale-ms/issues/100
-        assert pkg_resources.get_entry_info("scalems", "console_scripts", "scalems_raptor").name == _raptor_script
-    return _raptor_script
-
-
 async def raptor_input(
     *,
     filestore: _store.FileStore,
@@ -878,7 +842,7 @@ def raptor():
         end box
 
         scheduler -> "raptor task" : stage in
-        ?-> "raptor task" : scalems_raptor
+        ?-> "raptor task" : scalems.radical.raptor.~__main__()
         activate "raptor task"
 
         note over "raptor task" : "TODO: Get asyncio event loop?"
@@ -888,41 +852,55 @@ def raptor():
         activate "raptor task"
         return RaptorConfiguration
         "raptor task" -> raptor **: create ScaleMSRaptor()
-
-        "raptor task" -> "raptor task" : with configure_worker()
-        activate "raptor task"
-        "raptor task" -> raptor : configure_worker()
-        activate raptor
-        raptor -> worker.py ** : with _worker_file()
-        activate raptor
-        raptor -> raptor : _configure_worker()
-        activate raptor
-        raptor -> raptor : worker_description()
-        activate raptor
-        return
-        return WorkerDescription
-        deactivate raptor
-        return RaptorWorkerConfig
-        'raptor --> "raptor task" : RaptorWorkerConfig
-        'deactivate raptor
-
-        "raptor task" -> raptor: submit_workers(**config)
         "raptor task" -> raptor: start()
-        note over "raptor task" : "TODO: wait for worker"
 
         ...
-        scheduler -\\ raptor : request_cb
+        group CPI [launch workers]
+            scheduler -\\ raptor : request_cb
+            activate raptor
+
+            raptor -> raptor : with configure_worker()
+            activate raptor
+            raptor -> worker.py ** : with _worker_file()
+            activate raptor
+            raptor -> raptor : _configure_worker()
+            activate raptor
+            raptor -> raptor : worker_description()
+            activate raptor
+            return
+            return WorkerDescription
+            deactivate raptor
+            return RaptorWorkerConfig
+            'raptor --> raptor : RaptorWorkerConfig
+            'deactivate raptor
+
+            raptor -> raptor: submit_workers(**config)
+            activate raptor
+            raptor -\\ worker.py
+            activate worker.py
+            raptor --> raptor: UIDs
+            deactivate raptor
+            raptor -> raptor: wait_workers()
+            activate raptor
+            return
+            return
+            deactivate raptor
+
         scheduler -\\ raptor : result_cb
+        end
         ...
 
-        "raptor task" -> raptor : ~__exit__
-        activate raptor
-        raptor -> raptor : ~__exit__
-        activate raptor
-        raptor --> raptor : stop worker (TODO)
-        raptor -> worker.py !! : delete
-        deactivate raptor
-        raptor -> raptor: stop() (TBD)
+        group TODO [stop workers]
+            "raptor task" -> raptor : ~__exit__
+            activate raptor
+            raptor -> raptor : ~__exit__
+            activate raptor
+            raptor --> raptor : stop worker (TODO)
+            raptor -> worker.py !! : delete
+            deactivate raptor
+            raptor -> raptor: stop() (TBD)
+        end
+
         "raptor task" -> raptor: join()
         deactivate raptor
         deactivate "raptor task"

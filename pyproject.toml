@@ -35,9 +35,6 @@ test = [
     "radical.pilot < 1.36"
 ]
 
-[project.scripts]
-scalems_raptor = "scalems.radical.raptor:raptor"
-
 [tool.setuptools]
 zip-safe = false
 

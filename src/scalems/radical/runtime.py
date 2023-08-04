@@ -373,10 +373,22 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
             # Get a scheduler task IFF raptor is explicitly enabled.
             if config.enable_raptor:
                 pilot = self.runtime.pilot()
+                # TODO(#335): Separate Worker provisioning from Master provisioning.
+                raptor_config_file_future = asyncio.create_task(
+                    scalems.radical.raptor.raptor_input(
+                        filestore=self.datastore,
+                    ),
+                    name="get-raptor-input",
+                )
                 # Note that coro_get_scheduler is a coroutine that, itself, returns a rp.Task.
                 # We await the result of coro_get_scheduler, then store the scheduler Task.
                 self.raptor = await asyncio.create_task(
-                    coro_get_scheduler(pre_exec=list(get_pre_exec(config)), pilot=pilot, filestore=self.datastore),
+                    coro_get_scheduler(
+                        pre_exec=list(get_pre_exec(config)),
+                        pilot=pilot,
+                        filestore=self.datastore,
+                        config_future=raptor_config_file_future,
+                    ),
                     name="get-scheduler",
                 )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
         except asyncio.CancelledError as e:

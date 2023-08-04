@@ -146,10 +146,6 @@ def _launch_raptor(executor: RPExecutor, worker_requirements):
     f = asyncio.run_coroutine_threadsafe(
         raptor_input(
             filestore=datastore,
-            worker_pre_exec=list(raptor_pre_exec),
-            ranks_per_worker=ranks_per_worker,
-            cores_per_rank=cores_per_rank,
-            gpus_per_rank=gpus_per_rank,
         ),
         loop=event_loop,
     )

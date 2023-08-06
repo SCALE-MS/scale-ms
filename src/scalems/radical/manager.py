@@ -6,10 +6,14 @@ __all__ = ("launch", "RuntimeManager")
 
 import asyncio
 import atexit
+import concurrent.futures
 import contextlib
+import contextvars
 import dataclasses
+import functools
 import logging
 import os
+import queue as _queue
 import threading
 import typing
 import weakref
@@ -20,11 +24,15 @@ from radical import pilot as rp
 import scalems.exceptions
 import scalems.execution
 import scalems.messages
+import scalems.radical
 import scalems.workflow
 import scalems.radical.raptor
 from scalems.exceptions import DispatchError
+from scalems.exceptions import MissingImplementationError
 from scalems.identifiers import EphemeralIdentifier
+from scalems.messages import Control
 from scalems.radical.exceptions import RPConfigurationError
+from scalems.radical.runtime_configuration import get_pre_exec
 from scalems.radical.runtime_configuration import RuntimeConfiguration
 from scalems.radical.session import runtime_session
 from scalems.radical.session import RuntimeSession
@@ -40,7 +48,7 @@ logger.debug("Importing {}".format(__name__))
 # TODO: Make sure that event loop is still active, and perform our shutdown hooks
 #  before the event loop shuts down.
 _runtime_queues = weakref.WeakKeyDictionary()
-"""Keep track of the active executor queues in the current runtime.
+"""Keep track of the active CPI queues in the current runtime.
 
 Analogous to the way concurrent.futures.thread tracks the ThreadPoolExecutor
 threads and work queues.
@@ -67,6 +75,43 @@ def _python_exit():
 
 
 atexit.register(_python_exit)
+
+
+@contextlib.asynccontextmanager
+async def async_lock_proxy(
+    lock: threading.Lock,
+    *,
+    event_loop: asyncio.AbstractEventLoop,
+    executor: typing.Optional[concurrent.futures.ThreadPoolExecutor] = None,
+):
+    """Acquire a `threading.Lock` from a coroutine without blocking the event loop thread.
+
+    Uses the event loop's default ThreadPoolExecutor to offload the thread-safe lock
+    acquisition to a non-main thread. Note that there are a finite number of threads
+    in the thread pool, so it is possible that a coroutine waiting to enter this
+    context manager may not actually be a candidate to acquire the lock until other
+    tasks submitted to the thread pool have run.
+    """
+    acquired = False
+    try:
+        acquired = await event_loop.run_in_executor(executor=executor, func=lock.acquire)
+        yield acquired
+    finally:
+        if acquired:
+            lock.release()
+
+
+class CommandItem:
+    """CPI Command queue item.
+
+    Describes the command to be processed by the CPI servicer. Provides state
+    for dispatching through RP Raptor and receives results.
+
+    Used internally to support :py:func:`RuntimeManager.cpi()`
+    """
+
+    message: scalems.messages.Command
+    future: concurrent.futures.Future
 
 
 @dataclasses.dataclass(frozen=True)
@@ -161,6 +206,7 @@ class RuntimeManager:
         self._resource_pool_lock = resource_pool_lock
         self._resource_pool_update_condition = threading.Condition(resource_pool_lock)
         self._tokens = weakref.WeakKeyDictionary()
+        self._cpi_runners = dict[str, threading.Thread]()
 
     def acquire(
         self,
@@ -244,6 +290,101 @@ class RuntimeManager:
             del self._tokens[token]
             self._resource_pool["pilot_cores"] += token.cpu_cores
             self._resource_pool_update_condition.notify_all()
+
+    async def get_cpi_session(self):
+        """Get CPI facilities for a new resource sub-allocation.
+
+        Starts a task in a separate thread to manage the life cycle of a Raptor task
+        and the associated CPI command queue.
+
+        Returns the CPI servicer for use with `cpi()`.
+
+        By the time this call returns, the queue for CPI commands is created and
+        maintained. A new threaded task has been launched, but may not yet be active.
+        Moreover, the RP Raptor, Pilot, or Session could end before queued commands
+        are processed. It is essential that the caller regularly check for error states.
+        """
+        datastore = self.datastore
+        raptor_input_task = asyncio.create_task(
+            scalems.radical.raptor.raptor_input(filestore=datastore), name="get-raptor-input"
+        )
+        resource_token = await asyncio.to_thread(self.acquire, cores=1)
+        if resource_token is None:
+            raptor_input_task.cancel()
+            return
+
+        try:
+            async with self.async_shutdown_lock():
+                if self.closing():
+                    raise scalems.exceptions.APIError("RuntimeManager closed before CPI session could be launched.")
+                runtime_session = self.runtime_session
+                pilot: rp.Pilot = runtime_session.pilot()
+                logger.debug(f"Using RP Session {repr(runtime_session)}")
+                pre_exec = get_pre_exec(self.runtime_configuration)
+                raptor_pre_exec = list(pre_exec)
+
+                # TODO: Wait for usable Pilot+TaskManager?
+                assert isinstance(pilot, rp.Pilot)
+
+                raptor: rp.raptor_tasks.Raptor = await scalems.radical.raptor.coro_get_scheduler(
+                    pre_exec=raptor_pre_exec,
+                    pilot=pilot,
+                    filestore=datastore,
+                    config_future=raptor_input_task,
+                )  # Note that we can derive scheduler_name from self.scheduler.uid in later methods.
+                # logger.debug(f"Got Raptor {raptor} in pilot {pilot}.")
+
+            # TODO(#383): Keep checking Session, Pilot, Raptor, and RuntimeManager in case one expires before we
+            #  reach the desired state. (Add some Events to the RuntimeSession facility.)
+            # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
+            # check type.
+            _task = asyncio.create_task(
+                asyncio.to_thread(raptor.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
+                name="check-Master-started",
+            )
+            await _task
+            logger.debug(f"Scheduler {raptor.uid} in state {raptor.state}.")
+            # TODO: Generalize the exit status checker for the Master task and perform this
+            #  this check at the call site.
+            if raptor.state in rp.FINAL:
+                if raptor.stdout or raptor.stderr:
+                    logger.error(f"raptor.stdout: {raptor.stdout}")
+                    logger.error(f"raptor.stderr: {raptor.stderr}")
+                logger.debug(str(raptor.as_dict()))
+                raise DispatchError(f"Master Task {raptor.uid} unexpectedly reached {raptor.state} during launch.")
+
+            # Items in _work_queue get submitted to RP and are then resolved asynchronously
+            # in other threads. In order to know when work is actually completed and resources
+            # can be freed, we have to separately account for tasks in flight.
+            self._submitted_tasks = set()
+            # Consider providing more useful cross-referencing identifier.
+            thread_name = f"RuntimeManager-{id(self)}-{manage_raptor.__name__}"
+
+            command_queue = _queue.Queue[typing.Optional[CommandItem]]()
+
+            def _finalizer_callback(_: weakref.ReferenceType):
+                command_queue.put(None)
+
+            manager_reference = weakref.ref(self, _finalizer_callback)
+            runner_args = (manager_reference,)
+            runner_kwargs = {"command_queue": command_queue, "raptor": raptor, "resource_token": resource_token}
+
+            # TODO: Do we need to capture a `contextvars.copy_context()`?
+            ctx = contextvars.copy_context()
+            func_call = functools.partial(ctx.run, manage_raptor, *runner_args, **runner_kwargs)
+            t = threading.Thread(
+                name=thread_name,
+                target=func_call,
+            )
+            t.start()
+            # The manage_raptor thread has taken ownership of the resource_token now.
+            resource_token = None
+            self._cpi_runners[raptor.uid] = t
+            _runtime_queues[t] = command_queue
+            return raptor.uid
+        finally:
+            if resource_token is not None:
+                self.release(resource_token)
 
     @staticmethod
     async def cpi(command: str, runtime: RuntimeSession, raptor: typing.Optional[rp.Task] = None):
@@ -394,6 +535,16 @@ class RuntimeManager:
                 raise RuntimeError("Shutdown is already in progress.")
             yield self._shutdown_lock
 
+    @contextlib.asynccontextmanager
+    async def async_shutdown_lock(self):
+        async with (
+            async_lock_proxy(lock=_global_shutdown_lock, event_loop=self._loop),
+            async_lock_proxy(lock=self._shutdown_lock, event_loop=self._loop),
+        ):
+            if _shutdown:
+                raise RuntimeError("Shutdown is already in progress.")
+            yield self._shutdown_lock
+
     async def __aenter__(self):
         if not _shutdown:
             return self
@@ -532,6 +683,7 @@ async def launch(
                 # __aexit__
                 # runtime_shutdown
                 await close_task
+                await runtime_context.wait_closed()
                 # runtime_exception = runtime_context.exception()
                 # if runtime_exception:
                 #     if isinstance(runtime_exception, asyncio.CancelledError):
@@ -549,3 +701,205 @@ async def launch(
                 #         logger.error("Bug: Executor left tasks in the queue without raising an exception.")
 
                 logger.debug(f"Exited {runtime_manager} context.")
+
+
+def manage_raptor(
+    manager_reference: weakref.ReferenceType[RuntimeManager],
+    *,
+    command_queue: _queue.Queue[CommandItem],
+    raptor: rp.raptor_tasks.Raptor,
+    resource_token: ResourceToken,
+) -> None:
+    """Run a task dispatching session for the RP backend.
+
+    Manage a work queue either for RP Raptor tasks or for traditional RP executables.
+
+    Process workflow messages until a stop message is received.
+
+    If *worker_requirements* is not None, the configured RuntimeManager MUST allow
+    raptor sessions to be created.
+
+    Warning:
+        Run only in a non-root thread!
+        This function makes blocking calls that rely on progress in the asyncio
+        event loop.
+
+    Returns:
+        None because this is run through the `threading.Thread` interface and simply joined.
+
+    Note:
+        This is a free function instead of a member function so that it can
+        run in a separate thread without coupling tightly to the lifetime of the executor
+        or its other members. The function is part of the CPIExecutor implementation,
+        and interacts with "private" member variables. Technical concerns might be
+        alleviated (while suppressing "private member access" warnings) by making the
+        function a @staticmethod, but it seems debatable whether that would help or
+        hurt readability.
+    """
+    _runtime_manager: RuntimeManager = manager_reference()
+    if _runtime_manager is None:
+        return
+    try:
+        rp_session = _runtime_manager.runtime_session.session
+        pilot = _runtime_manager.runtime_session.pilot()
+        del _runtime_manager
+
+        # TODO: Wait for Raptor to start?
+
+        # TODO: Integrate with WorkflowManager
+
+        stop_issued = False
+        """Whether or not the queue processed a "stop" command."""
+        try:
+            # Run queue
+            stop_issued = _run_queue(
+                work_queue=command_queue,
+                manager_reference=manager_reference,
+                raptor=raptor,
+                submitted_tasks=...,  # Maybe just attach bookkeeping to the Futures in the QueueItems.
+                failed=...,  # Some mechanism to propagate errors detected in the runtime state, since we suppress exceptions?
+            )
+            # We could attach dispatching errors or failure notificatinos to the CPI commands
+            # for HELLO or to enter scope and allocate Workers.
+        except BaseException:
+            logger.critical("Leaving queue runner due to exception.", exc_info=True)
+
+        if (
+            raptor is not None
+            and raptor.state not in rp.FINAL
+            and not rp_session.closed
+            and pilot.state not in rp.FINAL
+        ):
+            # shutdown raptor session:
+            _shutdown_raptor(raptor, needs_stop=not stop_issued)
+    finally:
+        _runtime_manager: RuntimeManager = manager_reference()
+        if _runtime_manager is not None and resource_token is not None:
+            _runtime_manager.release(resource_token)
+
+
+def _shutdown_raptor(raptor: rp.raptor_tasks.Raptor, *, needs_stop: bool):
+    if needs_stop:
+        # TODO: Send a more aggressive control.stop to raptor once we have such a concept
+        td = rp.TaskDescription(
+            from_dict={
+                "raptor_id": raptor.uid,
+                "mode": scalems.radical.raptor.CPI_MESSAGE,
+                "metadata": Control.create("stop").encode(),
+                "uid": EphemeralIdentifier(),
+            }
+        )
+        # TODO: Let the RuntimeManager provide a ThreadPoolExecutor for RP UI calls.
+        (task,) = raptor.submit_tasks([td])
+    logger.info(f"Waiting for RP Raptor raptor task {raptor.uid} to complete...")
+    # Note: 60 seconds may not be long enough to cleanly shut down the raptor session,
+    # but we are trying to shut down this thread. To allow more time for clean-up,
+    # send an actual control.stop through the work queue (instead of None) and wait
+    # for it to complete.
+    # TODO(#383): This is pointless unless we know that the Session+Pilot are still active.
+    raptor.wait(rp.FINAL, timeout=60)
+    if raptor.state not in rp.FINAL:
+        # Cancel the raptor.
+        logger.warning("Canceling the raptor scheduling task.")
+        # Note: the effect of CANCEL is to send SIGTERM to the shell that
+        # launched the task process.
+        # TODO: Report incomplete tasks and handle the consequences of terminating the
+        #  Raptor processes early.
+        raptor.cancel()
+    # According to the RP docs, task cancellation immediately moves the local
+    # Task representation to a state of rp.CANCELED (which is in rp.FINAL), even
+    # if asynchronous operations later update the Task to DONE or FAILED.
+    # Intermediate updates may even include non-FINAL states, so it is unclear how
+    # to know when we the final state of the raptor task will eventually be available.
+    # The following code may be misleading.
+    final_state = raptor.state
+    logger.info(f"Master scheduling task state {final_state}: {repr(raptor)}.")
+    if raptor.state not in rp.FINAL:
+        logger.critical(f"Raptor task {repr(raptor)} in state {final_state} instead of FINAL.")
+    if raptor.stdout:
+        # TODO(#229): Fetch actual stdout file.
+        logger.debug(raptor.stdout)
+    if raptor.stderr:
+        # TODO(#229): Fetch actual stderr file.
+        # Note that all of the logging output goes to stderr, it seems,
+        # so we shouldn't necessarily consider it an error level event.
+        logger.debug(raptor.stderr)  # TODO(#108,#229): Receive report of work handled by Master.
+
+
+def _run_queue(
+    *,
+    work_queue: _queue.Queue,
+    raptor: rp.raptor_tasks.Raptor,
+    submitted_tasks: set,
+    failed: threading.Event,
+    manager_reference: weakref.ReferenceType[RuntimeManager],
+):
+    """Loop until *work_queue* contains a STOP command or None.
+
+    Arguments:
+        work_queue: thread-safe queue of work items. Thread blocks waiting for next item.
+        raptor: handle to a Raptor task to which commands should be sent.
+        submitted_tasks: in-flight Tasks.
+        failed: output Event for failed dispatching
+    """
+    stop_issued = False
+    while True:
+        command = work_queue.get(block=True)
+        logger.debug(f"Got command queue item {command}.")
+        if command is not None:
+            logger.debug(f"Processing command {repr(command)}")
+
+            # TODO: Set stop_issued if it is a STOP command.
+
+            if isinstance(command, CommandItem):
+                # command.run()
+                # Unlike concurrent.futures.ThreadPoolExecutor, the task will
+                # not have completed by the time the dispatching function returns.
+                # We may have to provide references to the runner or subscribe
+                # additional callbacks to the Future so that resources can be
+                # freed or errors can be logged, etc.
+                submitted_tasks.add(command.future)
+                # TODO: Handle queue items.
+                raise MissingImplementationError
+
+            if raptor.state in rp.FINAL:
+                failed.set()
+            else:
+                # Don't hang onto the reference while waiting on queue.get()
+                del command
+                continue
+
+        # If queue item is None, pretend it was a "stop" command, though we
+        # don't have a Future to attach to.
+        if raptor.state not in rp.FINAL and not stop_issued:
+            td = rp.TaskDescription(
+                from_dict={
+                    "raptor_id": raptor.uid,
+                    "mode": scalems.radical.raptor.CPI_MESSAGE,
+                    "metadata": Control.create("stop").encode(),
+                    "uid": EphemeralIdentifier(),
+                }
+            )
+            # TODO: Let the RuntimeManager provide a ThreadPoolExecutor for RP UI calls.
+            (task,) = raptor.submit_tasks([td])
+            stop_issued = True
+            logger.debug(f"Converted None to RP task with 'stop' command {task}")
+            # TODO: Retain and follow up on this Task
+
+        # Allow external tasks to cause this loop to end.
+        # Exit if:
+        #   - The interpreter is shutting down OR
+        #   - The manager that owns the worker has been collected OR
+        #   - The manager that owns the worker has been shutdown.
+        if (_manager := manager_reference()) is None or _shutdown or _manager._shutdown:
+            if _manager is not None:
+                _manager._shutdown = True
+            # Don't hang onto the reference while waiting on queue.get()
+            del _manager
+            break
+        else:
+            # This is the logic in concurrent.futures.ThreadPoolExecutor. I'm not sure
+            # why it is useful. If we see this warning in practice, we can try to understand
+            # the behavior better and replace this warning with better design notes.
+            logger.warning("Executor thread found queued None item, but was not directed to shut down.")
+    return stop_issued

@@ -79,6 +79,48 @@ async def test_runtime_mismatch(pilot_description, event_loop, rp_configuration)
 
 
 @pytest.mark.asyncio
+async def test_raptor_cpi(rp_venv, pilot_description):
+    """Test the Raptor management and implemented CPI calls."""
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip("This test requires a user-provided static RP venv.")
+
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+
+    # Configure execution module.
+    runtime_config = scalems.radical.runtime_configuration.configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
+    )
+
+    workflow = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(workflow, close_on_exit=True):
+        async with scalems.radical.manager.launch(
+            workflow_manager=workflow, runtime_configuration=runtime_config
+        ) as runtime_manager:
+            rm_info: dict = await runtime_manager.runtime_session.resources
+            assert rm_info["requested_cores"] >= pilot_description.cores
+            # Get a CPI session (start a Raptor task).
+            cpi = await runtime_manager.get_cpi_session()
+            assert cpi is not None
+            assert cpi in runtime_manager._cpi_runners
+            # Allocate resource for an MPI task (provision a Worker).
+            # Submit a simple task.
+            # Get the task results.
+            # Finalize the session and deallocate resources.
+
+
+@pytest.mark.asyncio
 async def test_runtime_context_management(rp_venv, pilot_description):
     # Hopefully, this requirement is temporary.
     if rp_venv is None:

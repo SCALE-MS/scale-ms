@@ -1807,22 +1807,6 @@ async def coro_get_scheduler(
     await _task
     raptor: rp.raptor_tasks.Raptor = _task.result()[0]
 
-    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
-    # check type.
-    _task = asyncio.create_task(
-        asyncio.to_thread(raptor.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
-        name="check-Master-started",
-    )
-    await _task
-    logger.debug(f"Scheduler {raptor.uid} in state {raptor.state}.")
-    # TODO: Generalize the exit status checker for the Master task and perform this
-    #  this check at the call site.
-    if raptor.state in rp.FINAL:
-        if raptor.stdout or raptor.stderr:
-            logger.error(f"raptor.stdout: {raptor.stdout}")
-            logger.error(f"raptor.stderr: {raptor.stderr}")
-        logger.debug(str(raptor.as_dict()))
-        raise DispatchError(f"Master Task {raptor.uid} unexpectedly reached {raptor.state} during launch.")
     return raptor
 
 

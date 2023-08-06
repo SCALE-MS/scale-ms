@@ -111,7 +111,7 @@ def _rp_callback(
     Register with *task* to be called when the rp.Task state changes.
     """
     if final is None:
-        raise APIError("This function is strictly for dynamically prepared RP callbacks through " "functools.partial.")
+        raise APIError("This function is strictly for dynamically prepared RP callbacks through functools.partial.")
     logger.debug(f"Callback triggered by {repr(obj)} state change to {repr(state)}.")
     try:
         # Note: assertions and exceptions are not useful in RP callbacks.

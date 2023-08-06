@@ -1708,9 +1708,16 @@ async def coro_get_scheduler(
     Raises:
         DispatchError if the raptor task could not be launched successfully.
 
-    Note:
-        Currently there is no completion condition for the raptor script.
-        Caller is responsible for canceling the Task returned by this function.
+    Warnings:
+        Scalability optimizations in RP convey a race condition in which
+        the Pilot.submit_tasks() may return without error, but the Pilot may terminate
+        before the submission is successful, and the RP components may not be alive
+        to mark the Task state as FAILED or CANCELED. Caller should monitor the Pilot
+        and Session in addition to the state of the returned task.
+
+        Currently there is no completion condition for the raptor script unless
+        a ``stop`` is issued.
+        Caller is responsible for ending or canceling the Task returned by this function.
     """
     # define a raptor.scalems raptor and launch it within the pilot
     td = rp.TaskDescription()
@@ -1793,7 +1800,6 @@ async def coro_get_scheduler(
     logger.debug(f"Using {filestore}.")
 
     await asyncio.create_task(asyncio.to_thread(filestore.add_task, master_identity, **task_metadata), name="add-task")
-    # filestore.add_task(master_identity, **task_metadata)
 
     logger.debug(f"Launching RP raptor scheduling. Submitting {td}.")
 

@@ -1,5 +1,6 @@
 """Test the scalems.radical.runtime module."""
 import asyncio
+import concurrent.futures
 import logging
 import warnings
 
@@ -10,10 +11,10 @@ import radical.utils as ru
 import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
+import scalems.radical.raptor
 import scalems.radical.runtime
 import scalems.radical.session
 from scalems.exceptions import APIError
-import scalems.radical.runtime
 from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.session import RuntimeSession
 
@@ -113,7 +114,17 @@ async def test_raptor_cpi(rp_venv, pilot_description):
             # Get a CPI session (start a Raptor task).
             cpi = await runtime_manager.get_cpi_session()
             assert cpi is not None
-            assert cpi in runtime_manager._cpi_runners
+            assert runtime_manager._cpi_sessions[cpi.raptor.uid] is cpi
+            hello = runtime_manager.cpi(cpi, "hello")
+            cpi_future: concurrent.futures.Future[scalems.radical.manager.CPIResult] = await hello
+            done, not_done = await asyncio.to_thread(concurrent.futures.wait, (cpi_future,))
+            assert cpi_future in done
+            expected_backend_version = scalems.radical.raptor.backend_version
+            cpi_result = cpi_future.result().return_value
+            found_backend_version = scalems.radical.raptor.BackendVersion(**cpi_result)
+            assert found_backend_version.name == expected_backend_version.name
+            assert found_backend_version.version == expected_backend_version.version
+
             # Allocate resource for an MPI task (provision a Worker).
             # Submit a simple task.
             # Get the task results.

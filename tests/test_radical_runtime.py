@@ -117,13 +117,31 @@ async def test_raptor_cpi(rp_venv, pilot_description):
             assert runtime_manager._cpi_sessions[cpi.raptor.uid] is cpi
             hello = runtime_manager.cpi(cpi, "hello")
             cpi_future: concurrent.futures.Future[scalems.radical.manager.CPIResult] = await hello
-            done, not_done = await asyncio.to_thread(concurrent.futures.wait, (cpi_future,))
-            assert cpi_future in done
+            await asyncio.wrap_future(cpi_future)
             expected_backend_version = scalems.radical.raptor.backend_version
             cpi_result = cpi_future.result().return_value
             found_backend_version = scalems.radical.raptor.BackendVersion(**cpi_result)
             assert found_backend_version.name == expected_backend_version.name
             assert found_backend_version.version == expected_backend_version.version
+
+            # Check for correct CPI state machine and fault handling.
+            stop = await runtime_manager.cpi(cpi, "stop")
+            await asyncio.wrap_future(stop)
+            cpi_future = await runtime_manager.cpi(cpi, "hello")
+            # TODO(#383): Let infrastructure set an exception on this un-runnable CPI call.
+            raptor_watcher_task = asyncio.create_task(
+                asyncio.to_thread(cpi.raptor.wait, state=rp.FINAL, timeout=300), name="raptor watcher"
+            )
+            done, pending = await asyncio.wait(
+                (raptor_watcher_task, asyncio.wrap_future(cpi_future)), return_when=asyncio.FIRST_COMPLETED
+            )
+            if cpi_future.done():
+                assert cpi_future.result().return_value is False
+            else:
+                cpi_future.cancel()
+                assert raptor_watcher_task in done
+            for task in pending:
+                task.cancel()
 
             # Allocate resource for an MPI task (provision a Worker).
             # Submit a simple task.

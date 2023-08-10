@@ -346,15 +346,6 @@ class RuntimeManager(typing.Generic[_BackendT, _RuntimeType], abc.ABC):
     def configuration(self) -> _BackendT:
         return self._runtime_configuration
 
-    @staticmethod
-    async def cpi(command: str, runtime):
-        """Dispatcher for CPI messages.
-
-        TODO: Return value? We probably want to be able to capture something we can
-            query for the result of the CPI message.
-        """
-        logger.debug(f"Null CPI handler received command {command}.")
-
     def runtime_shutdown(self, runtime):
         """Shutdown hook for runtime facilities.
 

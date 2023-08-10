@@ -184,7 +184,6 @@ from .raptor import coro_get_scheduler
 from .task import submit
 from ..store import FileStore
 from ..execution import AbstractWorkflowUpdater
-from ..identifiers import EphemeralIdentifier
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -410,54 +409,6 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         # TODO: Note the expected scope of the runner_task lifetime with respect to
         #  the global state changes (i.e. ContextVars and locks).
         return runner_task
-
-    @staticmethod
-    async def cpi(command: str, raptor: rp.raptor_tasks.Raptor):
-        """Send a control command to the raptor scheduler.
-
-        Implements :py:func:`scalems.execution.RuntimeManager.cpi()`
-
-        TODO: Unify with new raptor cpi feature.
-        """
-        timeout = 180
-
-        logger.debug(f'Received command "{command}" for runtime {raptor}.')
-        if raptor is None or raptor.state in rp.FINAL:
-            raise scalems.exceptions.ScopeError("Cannot issue control commands without an active Raptor session.")
-        logger.debug(f"Preparing command for {repr(raptor)}.")
-        assert raptor.uid
-        message = scalems.messages.Control.create(command)
-        td = rp.TaskDescription(
-            from_dict={
-                "raptor_id": raptor.uid,
-                "mode": scalems.radical.raptor.CPI_MESSAGE,
-                "metadata": message.encode(),
-                "uid": EphemeralIdentifier(),
-            }
-        )
-        logger.debug(f"Submitting {str(td.as_dict())}")
-        (task,) = await asyncio.to_thread(raptor.submit_tasks, [td])
-        logger.debug(f"Submitted {str(task.as_dict())}. Waiting...")
-        # Warning: we can't wait on the final state of such an rp.Task unless we
-        # _also_ watch the scheduler itself, because there are various circumstances
-        # in which the Task may never reach a rp.FINAL state.
-
-        command_watcher = asyncio.create_task(
-            asyncio.to_thread(task.wait, state=rp.FINAL, timeout=timeout), name="cpi-watcher"
-        )
-
-        raptor_watcher = asyncio.create_task(
-            asyncio.to_thread(raptor.wait, state=rp.FINAL, timeout=timeout), name="raptor-watcher"
-        )
-        # If raptor task fails, command-watcher will never complete.
-        done, pending = await asyncio.wait(
-            (command_watcher, raptor_watcher), timeout=timeout, return_when=asyncio.FIRST_COMPLETED
-        )
-        if raptor_watcher in done and command_watcher in pending:
-            command_watcher.cancel()
-        logger.debug(str(task.as_dict()))
-        # WARNING: Dropping the Task reference will cause its deletion.
-        return command_watcher
 
     def runtime_shutdown(self, runtime: RuntimeSession):
         """Manage tear down of the RADICAL Pilot Session and resources.

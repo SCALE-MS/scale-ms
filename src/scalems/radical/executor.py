@@ -22,10 +22,10 @@ from typing_extensions import ParamSpec
 
 import radical.pilot as rp
 
+import scalems.cpi
 import scalems.execution
 from scalems.exceptions import MissingImplementationError
 from scalems.identifiers import EphemeralIdentifier
-from scalems.messages import Control
 from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.manager import RuntimeManager
 from scalems.radical.raptor import launch_scheduler
@@ -232,7 +232,7 @@ def _run_queue(*, work_queue, executor_reference, raptor: rp.raptor_tasks.Raptor
                 from_dict={
                     "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": Control.create("stop").encode(),
+                    "metadata": scalems.cpi.to_raptor_task_metadata(scalems.cpi.stop()),
                     "uid": EphemeralIdentifier(),
                 }
             )
@@ -330,7 +330,7 @@ def manage_raptor(
                 from_dict={
                     "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": Control.create("stop").encode(),
+                    "metadata": scalems.cpi.to_raptor_task_metadata(scalems.cpi.stop()),
                     "uid": EphemeralIdentifier(),
                 }
             )

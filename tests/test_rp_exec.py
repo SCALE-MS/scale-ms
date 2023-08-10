@@ -14,7 +14,6 @@ SIGINT in the interpreter process.
 
 import asyncio
 import dataclasses
-import json
 import os
 import typing
 from subprocess import CompletedProcess
@@ -26,6 +25,7 @@ import pytest
 import scalems
 import scalems.call
 import scalems.context
+import scalems.cpi
 import scalems.execution
 import scalems.identifiers
 import scalems.messages
@@ -200,7 +200,7 @@ async def test_raptor_master(pilot_description, rp_venv):
                 from_dict={
                     "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": scalems.messages.HelloCommand().encode(),
+                    "metadata": scalems.cpi.to_raptor_task_metadata(scalems.cpi.hello()),
                     "uid": f"command-hello-{scalems.identifiers.EphemeralIdentifier()}",
                 }
             )
@@ -219,7 +219,7 @@ async def test_raptor_master(pilot_description, rp_venv):
                 from_dict={
                     "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": scalems.messages.Control.create("stop").encode(),
+                    "metadata": scalems.cpi.to_raptor_task_metadata(scalems.cpi.stop()),
                     "uid": f"command-stop--{scalems.identifiers.EphemeralIdentifier()}",
                 }
             )
@@ -326,7 +326,9 @@ async def test_worker(pilot_description, rp_venv):
             add_item_task_description.cpu_processes = 1
             add_item_task_description.cpu_process_type = (rp.SERIAL,)
             add_item_task_description.mode = scalems.radical.raptor.CPI_MESSAGE
-            add_item_task_description.metadata = scalems.messages.AddItem.create(json.dumps(work_item)).encode()
+            cpi_call = scalems.cpi.add_item(work_item)
+            add_item_task_description.metadata = scalems.cpi.to_raptor_task_metadata(cpi_call)
+
             # TODO: Let this be the responsibility of the submitter internals.
             if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
                 add_item_task_description.environment["SCALEMS_COVERAGE"] = "TRUE"

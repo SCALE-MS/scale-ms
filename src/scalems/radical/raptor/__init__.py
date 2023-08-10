@@ -275,7 +275,6 @@ import tempfile
 import traceback
 import typing
 import warnings
-import weakref
 import zlib
 from contextlib import ContextDecorator
 from importlib.machinery import ModuleSpec
@@ -284,6 +283,7 @@ from collections.abc import Generator
 
 import packaging.version
 
+import scalems.cpi
 from scalems.identifiers import EphemeralIdentifier
 from scalems.store import FileStore
 
@@ -349,9 +349,11 @@ Used in the :py:attr:`~radical.pilot.TaskDescription.mode` field to indicate tha
 object should be handled through the SCALEMS Compute Provider Interface machinery.
 """
 
+_CpiCommandT = typing.TypeVar("_CpiCommandT", bound="CpiCommand")
+
 
 class CpiCommand(abc.ABC):
-    _registry: typing.MutableMapping[str, typing.Type["CpiCommand"]] = weakref.WeakValueDictionary()
+    _registry = dict[str, typing.Type[_CpiCommandT]]()
 
     @classmethod
     @abc.abstractmethod
@@ -380,18 +382,18 @@ class CpiCommand(abc.ABC):
 
     @typing.final
     @classmethod
-    def get(cls, command: scalems.messages.Command):
-        return CpiCommand._registry[command.__class__.__qualname__]
+    def get(cls, command: str):
+        """Get the class (type object) registered for the named *command*."""
+        return CpiCommand._registry[command]
 
     @classmethod
     @abc.abstractmethod
-    def command_class(cls) -> str:
-        """The qualified name of the associated `scalems.messages` Command class."""
-        ...
+    def _command_name(cls) -> scalems.cpi.CpiOperation:
+        raise NotImplementedError
 
     def __init_subclass__(cls, **kwargs):
         if cls is not CpiCommand:
-            CpiCommand._registry[cls.command_class()] = cls
+            CpiCommand._registry[cls._command_name()] = cls
         super().__init_subclass__(**kwargs)
 
 
@@ -404,8 +406,8 @@ class CpiStop(CpiCommand):
     """
 
     @classmethod
-    def command_class(cls) -> str:
-        return scalems.messages.StopCommand.__qualname__
+    def _command_name(cls) -> scalems.cpi.CpiOperation:
+        return "stop"
 
     @classmethod
     def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
@@ -434,6 +436,10 @@ class CpiHello(CpiCommand):
     """Provide implementation for HelloCommand in RP Raptor."""
 
     @classmethod
+    def _command_name(cls) -> scalems.cpi.CpiOperation:
+        return "hello"
+
+    @classmethod
     def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug("CPI HELLO in progress.")
         task["stderr"] = ""
@@ -449,10 +455,6 @@ class CpiHello(CpiCommand):
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug(f"Finalized {str(task)}.")
 
-    @classmethod
-    def command_class(cls) -> str:
-        return scalems.messages.HelloCommand.__qualname__
-
 
 class CpiAddItem(CpiCommand):
     """Add an item to the managed workflow record.
@@ -462,6 +464,10 @@ class CpiAddItem(CpiCommand):
 
     TBD: Data objects, references to existing data, completed tasks.
     """
+
+    @classmethod
+    def _command_name(cls) -> scalems.cpi.CpiOperation:
+        return "add_item"
 
     @classmethod
     def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
@@ -485,15 +491,14 @@ class CpiAddItem(CpiCommand):
         #  a more aggressive shut down is ordered.
         # submit the task and return its task ID right away,
         # then allow its result to either just be used to
-        #   * trigger dependent work,
-        #   * only appear in the Raptor report, or
-        #   * be available to follow-up LRO status checks.
-        add_item = typing.cast(
-            scalems.messages.AddItem, scalems.messages.Command.decode(task["description"]["metadata"])
-        )
-        encoded_item = add_item.encoded_item
-        # We do not yet use a strongly specified object schema. Just accept a dict.
-        item_dict = json.loads(encoded_item)
+        #   * trigger dependent work (TBD),
+        #   * only appear in the Raptor report (TBD), or
+        #   * be available to follow-up LRO status checks (TBD).
+        # Note that we have not yet implemented the QUERY functionality or tooling
+        # for managing Long Running Operations.
+
+        add_item: scalems.cpi.CpiCall = scalems.cpi.from_raptor_task_metadata(task["description"]["metadata"])
+        item_dict: ScalemsRaptorWorkItem = add_item["operand"]
         # Decouple the serialization schema since it is not strongly specified or robust.
         work_item = ScalemsRaptorWorkItem(
             func=item_dict["func"],
@@ -541,10 +546,6 @@ class CpiAddItem(CpiCommand):
     @classmethod
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug(f"Finalized {str(task)}.")
-
-    @classmethod
-    def command_class(cls) -> str:
-        return scalems.messages.AddItem.__qualname__
 
 
 EncodableAsDict = typing.Mapping[str, "Encodable"]
@@ -1252,11 +1253,11 @@ class ScaleMSRaptor(rp.raptor.Master):
 
             _finalized = False
             try:
-                command = scalems.messages.Command.decode(task["description"]["metadata"])
+                cpi_call: scalems.cpi.CpiCall = scalems.cpi.from_raptor_task_metadata(task["description"]["metadata"])
                 if not self._stopping:
-                    logger.debug(f"Received message {command} in {str(task)}")
+                    logger.debug(f"Received message {cpi_call} in {str(task)}")
 
-                    impl: typing.Type[CpiCommand] = CpiCommand.get(command)
+                    impl: typing.Type[CpiCommand] = CpiCommand.get(cpi_call["operation"])
 
                     # # TODO(#277)
                     # # Check work dependencies. Generate necessary data staging.
@@ -1272,9 +1273,9 @@ class ScaleMSRaptor(rp.raptor.Master):
                     _finalized = impl.launch(self, task)
                 else:
                     # Note that, depending on the progress of `self.stop()`, the Task
-                    # may never progress from the client perspective.
-                    logger.error(f"Ignoring command {command} since STOP has already been issued.")
-                    # TODO: Encapsulate a response message type.
+                    # may never progress, from the client perspective.
+                    logger.error(f"Ignoring command {cpi_call} since STOP has already been issued.")
+                    # TODO: Encapsulate a response message type and error variant.
                     task["return_value"] = False
                     self._result_cb(task)
                     _finalized = True
@@ -1305,10 +1306,12 @@ class ScaleMSRaptor(rp.raptor.Master):
             mode = task["description"]["mode"]
             # Allow non-scalems work to be handled normally.
             if mode == CPI_MESSAGE:
-                command = scalems.messages.Command.decode(task["description"]["metadata"])
-                logger.debug(f"Finalizing {command} in {str(task)}")
+                cpi_call: scalems.cpi.CpiCall = scalems.cpi.from_raptor_task_metadata(task["description"]["metadata"])
 
-                impl: typing.Type[CpiCommand] = CpiCommand.get(command)
+                # command = scalems.messages.Command.decode(task["description"]["metadata"])
+                logger.debug(f"Finalizing {cpi_call} in {str(task)}")
+
+                impl: typing.Type[CpiCommand] = CpiCommand.get(cpi_call["operation"])
                 impl.result_hook(self, task)
 
             # # Release dependent tasks.

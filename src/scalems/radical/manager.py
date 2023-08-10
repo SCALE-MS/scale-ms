@@ -21,6 +21,7 @@ from time import monotonic as monotonic
 
 from radical import pilot as rp
 
+import scalems.cpi
 import scalems.exceptions
 import scalems.execution
 import scalems.messages
@@ -29,7 +30,6 @@ import scalems.workflow
 import scalems.radical.raptor
 from scalems.exceptions import DispatchError
 from scalems.identifiers import EphemeralIdentifier
-from scalems.messages import Control
 from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.runtime_configuration import get_pre_exec
 from scalems.radical.runtime_configuration import RuntimeConfiguration
@@ -169,14 +169,12 @@ class CommandItem:
     Used internally to support :py:func:`RuntimeManager.cpi()`
     """
 
-    # TODO: Normalize encodable CPI transation data model.
-    # message: scalems.messages.Command
-    message: str
+    message: scalems.cpi.CpiCall
     future: concurrent.futures.Future[CPIResult]
 
-    def __init__(self, future: concurrent.futures.Future, *, message: str):
+    def __init__(self, future: concurrent.futures.Future, *, cpi_call: scalems.cpi.CpiCall):
         self.future = future
-        self.message = message
+        self.message = cpi_call
 
     def run(self, raptor: rp.raptor_tasks.Raptor):
         """Set up the Tasks necessary to fulfill the Future."""
@@ -186,12 +184,12 @@ class CommandItem:
             if raptor is None or raptor.state in rp.FINAL:
                 raise scalems.exceptions.ScopeError("Cannot issue control commands without an active Raptor session.")
             logger.debug(f"Preparing command for {repr(raptor)}.")
-            message = scalems.messages.Control.create(self.message)
+            message = scalems.cpi.to_raptor_task_metadata(self.message)
             task_description = rp.TaskDescription(
                 from_dict={
                     "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": message.encode(),
+                    "metadata": message,
                     "uid": EphemeralIdentifier(),
                 }
             )
@@ -248,8 +246,8 @@ def _cpi_task_callback(task: rp.Task, state, *, future: concurrent.futures.Futur
             # just throw one here.
             # This stack trace is as good as any.
             try:
-                command = scalems.messages.Command.decode(task.description["metadata"])
-                raise CPIException(f"CPI call {task.uid} failed to process command {command}")
+                cpi_call = scalems.cpi.from_raptor_task_metadata(task.description["metadata"])
+                raise CPIException(f"CPI call {task.uid} failed to process command {cpi_call}")
             except Exception as e:
                 future.set_exception(e)
                 # There may be other circular references through the exception
@@ -546,7 +544,7 @@ class RuntimeManager:
             if resource_token is not None:
                 self.release(resource_token)
 
-    async def cpi(self, session: CPISession, command: str, *args, **kwargs):
+    async def cpi(self, session: CPISession, cpi_call: scalems.cpi.CpiCall):
         """Send a control command to the raptor scheduler.
 
         Replaces :py:func:`scalems.execution.RuntimeManager.cpi()`
@@ -565,7 +563,7 @@ class RuntimeManager:
             # in the CommandItem. Register any necessary bookkeeping callbacks to the Future.
             # Enqueue the CommandItem and return a reference to the Future.
             # CommandItem can be discarded by the queue processor once its Future has a handler.
-            logger.debug(f'Received command "{command}" for session {raptor_id}.')
+            logger.debug(f'Received command "{cpi_call}" for session {raptor_id}.')
 
             # TODO: Ref Executor.submit() for appropriate locking pattern.
             cpi_runner = self._cpi_sessions[raptor_id].runner
@@ -574,7 +572,7 @@ class RuntimeManager:
             cpi_future = concurrent.futures.Future()
             # TODO: Add some bookkeeping callbacks.
 
-            queue_item = CommandItem(future=cpi_future, message=command)
+            queue_item = CommandItem(future=cpi_future, cpi_call=cpi_call)
             await asyncio.to_thread(cpi_queue.put, queue_item)
 
             # TODO: Ref Executor.submit() for appropriate health checks.
@@ -912,7 +910,7 @@ def _shutdown_raptor(cpi_session: CPISession):
             from_dict={
                 "raptor_id": raptor.uid,
                 "mode": scalems.radical.raptor.CPI_MESSAGE,
-                "metadata": Control.create("stop").encode(),
+                "metadata": scalems.cpi.to_raptor_task_metadata(scalems.cpi.stop()),
                 "uid": EphemeralIdentifier(),
             }
         )
@@ -1013,7 +1011,7 @@ def _run_queue(
                 from_dict={
                     "raptor_id": raptor.uid,
                     "mode": scalems.radical.raptor.CPI_MESSAGE,
-                    "metadata": Control.create("stop").encode(),
+                    "metadata": scalems.cpi.to_raptor_task_metadata(scalems.cpi.stop()),
                     "uid": EphemeralIdentifier(),
                 }
             )

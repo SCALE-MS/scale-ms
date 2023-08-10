@@ -1,30 +1,22 @@
 """Test the scalems CPI helpers and metaprogramming utilities.
 
+May cover both the `scalems.messages` and `scalems.cpi` modules.
+
 TODO: reconcile and merge with test_datamodel.py
 """
 
-import json
 import logging
-import typing
 
-from scalems.messages import Command, StopCommand, Control
+from scalems.cpi import stop, to_raptor_task_metadata, from_raptor_task_metadata
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
 
 
-def test_serialization():
-    cmd = StopCommand()
-    serialized = json.dumps(cmd.encode())
-    obj: dict = json.loads(serialized)
-    assert "control" in obj.keys()
-    assert obj["control"] == "stop"
-
-
-def test_deserialization():
-    serialized_stop = '{"control": "stop"}'
-    # Unless/until we embrace typing Literals, there is nto really a way to hint
-    # the type narrowing of a string-based registration scheme in Command.decode().
-    cmd = typing.cast(Control, Command.decode(json.loads(serialized_stop)))
-    assert cmd.key == "control"
-    assert cmd.message == "stop"
+def test_encoding():
+    cmd = stop()
+    encoded = to_raptor_task_metadata(cmd)
+    obj: dict = from_raptor_task_metadata(encoded)
+    assert obj["operation"] == "stop"
+    assert obj["operand"] is None
+    # TODO: Test more elaborate message structures.

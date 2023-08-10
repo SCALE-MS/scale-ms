@@ -133,23 +133,10 @@ def _launch_raptor(executor: RPExecutor, worker_requirements):
         del runtime_manager
     raptor_pre_exec = executor.raptor_pre_exec()
 
-    # TODO(#335): Separate Worker config from Master launch.
-    if worker_requirements is None:
-        ranks_per_worker = 1
-        cores_per_rank = 1
-        gpus_per_rank = 0
-    else:
-        ranks_per_worker = max(reqs.get("ranks", reqs.get("cpu_processes", 1)) for reqs in worker_requirements)
-        cores_per_rank = max(reqs.get("cores_per_rank", reqs.get("cpu_threads", 1)) for reqs in worker_requirements)
-        gpus_per_rank = max(reqs.get("gpus_per_rank", 0) for reqs in worker_requirements)
     # Warning: was the datastore lifetime management designed to be thread-safe or do we need a lock?
     f = asyncio.run_coroutine_threadsafe(
         raptor_input(
             filestore=datastore,
-            worker_pre_exec=list(raptor_pre_exec),
-            ranks_per_worker=ranks_per_worker,
-            cores_per_rank=cores_per_rank,
-            gpus_per_rank=gpus_per_rank,
         ),
         loop=event_loop,
     )

@@ -104,10 +104,12 @@ async def test_runtime_context_management(rp_venv, pilot_description):
 
     workflow = scalems.radical.workflow_manager(loop)
     with scalems.workflow.scope(workflow, close_on_exit=True):
-        async with scalems.radical.manager.launch(workflow, runtime_config):
+        async with scalems.radical.manager.launch(workflow_manager=workflow, runtime_configuration=runtime_config):
             # Test for clean shutdown in trivial case.
             ...
-        async with scalems.radical.manager.launch(workflow, runtime_config) as runtime_manager:
+        async with scalems.radical.manager.launch(
+            workflow_manager=workflow, runtime_configuration=runtime_config
+        ) as runtime_manager:
             rm_info: dict = await runtime_manager.runtime_session.resources
             assert rm_info["requested_cores"] >= pilot_description.cores
             # Get a non-raptor (CLI executable) context.

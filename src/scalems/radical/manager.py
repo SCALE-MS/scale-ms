@@ -13,7 +13,9 @@ import os
 import threading
 import typing
 import weakref
-from time import monotonic as _time
+from time import monotonic as monotonic
+
+from radical import pilot as rp
 
 import scalems.exceptions
 import scalems.execution
@@ -27,9 +29,6 @@ from scalems.radical.runtime_configuration import RuntimeConfiguration
 from scalems.radical.session import runtime_session
 from scalems.radical.session import RuntimeSession
 from scalems.store import FileStore
-
-if typing.TYPE_CHECKING:
-    from radical import pilot as rp
 
 logger = logging.getLogger(__name__)
 logger.debug("Importing {}".format(__name__))
@@ -98,6 +97,14 @@ class RuntimeManager:
 
     The RuntimeManager implements the Computing Provider Interface (CPI) for SCALE-MS
     calls to the runtime provider.`
+
+    The context provided by the RuntimeManager to the ScalemsExecutor is intended
+    to be analogous to the multiprocessing context used by
+    `concurrent.futures.ProcessPoolExecutor`. The RuntimeManager itself
+    acts like a sort of ResourcePoolExecutor in which the ScalemsExecutor is nested,
+    but RuntimeManager is actually modeled more closely on :py:class:`asyncio.Server`.
+
+    Instead of instantiating RuntimeManager directly, use :py:func:`launch()`.
     """
 
     runtime_configuration: RuntimeConfiguration
@@ -164,7 +171,10 @@ class RuntimeManager:
     ):
         """Lock resources from the RuntimeManager, such as for a RPExecutor.
 
-        Blocks blocks the current thread until the resource becomes available.
+        Warnings:
+            Blocks blocks the current thread until the resource becomes available.
+            (Consider dispatching through a `concurrent.futures.ThreadPoolExecutor`,
+            such as with `asyncio.to_thread`.)
 
         Returns:
             ResourceToken that MUST be provided to a `release()` method call to return resource to the pool.
@@ -172,7 +182,7 @@ class RuntimeManager:
         # Optional limit on remaining time to wait
         wait_time = timeout
         if wait_time is not None:
-            end_time = _time() + wait_time
+            end_time = monotonic() + wait_time
         else:
             end_time = None
         with self.shutdown_lock():
@@ -182,7 +192,7 @@ class RuntimeManager:
                 if threading.current_thread() == threading.main_thread():
                     raise scalems.exceptions.APIError(
                         "RuntimeManager.acquire() may only be called in the main (event loop) thread "
-                        "after RuntimeSession.resources.done() is True."
+                        "after RuntimeSession.resources.done() is True. (Use a ThreadPoolExecutor instead.)"
                     )
                 wait_for_resources = asyncio.run_coroutine_threadsafe(
                     asyncio.wait_for(self.runtime_session.resources, timeout), self._loop
@@ -197,7 +207,7 @@ class RuntimeManager:
                 interval = 30
                 while not cv.wait_for(lambda: self._resource_pool["pilot_cores"] >= cores, timeout=interval):
                     if wait_time is not None:
-                        wait_time = end_time - _time()
+                        wait_time = end_time - monotonic()
                         if wait_time <= 0:
                             raise scalems.exceptions.DispatchError(
                                 f"Requested resources cannot be acquired in {timeout} seconds."
@@ -420,7 +430,7 @@ class RuntimeManager:
 
 @contextlib.asynccontextmanager
 async def launch(
-    workflow_manager: scalems.workflow.WorkflowManager, runtime_configuration: RuntimeConfiguration
+    *, workflow_manager: scalems.workflow.WorkflowManager, runtime_configuration: RuntimeConfiguration
 ) -> RuntimeManager:
     """Get a runtime execution context for the managed workflow.
 
@@ -484,10 +494,6 @@ async def launch(
             return
         # TODO: Check that we have a FileStore.
 
-        # Note: the current implementation implies that only one Task for the dispatcher
-        # will exist at a time. We are further assuming that there will probably only
-        # be one Task per the lifetime of the dispatcher object.
-        # We could choose another approach and change our assumptions, if appropriate.
         logger.debug("Entering RP dispatching context. Waiting for rp.Session.")
 
         # Note that any thread-dispatched creation functions or other subtasks

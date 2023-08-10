@@ -40,7 +40,6 @@ else:
     minimum_scalems_version = client_scalems_version.base_version
 
 
-@pytest.mark.experimental
 def test_master_configuration_details(rp_venv):
     """Test the details needed to launch the raptor script.
 
@@ -61,29 +60,25 @@ def test_master_configuration_details(rp_venv):
     # does not exist and is not scheduled to be created with `prepare_env`.
     # However, we are not currently using `named_env`. See #90.
     configuration = RaptorConfiguration(
-        worker=ClientWorkerRequirements(
-            named_env="scalems_test_ve",
-            cpu_processes=worker_processes,
-            cores_per_process=1,
-            gpus_per_rank=gpus_per_process,
-        ),
         versioned_modules=list(versioned_modules),
     )
-    # Note: *named_env* is unused, pending work on #90 and others.
 
     conf_dict: scalems.radical.raptor._RaptorConfigurationDict = dataclasses.asdict(configuration)
     configuration = RaptorConfiguration.from_dict(conf_dict)
     assert configuration.versioned_modules == list(versioned_modules)
-    assert configuration.worker.named_env == "scalems_test_ve"
 
     encoded = json.dumps(configuration, default=object_encoder, indent=2)
     configuration = scalems.radical.raptor.RaptorConfiguration.from_dict(json.loads(encoded))
     assert configuration.versioned_modules == [list(module_spec) for module_spec in versioned_modules]
-    assert configuration.worker.named_env == "scalems_test_ve"
 
     with pytest.warns(match="raptor.Master base class"):
         master = ScaleMSRaptor(configuration)
-    with master.configure_worker(configuration.worker) as worker_configs:
+    # Note: *named_env* is unused, pending work on #90 and others.
+    worker_requirements = ClientWorkerRequirements(
+        named_env="scalems_test_ve", cpu_processes=worker_processes, cores_per_process=1, gpus_per_rank=gpus_per_process
+    )
+
+    with master.configure_worker(worker_requirements) as worker_configs:
         assert len(worker_configs) == num_workers
         for descr in worker_configs:
             descr: WorkerDescription

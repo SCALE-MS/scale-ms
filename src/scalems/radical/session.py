@@ -58,12 +58,14 @@ class RuntimeSession:
         if not isinstance(session, rp.Session) or session.closed:
             raise ValueError("*session* must be an active RADICAL Pilot Session.")
         self._session = session
+        # TODO(#359,#383): Call session.close in a ThreadPoolExecutor that we use for RP UI calls.
         self._session_finalizer = weakref.finalize(self, session.close)
         if loop.is_closed():
             raise ValueError("*loop* must be an active event loop.")
         # Note: loop.is_running() may not yet return True if no coroutines have been awaited.
         self._loop = loop
         self._configuration = configuration
+        self._new_pilot_lock = threading.Lock()
 
     def __repr__(self):
         if session := self._session:
@@ -99,33 +101,40 @@ class RuntimeSession:
         """
 
         # De-initialize state: reset data members to class defaults.
+        with self._new_pilot_lock:
+            if self.resources is not None and not self.resources.done():
+                if threading.main_thread() == threading.current_thread():
+                    self.resources.cancel()
+                else:
+                    self._loop.call_soon_threadsafe(self.resources.cancel)
 
-        if self.resources is not None and not self.resources.done():
-            if threading.main_thread() == threading.current_thread():
-                self.resources.cancel()
-            else:
-                self._loop.call_soon_threadsafe(self.resources.cancel)
+            if self._pilot is not None:
+                del self._pilot
+            if self._task_manager is not None:
+                del self._task_manager
+            if self._pilot_manager is not None:
+                del self._pilot_manager
 
-        if self._pilot is not None:
-            del self._pilot
-        if self._task_manager is not None:
-            del self._task_manager
-        if self._pilot_manager is not None:
-            del self._pilot_manager
-
-        # Note: there are no documented exceptions or errors to check for,
-        # programmatically. Some issues encountered during shutdown will be
-        # reported through the reporter or logger of the
-        # radical.pilot.utils.component.Component base.
-        # The RP convention seems to be to use the component uid as the name
-        # of the underlying logging.Logger node, so we could presumably attach
-        # a log handler to the logger for a component of interest.
-        logger.debug(f"Closing Session {self.session.uid}.")
-        with warnings.catch_warnings():
-            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
-            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
-            warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
-            self.session.close(download=True)
+            # Note: there are no documented exceptions or errors to check for,
+            # programmatically. Some issues encountered during shutdown will be
+            # reported through the reporter or logger of the
+            # radical.pilot.utils.component.Component base.
+            # The RP convention seems to be to use the component uid as the name
+            # of the underlying logging.Logger node, so we could presumably attach
+            # a log handler to the logger for a component of interest.
+            logger.debug(f"Closing Session {self.session.uid}.")
+            with warnings.catch_warnings():
+                warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.task_manager")
+                warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.db.database")
+                warnings.filterwarnings("ignore", category=DeprecationWarning, module="radical.pilot.session")
+                # TODO: let rp.Session.close run in a separate thread.
+                # Note: One option to avoid allocating new threads during shutdown is
+                # to wrap the session at creation time in a Task that calls close()
+                # when it catches an Exception or an Event.
+                # TODO: Wrap asyncio.to_thread for RP calls to get some accounting of how many
+                #  rp UI calls are pending and how many threads are being used for rp UI calls.
+                # TODO: Use a single thread to serialize rp UI calls?
+                self.session.close(download=True)
 
         self._session_finalizer()
         del self._session_finalizer
@@ -281,39 +290,42 @@ class RuntimeSession:
         Raises:
             APIError: for invalid RP Session configuration.
         """
-        pilot_manager = self.pilot_manager()
-        if not pilot_manager:
-            raise APIError("Cannot get/set Pilot before setting PilotManager.")
+        with self._new_pilot_lock:
+            if self.session.closed:
+                raise APIError("Session is already closed.")
+            pilot_manager = self.pilot_manager()
+            if not pilot_manager:
+                raise APIError("Cannot get/set Pilot before setting PilotManager.")
 
-        pilot = self._pilot
+            pilot = self._pilot
 
-        if pilot is None or pilot.state in rp.FINAL:
-            if pilot is None:
-                logger.info(f"Creating a Pilot for {self.session.uid}")
-            else:
-                assert isinstance(pilot, rp.Pilot)
-                logger.info(f"Old Pilot {pilot.uid} in state {pilot.state}")
-            pilot_description = describe_pilot(self._configuration)
+            if pilot is None or pilot.state in rp.FINAL:
+                if pilot is None:
+                    logger.info(f"Creating a Pilot for {self.session.uid}")
+                else:
+                    assert isinstance(pilot, rp.Pilot)
+                    logger.info(f"Old Pilot {pilot.uid} in state {pilot.state}")
+                pilot_description = describe_pilot(self._configuration)
 
-            logger.debug("Requesting Pilot: {}".format(repr(pilot_description.as_dict())))
-            task_manager = self.task_manager()
-            if not task_manager:
-                raise APIError("Cannot get/set Pilot before setting TaskManager.")
+                logger.debug("Requesting Pilot: {}".format(repr(pilot_description.as_dict())))
+                task_manager = self.task_manager()
+                if not task_manager:
+                    raise APIError("Cannot get/set Pilot before setting TaskManager.")
 
-            pilot = self._new_pilot(
-                session=self.session,
-                pilot_manager=pilot_manager,
-                pilot_description=pilot_description,
-                task_manager=task_manager,
-            )
-            logger.debug(f"Got Pilot {pilot.uid}: {pilot.as_dict()}")
+                pilot = self._new_pilot(
+                    session=self.session,
+                    pilot_manager=pilot_manager,
+                    pilot_description=pilot_description,
+                    task_manager=task_manager,
+                )
+                logger.debug(f"Got Pilot {pilot.uid}: {pilot.as_dict()}")
 
-            # Note: This could take hours or days depending on the queuing system.
-            # Can we report some more useful information, like job ID?
-            # self.resources = self._loop.create_task(pilot_resources(pilot), name="Pilot resources")
-            self.resources = asyncio.create_task(get_pilot_resources(pilot), name="Pilot resources")
+                # Note: This could take hours or days depending on the queuing system.
+                # Can we report some more useful information, like job ID?
+                # self.resources = self._loop.create_task(pilot_resources(pilot), name="Pilot resources")
+                self.resources = asyncio.create_task(get_pilot_resources(pilot), name="Pilot resources")
 
-            self._pilot = pilot
+                self._pilot = pilot
         # Do some checking.
         session = pilot.session
         assert isinstance(session, rp.Session)
@@ -385,7 +397,7 @@ async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> 
         name="get-TaskManager",
     )
     task_manager = runtime.task_manager(task_manager)
-    logger.debug(("Got TaskManager {}".format(task_manager.uid)))
+    logger.debug("Got TaskManager {}".format(task_manager.uid))
 
     #
     # Get a Pilot

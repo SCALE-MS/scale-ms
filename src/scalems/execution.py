@@ -346,15 +346,6 @@ class RuntimeManager(typing.Generic[_BackendT, _RuntimeType], abc.ABC):
     def configuration(self) -> _BackendT:
         return self._runtime_configuration
 
-    @staticmethod
-    async def cpi(command: str, runtime):
-        """Dispatcher for CPI messages.
-
-        TODO: Return value? We probably want to be able to capture something we can
-            query for the result of the CPI message.
-        """
-        logger.debug(f"Null CPI handler received command {command}.")
-
     def runtime_shutdown(self, runtime):
         """Shutdown hook for runtime facilities.
 
@@ -657,8 +648,9 @@ async def dispatch(workflow_manager, *, executor_factory, queuer: "Queuer" = Non
         else:
             if not queuer.queue().empty():
                 logger.error(
-                    "Queuer finished while items remain in dispatcher queue. "
-                    "Approximate size: {}".format(queuer.queue().qsize())
+                    "Queuer finished while items remain in dispatcher queue. Approximate size: {}".format(
+                        queuer.queue().qsize()
+                    )
                 )
 
         executor_exception = executor.exception()
@@ -777,6 +769,10 @@ async def manage_execution(executor: RuntimeManager, *, processing_state: asynci
                 logger.debug(f"Execution manager received {command['control']} command for {runtime}.")
                 try:
                     # TODO(#335): We have to update this model.
+                    # The RuntimeSession no longer has a single Raptor task as an optional member.
+                    # We _could_ use a contextvars.ContextVar module attribute to hold a
+                    # scoped currently-active Raptor task, but the model of Raptor management
+                    # currently evolving just doesn't work the same as the old strategy.
                     # await executor.cpi(command["control"], runtime)
                     logger.debug(f"This code path ignores control commands. Dropping {command['control']}.")
                 except scalems.exceptions.ScopeError as e:

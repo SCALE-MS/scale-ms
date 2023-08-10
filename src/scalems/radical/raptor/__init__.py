@@ -284,7 +284,6 @@ from collections.abc import Generator
 
 import packaging.version
 
-from scalems.exceptions import DispatchError
 from scalems.identifiers import EphemeralIdentifier
 from scalems.store import FileStore
 

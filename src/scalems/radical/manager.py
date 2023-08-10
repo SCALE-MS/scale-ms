@@ -123,7 +123,7 @@ class CPISession:
     broken: threading.Event = dataclasses.field(default_factory=threading.Event)
     stop: threading.Event = dataclasses.field(default_factory=threading.Event)
     """Whether the CPI Session has been directed to STOP.
-    
+
     It may be appropriate to expand this attribute into a complete state machine.
     """
 

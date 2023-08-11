@@ -272,6 +272,7 @@ import os
 import pathlib
 import sys
 import tempfile
+import traceback
 import typing
 import warnings
 import weakref
@@ -283,7 +284,6 @@ from collections.abc import Generator
 
 import packaging.version
 
-from scalems.exceptions import DispatchError
 from scalems.identifiers import EphemeralIdentifier
 from scalems.store import FileStore
 
@@ -355,17 +355,28 @@ class CpiCommand(abc.ABC):
 
     @classmethod
     @abc.abstractmethod
-    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
+    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary) -> bool:
         """Process the RP Task as a CPI Command.
 
         Called in ScaleMSRaptor.request_cb().
+
+        Returns:
+            True if `manager.cpi_finalize()` was called, else False.
         """
+        # Developer note: when overriding, be sure to implement correct return value
+        # logic, even though it is not initially clear why we would want to return False.
         ...
 
     @classmethod
     @abc.abstractmethod
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
-        """Called during Master.result_cb."""
+        """Called during Master.result_cb.
+
+        Triggered by `manager.cpi_finalize()` in the request_cb thread when
+        launched in response to a client message. In the initial implementation,
+        we are not aware of a use case in which the CpiCommand will be popped
+        off of the results queue in the normal result_cb thread.
+        """
 
     @typing.final
     @classmethod
@@ -398,6 +409,7 @@ class CpiStop(CpiCommand):
 
     @classmethod
     def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
+        manager._stopping = True
         logger.debug("CPI STOP issued.")
         # TODO: Cleaner shutdown.
         # * Mark the Raptor as "shutting down".
@@ -408,9 +420,12 @@ class CpiStop(CpiCommand):
         task["stdout"] = "CPI STOP received"
         task["exit_code"] = 0
         manager.cpi_finalize(task)
+        return True
 
     @classmethod
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
+        # TODO: Refine the state machine of the CPI Session.
+        # We probably need to distinguish between a clean stop and a harder stop.
         manager.stop()
         logger.debug(f"Finalized {str(task)}.")
 
@@ -428,6 +443,7 @@ class CpiHello(CpiCommand):
         task["return_value"] = dataclasses.asdict(backend_version)
         logger.debug("Finalizing...")
         manager.cpi_finalize(task)
+        return True
 
     @classmethod
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
@@ -520,6 +536,7 @@ class CpiAddItem(CpiCommand):
         task["stdout"] = scalems_task_id
         task["exit_code"] = 0
         manager.cpi_finalize(task)
+        return True
 
     @classmethod
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
@@ -1119,6 +1136,8 @@ class ScaleMSRaptor(rp.raptor.Master):
         # TODO: Use a scalems RuntimeManager.
         self.__worker_files = {}
 
+        self._stopping = False
+
     @contextlib.contextmanager
     def configure_worker(self, requirements: ClientWorkerRequirements) -> Generator[RaptorWorkerConfig, None, None]:
         """Scoped temporary module file for raptor worker.
@@ -1224,16 +1243,17 @@ class ScaleMSRaptor(rp.raptor.Master):
 
     def _scalems_handle_requests(self, tasks: typing.Sequence[TaskDictionary]):
         for task in tasks:
+            mode = task["description"]["mode"]
+            # Allow non-scalems work to be handled normally.
+            if mode != CPI_MESSAGE:
+                logger.debug(f"Deferring {str(task)} to regular RP handling.")
+                yield task
+                continue
+
             _finalized = False
             try:
-                mode = task["description"]["mode"]
-                # Allow non-scalems work to be handled normally.
-                if mode != CPI_MESSAGE:
-                    logger.debug(f"Deferring {str(task)} to regular RP handling.")
-                    yield task
-                    continue
-                else:
-                    command = scalems.messages.Command.decode(task["description"]["metadata"])
+                command = scalems.messages.Command.decode(task["description"]["metadata"])
+                if not self._stopping:
                     logger.debug(f"Received message {command} in {str(task)}")
 
                     impl: typing.Type[CpiCommand] = CpiCommand.get(command)
@@ -1249,9 +1269,14 @@ class ScaleMSRaptor(rp.raptor.Master):
                     # self._workload.add(task)
                     # ...
 
-                    impl.launch(self, task)
-                    # Note: this _finalized flag is immediately useless for non-Control commands.
-                    # TODO: We need more task state maintenance, probably with thread-safety.
+                    _finalized = impl.launch(self, task)
+                else:
+                    # Note that, depending on the progress of `self.stop()`, the Task
+                    # may never progress from the client perspective.
+                    logger.error(f"Ignoring command {command} since STOP has already been issued.")
+                    # TODO: Encapsulate a response message type.
+                    task["return_value"] = False
+                    self._result_cb(task)
                     _finalized = True
             except Exception as e:
                 # Exceptions here are presumably bugs in scalems or RP.
@@ -1260,7 +1285,10 @@ class ScaleMSRaptor(rp.raptor.Master):
                 # 2. Make sure that task is resolved.
                 # 3. Trigger clean shut down of raptor task.
                 if not _finalized:
-                    # TODO: Mark failed, or note exception
+                    if not task["exception"]:
+                        task["exception"] = repr(e)
+                        task["exception_detail"] = traceback.format_exc()
+                    # TODO: Mark failed with appropriate CPI response message instance
                     self._result_cb(task)
                 raise e
 
@@ -1807,22 +1835,6 @@ async def coro_get_scheduler(
     await _task
     raptor: rp.raptor_tasks.Raptor = _task.result()[0]
 
-    # WARNING: rp.Task.wait() *state* parameter does not handle tuples, but does not
-    # check type.
-    _task = asyncio.create_task(
-        asyncio.to_thread(raptor.wait, state=[rp.states.AGENT_EXECUTING] + rp.FINAL),
-        name="check-Master-started",
-    )
-    await _task
-    logger.debug(f"Scheduler {raptor.uid} in state {raptor.state}.")
-    # TODO: Generalize the exit status checker for the Master task and perform this
-    #  this check at the call site.
-    if raptor.state in rp.FINAL:
-        if raptor.stdout or raptor.stderr:
-            logger.error(f"raptor.stdout: {raptor.stdout}")
-            logger.error(f"raptor.stderr: {raptor.stderr}")
-        logger.debug(str(raptor.as_dict()))
-        raise DispatchError(f"Master Task {raptor.uid} unexpectedly reached {raptor.state} during launch.")
     return raptor
 
 

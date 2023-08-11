@@ -1,5 +1,6 @@
 """Test the scalems.radical.runtime module."""
 import asyncio
+import concurrent.futures
 import logging
 import warnings
 
@@ -10,10 +11,10 @@ import radical.utils as ru
 import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
+import scalems.radical.raptor
 import scalems.radical.runtime
 import scalems.radical.session
 from scalems.exceptions import APIError
-import scalems.radical.runtime
 from scalems.radical.exceptions import RPConfigurationError
 from scalems.radical.session import RuntimeSession
 
@@ -76,6 +77,76 @@ async def test_runtime_mismatch(pilot_description, event_loop, rp_configuration)
             tmgr.close()
             pmgr.close()
         assert rp_session.closed
+
+
+@pytest.mark.asyncio
+async def test_raptor_cpi(rp_venv, pilot_description):
+    """Test the Raptor management and implemented CPI calls."""
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip("This test requires a user-provided static RP venv.")
+
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+
+    # Configure execution module.
+    runtime_config = scalems.radical.runtime_configuration.configuration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
+    )
+
+    workflow = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(workflow, close_on_exit=True):
+        async with scalems.radical.manager.launch(
+            workflow_manager=workflow, runtime_configuration=runtime_config
+        ) as runtime_manager:
+            rm_info: dict = await runtime_manager.runtime_session.resources
+            assert rm_info["requested_cores"] >= pilot_description.cores
+            # Get a CPI session (start a Raptor task).
+            cpi = await runtime_manager.get_cpi_session()
+            assert cpi is not None
+            assert runtime_manager._cpi_sessions[cpi.raptor.uid] is cpi
+            hello = runtime_manager.cpi(cpi, "hello")
+            cpi_future: concurrent.futures.Future[scalems.radical.manager.CPIResult] = await hello
+            await asyncio.wrap_future(cpi_future)
+            expected_backend_version = scalems.radical.raptor.backend_version
+            cpi_result = cpi_future.result().return_value
+            found_backend_version = scalems.radical.raptor.BackendVersion(**cpi_result)
+            assert found_backend_version.name == expected_backend_version.name
+            assert found_backend_version.version == expected_backend_version.version
+
+            # Check for correct CPI state machine and fault handling.
+            stop = await runtime_manager.cpi(cpi, "stop")
+            await asyncio.wrap_future(stop)
+            cpi_future = await runtime_manager.cpi(cpi, "hello")
+            # TODO(#383): Let infrastructure set an exception on this un-runnable CPI call.
+            raptor_watcher_task = asyncio.create_task(
+                asyncio.to_thread(cpi.raptor.wait, state=rp.FINAL, timeout=300), name="raptor watcher"
+            )
+            done, pending = await asyncio.wait(
+                (raptor_watcher_task, asyncio.wrap_future(cpi_future)), return_when=asyncio.FIRST_COMPLETED
+            )
+            if cpi_future.done():
+                assert cpi_future.result().return_value is False
+            else:
+                cpi_future.cancel()
+                assert raptor_watcher_task in done
+            for task in pending:
+                task.cancel()
+
+            # Allocate resource for an MPI task (provision a Worker).
+            # Submit a simple task.
+            # Get the task results.
+            # Finalize the session and deallocate resources.
 
 
 @pytest.mark.asyncio

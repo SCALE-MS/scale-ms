@@ -210,7 +210,7 @@ class Control(Command[str], typing.Protocol):
         # Do not call super().__init_subclass__(**kwargs)
 
     @classmethod
-    def create(cls, command: str) -> "Command":
+    def create(cls, command: str) -> Command[str]:
         assert cls is Control
         return cls.__control_type[command]()
 

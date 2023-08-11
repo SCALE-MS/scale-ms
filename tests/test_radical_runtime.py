@@ -8,6 +8,7 @@ import pytest
 import radical.pilot as rp
 import radical.utils as ru
 
+import scalems.cpi
 import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
@@ -109,13 +110,14 @@ async def test_raptor_cpi(rp_venv, pilot_description):
         async with scalems.radical.manager.launch(
             workflow_manager=workflow, runtime_configuration=runtime_config
         ) as runtime_manager:
+            assert isinstance(runtime_manager, scalems.radical.manager.RuntimeManager)
             rm_info: dict = await runtime_manager.runtime_session.resources
             assert rm_info["requested_cores"] >= pilot_description.cores
             # Get a CPI session (start a Raptor task).
             cpi = await runtime_manager.get_cpi_session()
             assert cpi is not None
             assert runtime_manager._cpi_sessions[cpi.raptor.uid] is cpi
-            hello = runtime_manager.cpi(cpi, "hello")
+            hello = runtime_manager.cpi(cpi, scalems.cpi.hello())
             cpi_future: concurrent.futures.Future[scalems.radical.manager.CPIResult] = await hello
             await asyncio.wrap_future(cpi_future)
             expected_backend_version = scalems.radical.raptor.backend_version
@@ -125,9 +127,9 @@ async def test_raptor_cpi(rp_venv, pilot_description):
             assert found_backend_version.version == expected_backend_version.version
 
             # Check for correct CPI state machine and fault handling.
-            stop = await runtime_manager.cpi(cpi, "stop")
+            stop = await runtime_manager.cpi(cpi, scalems.cpi.stop())
             await asyncio.wrap_future(stop)
-            cpi_future = await runtime_manager.cpi(cpi, "hello")
+            cpi_future = await runtime_manager.cpi(cpi, scalems.cpi.hello())
             # TODO(#383): Let infrastructure set an exception on this un-runnable CPI call.
             raptor_watcher_task = asyncio.create_task(
                 asyncio.to_thread(cpi.raptor.wait, state=rp.FINAL, timeout=300), name="raptor watcher"

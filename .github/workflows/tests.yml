@@ -22,10 +22,6 @@ jobs:
         ports:
         # will assign a random free host port
         - 27017/tcp
-    env:
-      GROMACS: v2023.2
-      GMXAPI: "gmxapi"
-      GMX_MPI: "ON"
 
     strategy:
       matrix:
@@ -35,26 +31,8 @@ jobs:
     - name: Prepare OS
       run: |
         sudo apt-get update
-        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libopenmpi-dev libxml2-dev openmpi-bin ninja-build
-    - name: Prepare ccache variables
-      id: ccache_cache
-      run: |
-        echo "timestamp=$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_OUTPUT
-        echo "dir=$(ccache -k cache_dir)" >> $GITHUB_OUTPUT
-    - name: ccache cache files
-      uses: actions/cache@v3
-      with:
-        path: ${{ steps.ccache_cache.outputs.dir }}
-        key: ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-${{ steps.ccache_cache.outputs.timestamp }}
-        restore-keys: |
-          ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-
+        sudo apt-get install libopenmpi-dev libxml2-dev openmpi-bin ninja-build
     - uses: actions/checkout@v3
-    - name: Install GROMACS ${{ env.GROMACS }}
-      run: |
-        ccache -s
-        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
-        BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
-        ccache -s
     - name: Prepare ssh
       # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
       run: |
@@ -95,17 +73,6 @@ jobs:
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         pip freeze
         radical-stack
-    - name: Install gmxapi
-      run: |
-        . $HOME/testenv/bin/activate
-        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
-        pip install -r requirements-gmxapi.txt
-        pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
-        source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
-        pip cache remove gmxapi
-        pip install --verbose "${{ env.GMXAPI }}"
-        python -c "import gmxapi._gmxapi; assert gmxapi._gmxapi.Context()"
-        python -c "import gmxapi; print(gmxapi.__version__)"
     - name: Test local.github with pytest
       timeout-minutes: 20
       env:
@@ -325,10 +292,6 @@ jobs:
         ports:
         # will assign a random free host port
         - 27017/tcp
-    env:
-      GROMACS: v2023.2
-      GMXAPI: "gmxapi"
-      GMX_MPI: "ON"
 
     strategy:
       matrix:
@@ -338,26 +301,8 @@ jobs:
     - name: Prepare OS
       run: |
         sudo apt-get update
-        sudo apt-get install ccache libblas-dev libfftw3-dev liblapack-dev libopenmpi-dev libxml2-dev openmpi-bin ninja-build
-    - name: Prepare ccache variables
-      id: ccache_cache
-      run: |
-        echo "timestamp=$(date +'%Y-%m-%d-%H-%M-%S')" >> $GITHUB_OUTPUT
-        echo "dir=$(ccache -k cache_dir)" >> $GITHUB_OUTPUT
-    - name: ccache cache files
-      uses: actions/cache@v3
-      with:
-        path: ${{ steps.ccache_cache.outputs.dir }}
-        key: ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-${{ steps.ccache_cache.outputs.timestamp }}
-        restore-keys: |
-          ${{ env.GROMACS }}-MPI-${{ env.GMX_MPI }}-ccache-
+        sudo apt-get install libopenmpi-dev libxml2-dev openmpi-bin ninja-build
     - uses: actions/checkout@v3
-    - name: Install GROMACS ${{ env.GROMACS }}
-      run: |
-        ccache -s
-        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
-        BRANCH="${GROMACS}" bash -x ${GITHUB_WORKSPACE}/ci_scripts/install_gromacs_branch.sh
-        ccache -s
     - name: Prepare ssh
       # Ref: https://stackoverflow.com/questions/60066477/self-connecting-via-ssh-on-github-actions
       run: |
@@ -405,15 +350,6 @@ jobs:
         cp ./.github/workflows/resource_local.json $HOME/.radical/pilot/configs/
         pip freeze
         radical-stack
-    - name: Install gmxapi
-      run: |
-        . $HOME/testenv/bin/activate
-        . ${GITHUB_WORKSPACE}/ci_scripts/set_compilers
-        pip install -r requirements-gmxapi.txt
-        pip install "cmake>=3.16" "pybind11>=2.6" "setuptools>=42.0" "wheel"
-        source $HOME/install/gromacs-${GROMACS}/bin/GMXRC
-        pip install --verbose "${{ env.GMXAPI }}"
-        python -c "import gmxapi; print(gmxapi.__version__)"
     - name: Test local.github with pytest
       timeout-minutes: 20
       env:

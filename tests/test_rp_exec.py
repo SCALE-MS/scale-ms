@@ -13,6 +13,7 @@ SIGINT in the interpreter process.
 """
 
 import asyncio
+import concurrent.futures
 import dataclasses
 import os
 import typing
@@ -29,6 +30,7 @@ import scalems.cpi
 import scalems.execution
 import scalems.identifiers
 import scalems.messages
+import scalems.radical.executor
 import scalems.radical.runtime_configuration
 import scalems.radical.manager
 import scalems.radical.task
@@ -36,6 +38,7 @@ import scalems.workflow
 
 if typing.TYPE_CHECKING:
     import radical.utils as ru
+    import mpi4py.MPI
 
 try:
     import radical.pilot as rp
@@ -59,6 +62,26 @@ if client_scalems_version.is_prerelease:
     minimum_scalems_version = client_scalems_version.public
 else:
     minimum_scalems_version = client_scalems_version.base_version
+
+
+def sample_callable(prefix: str, *args):
+    """Compose a string."""
+    result = f"{prefix}: " + ", ".join(str(item) for item in args)
+    return result
+
+
+def sample_mpi_callable_signature1(prefix: str, *args, comm: "mpi4py.MPI.Comm"):
+    """Compose a string."""
+    list_of_tuples = comm.allgather(args)
+    result = f"{prefix}: " + ", ".join(str(item) for items in list_of_tuples for item in items)
+    return result
+
+
+def sample_mpi_callable_signature2(_comm: "mpi4py.MPI.Comm", prefix: str, *args):
+    """Compose a string."""
+    list_of_tuples = _comm.allgather(args)
+    result = f"{prefix}: " + ", ".join(str(item) for items in list_of_tuples for item in items)
+    return result
 
 
 @pytest.mark.asyncio
@@ -113,6 +136,8 @@ async def test_rp_future(rp_runtime):
     assert rp_future.cancelled()
 
     # WARNING: rp.Task.wait blocks, and may never complete. Don't do it in the event loop thread.
+    # PyCharm 2023.2 seems to have some bugs with optional arguments
+    # noinspection PyTypeChecker
     watcher = asyncio.create_task(asyncio.to_thread(task.wait, timeout=timeout), name=f"watch_{task.uid}")
     try:
         state = await asyncio.wait_for(watcher, timeout=timeout)
@@ -154,6 +179,67 @@ async def test_rp_future(rp_runtime):
 
     # Test failure handling
     # TODO: Use a separate test for results and error handling.
+
+
+@pytest.mark.asyncio
+async def test_rp_submit(rp_venv, pilot_description):
+    """Check the canonical low-level interface for submitting scalems tasks.
+
+    TODO: Generalize and move to a separate file for testing all backends.
+
+    """
+    # Hopefully, this requirement is temporary.
+    if rp_venv is None:
+        pytest.skip("This test requires a user-provided static RP venv.")
+
+    job_endpoint: ru.Url = rp.utils.misc.get_resource_job_url(
+        pilot_description.resource, pilot_description.access_schema
+    )
+    launch_method = job_endpoint.scheme
+    if launch_method == "fork":
+        pytest.skip("Raptor is not fully supported with 'fork'-based launch methods.")
+
+    loop = asyncio.get_event_loop()
+    loop.set_debug(True)
+
+    # Configure execution module.
+    runtime_config = scalems.radical.runtime_configuration.RuntimeConfiguration(
+        execution_target=pilot_description.resource,
+        target_venv=rp_venv,
+        rp_resource_params={"PilotDescription": pilot_description.as_dict()},
+        enable_raptor=True,
+    )
+
+    workflow_manager = scalems.radical.workflow_manager(loop)
+    with scalems.workflow.scope(workflow_manager, close_on_exit=True):
+        async with scalems.radical.manager.launch(
+            workflow_manager=workflow_manager, runtime_configuration=runtime_config
+        ) as runtime_context:
+            # Get a simple raptor context.
+            async with scalems.radical.executor.executor(
+                runtime_context, worker_requirements=[{}], task_requirements={}
+            ) as executor:
+                task1: concurrent.futures.Future = executor.submit(sample_callable, "A", 42)
+            #     coro = typing.cast(Coroutine, loop.run_in_executor(executor, sample_callable, "B", 3.14))
+            #     task2: asyncio.Task = asyncio.create_task(coro)
+            # # Get an MPI raptor context.
+            # async with scalems.radical.executor.executor(
+            #     runtime_context, worker_requirements=[{}], task_requirements={"ranks": 2}
+            # ):
+            #     task3: asyncio.Task = scalems.submit(sample_mpi_callable_signature1, "C", "spam", comm=None)
+            #     task4: asyncio.Task = scalems.submit(sample_mpi_callable_signature2, "D", "spam")
+            # # Get a multi-worker MPI context. Note that we need at least N+1 ranks!
+            # async with scalems.radical.executor.executor(
+            #     runtime_context, worker_requirements=[{}, {}], task_requirements={"ranks": 2}
+            # ):
+            #     task5: asyncio.Task = scalems.submit(sample_mpi_callable_signature2, "E", "spam")
+            # # Get a non-raptor (CLI executable) context.
+            # async with scalems.radical.executor.executor(
+            #     runtime_context, worker_requirements=None, task_requirements={"ranks": 2}
+            # ):
+            #     task6: asyncio.Task = scalems.executable(("/bin/echo", "spam"))
+            assert task1.result() == "A: 42"
+        # TODO: Refine resource lifetime management and check ScopeErrors.
 
 
 @pytest.mark.asyncio
@@ -215,6 +301,7 @@ async def test_raptor_master(pilot_description, rp_venv):
             hello_state = await asyncio.to_thread(hello_task.wait, state=rp.FINAL, timeout=timeout)
             logger.debug(str(hello_task.as_dict()))
 
+            # TODO: wrap this into lifetime management.
             stop_command_description = rp.TaskDescription(
                 from_dict={
                     "raptor_id": raptor.uid,
@@ -261,6 +348,7 @@ async def test_raptor_master(pilot_description, rp_venv):
             logger.debug(f"stop-task state: {stop_task.state}")
 
             assert raptor.state == rp.DONE
+            # END TODO
 
     assert hello_state == rp.DONE
     assert hello_task.stdout == repr(scalems.radical.raptor.backend_version)

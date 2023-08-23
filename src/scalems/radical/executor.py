@@ -1,4 +1,97 @@
-"""RP Raptor runtime management for the scalems client."""
+"""RP Raptor runtime management for the scalems client.
+
+The following diagram shows the relationships between the WorkflowManager,
+the Executor, and the RuntimeManager for a particular execution backend.
+For a concrete example of execution on RADICAL Pilot, refer to the
+:py:mod:`scalems.radical` execution module documentation.
+
+.. uml::
+
+    title scalems.execution (general case / client side)
+
+    box "SCALE-MS framework" #honeydew
+    participant "SCALE-MS API" as scalems.Runtime
+    participant WorkflowManager as WorkflowManager
+    participant Queuer
+    end box
+    box "SCALE-MS execution backend" #linen
+    participant scalems.radical <<execution module>>
+    participant RPDispatchingExecutor as client_executor <<RuntimeManager>>
+    end box
+
+    autoactivate on
+
+    scalems.Runtime -> scalems.Runtime: async with dispatch()
+
+    activate WorkflowManager
+    note right
+        get or initialize WorkflowManager
+    end note
+
+    scalems.Runtime -> scalems.radical: executor_factory()
+    scalems.radical -> client_executor **: <<create>>
+    note left
+        move executor factory and dispatch method out of WorkflowManager
+    end note
+
+    scalems.radical --> scalems.Runtime: executor
+    scalems.Runtime -> Queuer **: <<create>>
+
+    == Launch runtime ==
+
+    scalems.Runtime -> client_executor: async with executor
+    activate scalems.Runtime #lightgray
+    scalems.Runtime -> Queuer: async with dispatcher
+    activate scalems.Runtime #darkgray
+
+    ...Dispatch work. See `manage_execution`...
+
+    scalems.Runtime <-- Queuer
+    deactivate scalems.Runtime
+    scalems.Runtime <-- client_executor: leave executor context
+    deactivate scalems.Runtime
+    scalems.Runtime --> scalems.Runtime: end dispatching context
+
+The interface available to ``@scalems.app`` is under development.
+See :py:mod:`scalems.workflow`.
+
+The details of work dispatching are not yet strongly specified or fully encapsulated.
+`manage_execution` mediates a collaboration between a `RuntimeManager` and a
+`WorkflowManager` (via `AbstractWorkflowUpdater`).
+
+.. uml::
+
+    class RuntimeManagerBase
+
+    class RPRuntimeManager
+
+    class RuntimeConfiguration
+
+    class RuntimeSession
+
+    class concurrent.futures.Executor {
+    +submit()
+    }
+
+    RuntimeManagerBase -up- WorkflowManager
+
+    RPRuntimeManager ..> RuntimeConfiguration
+
+    RPRuntimeManager *- RuntimeSession
+
+    RPRuntimeManager -up-|> RuntimeManagerBase
+
+    ScalemsExecutor .right.|> concurrent.futures.Executor
+
+    RPExecutor -up-|> ScalemsExecutor
+
+    ScalemsExecutor --> RuntimeManagerBase
+
+    RPExecutor -- RPRuntimeManager
+
+    (RPExecutor, RPRuntimeManager) . CPI
+
+"""
 
 from __future__ import annotations
 
@@ -24,6 +117,7 @@ import radical.pilot as rp
 
 import scalems.cpi
 import scalems.execution
+from scalems.exceptions import APIError
 from scalems.exceptions import MissingImplementationError
 from scalems.identifiers import EphemeralIdentifier
 from scalems.radical.exceptions import RPConfigurationError

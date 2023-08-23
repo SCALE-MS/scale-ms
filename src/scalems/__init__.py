@@ -26,6 +26,7 @@ Invocation:
     to the documentation for particular WorkflowContexts.
 
 """
+from __future__ import annotations
 
 # Note: Even though `from scalems import *` is generally discouraged, the __all__ module attribute is useful
 # to document the intended public interface *and* to indicate sort order for tools like
@@ -35,6 +36,7 @@ __all__ = (
     "app",
     # tools / commands
     "executable",
+    "submit",
     # utilities and helpers
     "get_scope",
     # 'run',
@@ -45,13 +47,24 @@ __all__ = (
 )
 
 import abc
+import asyncio
+import collections.abc
 import functools
 import typing
+from asyncio import AbstractEventLoop
+from contextvars import Context
+from typing import Any
+from typing import Callable
+
+import typing_extensions
 
 from ._version import __version__
 from .subprocess import executable
 from .workflow import get_scope
 from .logger import logger
+
+if typing.TYPE_CHECKING:
+    import mpi4py.MPI
 
 logger.debug("Imported {}".format(__name__))
 
@@ -90,3 +103,73 @@ def app(func: typing.Callable) -> typing.Callable:
     decorated = functools.update_wrapper(App(func), wrapped=func)
 
     return decorated
+
+
+_P = typing_extensions.ParamSpec("_P")
+_T = typing.TypeVar("_T")
+
+
+class Task(typing.Protocol[_T]):
+    """A Future for a submitted SCALEMS task.
+
+    Behaves like an `asyncio.Task`, but may have additional features.
+
+    Use with :py:mod`asyncio` utilities.
+    """
+
+    def get_loop(self) -> AbstractEventLoop:
+        return super().get_loop()
+
+    def add_done_callback(self, __fn: Callable[[asyncio.Future], object], *, context: Context | None = ...) -> None:
+        super().add_done_callback(__fn, context=context)
+
+    def cancel(self, msg: Any | None = ...) -> bool:
+        return super().cancel(msg)
+
+    def cancelled(self) -> bool:
+        return super().cancelled()
+
+    def done(self) -> bool:
+        return super().done()
+
+    def result(self) -> _T:
+        return super().result()
+
+    def exception(self) -> BaseException | None:
+        return super().exception()
+
+    def remove_done_callback(self, __fn: Callable[[asyncio.Future], object]) -> int:
+        return super().remove_done_callback(__fn)
+
+
+@typing.overload
+def submit(
+    fn: collections.abc.Callable[typing_extensions.Concatenate["mpi4py.MPI.Comm", _P], _T],
+    /,
+    *args: _P.args,
+    **kwargs: _P.kwargs,
+) -> asyncio.Task[_T]:
+    ...
+
+
+def submit(fn: typing.Callable[_P, _T], /, *args: _P.args, **kwargs: _P.kwargs) -> Task[_T]:
+    """Submit a task to be run by an executor.
+
+    If the executor is configured for MPI tasks, a :py:class:`mpi4py.MPI.Comm`
+    sub-communicator will be provided as a function argument.
+
+    To request that the communicator be provided as a key word argument, include
+    a placeholder key word argument (e.g. `comm=None`). The value will be
+    replaced with a communicator instance in the executor. Otherwise, the
+    executor will insert the communicator before any other positional arguments
+    when calling the function (e.g. `fn(subcomm, *args, **kwargs)`).
+
+    Not thread-safe. Call from the main thread (in which the event loop is running).
+
+    TODO: At some point we need to be able to call this from any thread to support
+     dynamic Task generation.
+    """
+    import scalems.execution
+
+    current_executor = scalems.execution.current_executor.get()
+    return current_executor.submit(fn, *args, **kwargs)

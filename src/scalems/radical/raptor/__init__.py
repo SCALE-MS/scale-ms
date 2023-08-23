@@ -249,7 +249,7 @@ __all__ = (
     "ClientWorkerRequirements",
     "RaptorConfiguration",
     "raptor_input",
-    "worker_requirements",
+    "worker_requirements_from_start_scope",
     "worker_description",
     "SoftwareCompatibilityError",
     "ScaleMSWorker",
@@ -267,6 +267,7 @@ import dataclasses
 import functools
 import importlib
 import importlib.metadata
+import itertools
 import json
 import os
 import pathlib
@@ -319,6 +320,9 @@ logger = logging.getLogger(__name__)
 # See also
 # * https://github.com/SCALE-MS/scale-ms/discussions/261
 # * https://github.com/SCALE-MS/scale-ms/issues/255
+
+
+_count = itertools.count()
 
 
 @dataclasses.dataclass(frozen=True)
@@ -454,6 +458,95 @@ class CpiHello(CpiCommand):
     @classmethod
     def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
         logger.debug(f"Finalized {str(task)}.")
+
+
+class CpiStartScope(CpiCommand):
+    """Provide implementation for StartScopeCommand in RP Raptor."""
+
+    @classmethod
+    def launch(cls, manager: ScaleMSRaptor, task: TaskDictionary):
+        """Direct the Master to manage one or more Workers."""
+        # TODO(#378): If the Raptor is already "shutting down", reject new work from the client,
+        #  but continue to allow dynamically generated Tasks from already-queued work until/unless
+        #  a more aggressive shut down is ordered.
+        cpi_call = scalems.cpi.from_raptor_task_metadata(task["description"]["metadata"])
+        if cpi_call["operation"] != "start_scope":
+            raise scalems.exceptions.InternalError(
+                f"Broken Raptor CPI dispatching: \"{cpi_call['operation']}\" dispatched to START_SCOPE."
+            )
+        scope_requirements: scalems.cpi.ScopeRequirements = cpi_call["operand"]
+        worker_requirements = list(worker_requirements_from_start_scope(scope_requirements))
+
+        worker_uids = []
+        try:
+            task["exit_code"] = 1
+            with manager.configure_worker(requirements=worker_requirements) as configs:
+                assert len(configs) == 1
+                worker_submission: rp.TaskDescription = configs[0]
+                assert os.path.isabs(worker_submission.raptor_file)
+                assert os.path.exists(worker_submission.raptor_file)
+                logger.debug(f"Submitting {len(configs)} {worker_submission.as_dict()}")
+                worker_uids = manager.submit_workers(descriptions=configs)
+
+                # Generate a random scope_id. There isn't much point in hashing anything,
+                # like the worker_requirements, since they could easily be repeated.
+                # It is more important that the scope_id simply be unique and hashable.
+                # We don't expect to manage more than one scope at a time because we
+                # don't have a way to direct Tasks to specific Workers. We may
+                # still be finishing up tasks in one scope when we receive the control
+                # message declaring a new scope.
+                #
+                # Design Note: We must not accept Tasks for the new scope while Workers
+                # from a previous scope are still accepting Tasks, nor can we start
+                # launching new Workers while tasks from a previous scope might self-submit
+                # additional tasks.
+                scope_id = f"{manager.uid}-{next(_count)}"
+                scope_description = scalems.cpi.ScopeDescription(
+                    raptor_id=manager.uid, scope_id=scope_id, worker_uids=list(worker_uids)
+                )
+                message = f"Submitted workers for scope {scope_id}: "
+                message += ", ".join(worker_uids)
+                logger.info(message)
+
+                # TODO(#320,#337,#378): Don't block the request_cb thread.
+                #  Schedule a asyncio.Task to wait for the Workers and finalize this
+                #  message when the asyncio.Task completes.
+                # Make sure at least one worker comes online.
+                manager.wait_workers(count=1)
+                logger.debug("Ready to submit raptor tasks.")
+                # Confirm all workers start successfully or produce useful error
+                #  (then release temporary file).
+                manager.wait_workers()
+            for uid, worker in manager.workers.items():
+                logger.info(f"Worker {uid} in state {worker['status']}.")
+
+            # Record task metadata and track.
+            manager.enter_scope(scope_id, worker_uids)
+            task["return_value"] = scope_description
+            task["stdout"] = f"Launching {worker_uids} for {manager.uid}."
+            task["exit_code"] = 0
+        except Exception as e:
+            # Note that `wait_workers()` should raise RuntimeError within ~1 second
+            # if the RaptorMaster starts terminating during the wait loop.
+            logger.exception(f"Error while trying to launch Worker(s) for {manager.uid}")
+            task["exception"] = repr(e)
+            task["exception_detail"] = traceback.format_exc()
+            # TODO: Check with RCT Team if this is appropriate to cancel Workers
+            #  that _were_ successfully submitted.
+            for uid in worker_uids:
+                if uid in manager.workers:
+                    logger.info(f"Raptor {manager.uid} sending worker_terminate for {uid}.")
+                    manager.publish(rp.constants.CONTROL_PUBSUB, {"cmd": "worker_terminate", "arg": {"uid": uid}})
+        finally:
+            manager.cpi_finalize(task)
+
+    @classmethod
+    def result_hook(cls, manager: ScaleMSRaptor, task: TaskDictionary):
+        logger.debug(f"Finalized {str(task)}.")
+
+    @classmethod
+    def _command_name(cls) -> scalems.cpi.CpiOperation:
+        return "start_scope"
 
 
 class CpiAddItem(CpiCommand):
@@ -702,23 +795,51 @@ async def raptor_input(
         return add_file_task.result()
 
 
-def worker_requirements(
-    *,
-    pre_exec: typing.Iterable[str],
-    ranks_per_worker: int,
-    cores_per_rank: int = 1,
-    gpus_per_rank: typing.SupportsFloat = 0,
-) -> ClientWorkerRequirements:
-    """Get the requirements for the work load, as known to the client."""
-    workload_metadata = ClientWorkerRequirements(
-        named_env=None,
-        pre_exec=tuple(pre_exec),
-        cores_per_process=cores_per_rank,
-        cpu_processes=ranks_per_worker,
-        gpus_per_rank=float(gpus_per_rank),
-    )
+# def worker_requirements(
+#     *,
+#     pre_exec: typing.Iterable[str],
+#     ranks_per_worker: int,
+#     cores_per_rank: int = 1,
+#     gpus_per_rank: typing.SupportsFloat = 0,
+# ) -> ClientWorkerRequirements:
+#     """Get the requirements for the work load, as known to the client."""
+#     workload_metadata = ClientWorkerRequirements(
+#         named_env=None,
+#         pre_exec=tuple(pre_exec),
+#         cores_per_process=cores_per_rank,
+#         cpu_processes=ranks_per_worker,
+#         gpus_per_rank=float(gpus_per_rank),
+#     )
+#
+#     return workload_metadata
 
-    return workload_metadata
+
+def worker_requirements_from_start_scope(
+    scope_requirements: scalems.cpi.ScopeRequirements,
+) -> Generator[ClientWorkerRequirements, typing.Any, None]:
+    """Translate a START_SCOPE message for the Raptor environment.
+
+    Get the requirements for the work load, as communicated by the client.
+    """
+    for item in scope_requirements["workers"]:
+        item: scalems.cpi.WorkerRequirements
+        pre_exec = tuple(item["initialization"])
+        cores_per_process = item["cores_per_process"]
+        # TODO: Handle threading type.
+        cpu_processes = item["processes"]
+        # TODO: Handle process type
+
+        total_gpus = item["gpus"]
+        gpus_per_rank: float = total_gpus / cpu_processes
+
+        client_worker_requirements = ClientWorkerRequirements(
+            named_env=None,
+            pre_exec=pre_exec,
+            cores_per_process=cores_per_process,
+            cpu_processes=cpu_processes,
+            gpus_per_rank=float(gpus_per_rank),
+        )
+        yield client_worker_requirements
 
 
 parser = argparse.ArgumentParser(description="Command line entry point for RP raptor task.")
@@ -941,7 +1062,7 @@ def raptor():
         logger.debug("Completed raptor task.")
 
 
-def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) -> RaptorWorkerConfig:
+def _configure_worker(*, requirements: typing.Sequence[ClientWorkerRequirements], filename: str) -> RaptorWorkerConfig:
     """Prepare the arguments for :py:func:`rp.raptor.Master.submit_workers()`.
 
     Provide an abstraction for the submit_workers signature and parameter types,
@@ -951,18 +1072,20 @@ def _configure_worker(*, requirements: ClientWorkerRequirements, filename: str) 
     """
     assert os.path.exists(filename)
     # TODO(#248): Consider a "debug-mode" option to do a trial import from *filename*
-    # TODO(#302): Number of workers should be chosen after inspecting the requirements of the work load.
-    num_workers = 1
-    descr = worker_description(
-        named_env=requirements.named_env,
-        worker_file=filename,
-        pre_exec=requirements.pre_exec,
-        cpu_processes=requirements.cpu_processes,
-        gpus_per_rank=requirements.gpus_per_rank,
-    )
+
+    config: RaptorWorkerConfig = [
+        worker_description(
+            named_env=req.named_env,
+            worker_file=filename,
+            pre_exec=req.pre_exec,
+            cpu_processes=req.cpu_processes,
+            gpus_per_rank=req.gpus_per_rank,
+        )
+        for req in requirements
+    ]
     if os.getenv("COVERAGE_RUN") is not None or os.getenv("SCALEMS_COVERAGE") is not None:
-        descr.environment = {"SCALEMS_COVERAGE": "TRUE"}
-    config: RaptorWorkerConfig = [descr] * num_workers
+        for descr in config:
+            descr.environment = {"SCALEMS_COVERAGE": "TRUE"}
     return config
 
 
@@ -1108,6 +1231,24 @@ class ScaleMSRaptor(rp.raptor.Master):
 
     """
 
+    _closing_workers: set[str]
+    """UIDs of workers whose scope has been exited.
+    
+    Workers may remain active as long as they still have work to do. Additional
+    CPI calls should enqueue commands to shut down the Workers for a scope once
+    the workload is cleared. As the Master receives notification of Worker termination,
+    UIDs can be removed from this set.
+    
+    Design note: to avoid duplicated bookkeeping, can we use some sort of WeakSet
+    to point to members of `self._workers`? Or should we override the base class property?
+    """
+
+    _cpi_scopes: dict[str, tuple]
+    """Mapping of scope_id to Worker UIDs."""
+
+    _current_cpi_scope: typing.Optional[str] = None
+    """Set to the *scope_id* for an `enter_scope()` call. Delete at `exit_scope()`"""
+
     def __init__(self, configuration: RaptorConfiguration):
         """Initialize a SCALE-MS Raptor.
 
@@ -1134,13 +1275,42 @@ class ScaleMSRaptor(rp.raptor.Master):
             warnings.warn("Raptor incomplete. Could not initialize raptor.Master base class.")
 
         # Initialize internal state.
+        self._cpi_scopes = dict()
+        self._closing_workers = set()
         # TODO: Use a scalems RuntimeManager.
         self.__worker_files = {}
 
         self._stopping = False
 
+    def worker_state_cb(self, worker_dict, state):
+        """Implement the (optional) hook for Worker state transitions."""
+        # worker_state_cb() will receive a callback when the Worker transitions to AGENT_STAGING_OUTPUT. In the
+        # worker_state_cb(self, worker_dict, state), the Master can check worker_dict["target_state"] for which
+        # rp.FINAL state will be the terminal state.
+        # See Discussion #365.
+        if state == rp.AGENT_STAGING_OUTPUT:
+            target_state = worker_dict["target_state"]
+            if target_state not in rp.FINAL:
+                return
+            # TODO: Record or react to final Worker state. Update workflow state
+            #  and manage any unresolved tasks.
+            worker_uid = worker_dict["uid"]
+            if worker_uid in self._closing_workers:
+                self._closing_workers.remove(worker_uid)
+                return
+            if any(worker_uid in workers for workers in self._cpi_scopes.values()):
+                raise scalems.exceptions.MissingImplementationError(
+                    "Unhandled: A Worker reached a FINAL state while its scope is still active."
+                )
+            if worker_uid in self._closing_workers:
+                raise scalems.exceptions.MissingImplementationError(
+                    "Unhandled: Need to check the queued tasks for the scope are all done or need to be failed."
+                )
+
     @contextlib.contextmanager
-    def configure_worker(self, requirements: ClientWorkerRequirements) -> Generator[RaptorWorkerConfig, None, None]:
+    def configure_worker(
+        self, requirements: typing.Sequence[ClientWorkerRequirements]
+    ) -> Generator[RaptorWorkerConfig, None, None]:
         """Scoped temporary module file for raptor worker.
 
         Write and return the path to a temporary Python module. The module imports
@@ -1349,6 +1519,30 @@ class ScaleMSRaptor(rp.raptor.Master):
             #         req['task']['target_state'] = rp.DONE
             #         self.advance(req['task'], rp.AGENT_STAGING_OUTPUT_PENDING,
             #                      publish=True, push=True)
+
+    def enter_scope(self, scope_id: str, worker_uids: typing.Sequence[str]):
+        # TODO: Promote these unexpected behaviors to APIError after initial testing.
+        if self._current_cpi_scope is not None:
+            message = f"Entering a new CPI scope, but previous scope was not exited."
+            logger.critical(message)
+        self._current_cpi_scope = scope_id
+        if scope_id in self._cpi_scopes:
+            message = f"Redefining scope_id {scope_id}. Replacing {self._cpi_scopes[scope_id]} with {worker_uids}."
+            logger.warning(message)
+            warnings.warn(message)
+        self._cpi_scopes[scope_id] = tuple(worker_uids)
+
+    def exit_scope(self, scope_id: str):
+        if self._current_cpi_scope != scope_id:
+            raise scalems.exceptions.APIError(
+                f"Cannot exit scope {scope_id}. Current CPI scope is {self._current_cpi_scope}."
+            )
+        self._closing_workers.update(self._cpi_scopes[scope_id])
+        del self._cpi_scopes[scope_id]
+        # TODO: Schedule a Task to wait for the *scope_id* queue to be empty,
+        #  then stop all of the associated Workers.
+        # However, as of this writing, there is not an official way for a Master
+        # to stop a Worker.
 
 
 class WorkerDescription(rp.TaskDescription):

@@ -27,6 +27,12 @@ available and required command line arguments::
     usage: python -m scalems.radical <scalems.radical args> script-to-run.py.py <script args>
     ...
 
+.. note::
+    You must have both setup MongoDB and have made its location visible in the shell where
+    scalems commands are run, e.g. you must have run something like
+    ``export RADICAL_PILOT_DBURL=mongodb://localhost:27017/radicalpilot``
+    in the shell session you wish to launch SCALE-MS from.
+
 The base command line parser is provided by :py:func:`scalems.invocation.base_parser`,
 extended (optionally) by the :ref:`backend`, and further extended by
 :py:func:`scalems.invocation.run`. Get usage for a particular backend with

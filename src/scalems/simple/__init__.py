@@ -1,8 +1,6 @@
-import os
 import radical.pilot as rp
 import radical.utils as ru
-from shutil import copy
-import gmxapi as gmx
+import radical.saga as rs
 
 
 def get_pilot_desc(resource: str = 'local.localhost'):
@@ -16,7 +14,7 @@ def get_pilot_desc(resource: str = 'local.localhost'):
                'exit_on_error': False})
     return description
 
-class RaptorManager:
+class SimpleManager:
     """ create session and managers """
     def __init__(self):
         self._session = rp.Session()
@@ -32,7 +30,6 @@ class RaptorManager:
         env_name = 'local'
         env_spec = {"type": "venv", "path": venv_path, "setup": []}
         pilot.prepare_env(env_name=env_name, env_spec=env_spec)
-        #import ipdb;ipdb.set_trace()
 
         # add the pilot to the task manager and wait for the pilot to become active
         self._task_mgr.add_pilots(pilot)
@@ -48,17 +45,29 @@ class RaptorManager:
 
 
     def submit_raptor(self, tasks_list):
-        self._report.header('Submitting tasks')
+        self._report.header('Submitting raptor tasks')
         tasks = self._raptor.submit_tasks(tasks_list)
         self._task_mgr.wait_tasks(get_task_info(tasks, 'uid'))
         return tasks
 
-    def wrap_raptor(self, func):
+    def submit_task(self, tasks_list):
+        self._report.header('Submitting tasks')
+        tasks = self._task_mgr.submit_tasks(tasks_list)
+        self._task_mgr.wait_tasks(get_task_info(tasks, 'uid'))
+        return tasks
+
+    def make_raptor_task(self, func):
         @rp.pythontask
         def local(func):
             return func
         return rp.TaskDescription({'mode': rp.TASK_FUNCTION,
                                    'function': local(func),})
+
+    def make_exe_task(self, executable, args_list):
+        return rp.TaskDescription({'mode': rp.TASK_EXECUTABLE,
+                                   'executable': executable,
+                                   'arguments': args_list,
+                                   })
 
     def close(self):
         self._session.close()
@@ -66,4 +75,7 @@ class RaptorManager:
 
 def get_task_info(tasks, info):
     return [task.as_dict()[info] for task in tasks]
+
+def get_task_path(task):
+    return rs.Url(task.sandbox).path
 

@@ -6,10 +6,14 @@ python simple_demo.py --venv path/to/scalems/venv/ --resource local.localhost
 from __future__ import annotations
 
 import argparse
+import os
+import sys
 
 from pathlib import Path
 
-from scalems.simple import RaptorManager, get_pilot_desc, get_task_info
+import scalems.radical
+
+from scalems.simple import SimpleManager, get_pilot_desc, get_task_info, get_task_path
 
 def run_grompp(input_dir: str, input_gro: str, verbose: bool = False):
     import os
@@ -42,11 +46,7 @@ def run_mdrun(tpr_path: str, verbose: bool = False):
     return md.output.file['-c'].result()
 
 if __name__ == "__main__":
-    import scalems
-    import scalems.radical
-    import sys
-    import os
-    import radical.pilot as rp
+    import gmxapi as gmx
 
     # Set up a command line argument processor for our script.
     # Inherit from the backend parser so that `parse_known_args` can handle positional arguments the way we want.
@@ -72,8 +72,8 @@ if __name__ == "__main__":
     script_config, argv = parser.parse_known_args()
 
     desc = get_pilot_desc(script_config.resource)
-    raptor = RaptorManager()
-    raptor.prepare_raptor(desc, script_config.venv)
+    simple_man = SimpleManager()
+    simple_man.prepare_raptor(desc, script_config.venv)
 
     max_cycles=2
     replicates=2
@@ -85,15 +85,34 @@ if __name__ == "__main__":
         print(f"step {cycle} has {this_step}")
 
         # create and submit grompp tasks
-        grompp_tasks_list = [raptor.wrap_raptor(run_grompp(input_dir=script_config.input_dir, input_gro=gro)) for gro in this_step]
-        grompp_tasks = raptor.submit_raptor(grompp_tasks_list)
+        grompp_tasks_list = [simple_man.make_raptor_task(run_grompp(input_dir=script_config.input_dir, input_gro=gro)) for gro in this_step]
+        grompp_tasks = simple_man.submit_raptor(grompp_tasks_list)
+
+        # generate an ndx file for later analysis
+        ndx_file = "index.ndx"
+        select_command = simple_man.make_exe_task(
+                executable=f"{gmx.commandline.cli_executable().as_posix()}",
+                args_list=["select", "-s", f"{get_task_info(grompp_tasks, 'return_value')[0]}",
+                    "-select", "atomnr 5 7 9", "-on", ndx_file],)
+        select_task = simple_man.submit_task([select_command])
+        ndx_path = os.path.join(get_task_path(select_task[0]), ndx_file)
+        assert os.path.exists(ndx_path)
 
         # create and submit mdrun tasks
-        mdrun_tasks_list = [raptor.wrap_raptor(run_mdrun(tpr_path=tpr)) for tpr in get_task_info(grompp_tasks, 'return_value')]
-        mdrun_tasks = raptor.submit_raptor(mdrun_tasks_list)
+        mdrun_tasks_list = [simple_man.make_raptor_task(run_mdrun(tpr_path=tpr)) for tpr in get_task_info(grompp_tasks, 'return_value')]
+        mdrun_tasks = simple_man.submit_raptor(mdrun_tasks_list)
+
+        # do some analysis
+        angle_tasks_list = [simple_man.make_exe_task(
+                    executable=f"{gmx.commandline.cli_executable().as_posix()}",
+                    args_list=["angle", "-f", f"{gro}", "-n", f"{ndx_path}"],)
+        for gro in get_task_info(mdrun_tasks, 'return_value')]
+        angle_task = simple_man.submit_task(angle_tasks_list)
+        print(''.join(get_task_info(angle_task, 'stdout')))
+
         prev_step = get_task_info(mdrun_tasks, 'return_value')
 
-    raptor.close()
+    simple_man.close()
 
 
 

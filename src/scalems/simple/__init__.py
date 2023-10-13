@@ -1,7 +1,8 @@
 import radical.pilot as rp
 import radical.utils as ru
 import radical.saga as rs
-
+import gmxapi
+from functools import partial
 
 def get_pilot_desc(resource: str = 'local.localhost'):
     description = rp.PilotDescription({'resource': resource,
@@ -57,8 +58,10 @@ class SimpleManager:
         return tasks
 
     def make_raptor_task(self, func):
+        #import ipdb;ipdb.set_trace()
         @rp.pythontask
         def local(func):
+            #type(func)==gmxapi.operation.OperationHandle
             return func
         return rp.TaskDescription({'mode': rp.TASK_FUNCTION,
                                    'function': local(func),})

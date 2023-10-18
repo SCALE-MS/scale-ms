@@ -13,6 +13,7 @@ from pathlib import Path
 
 import scalems.radical
 import asyncio
+import radical.pilot as rp
 
 #from scalems.simple import SimpleManager, get_pilot_desc, get_task_info, get_task_path
 import scalems.simple as simple
@@ -21,6 +22,16 @@ def prepare_gmxapi(args, input_files, output_files):
     import gmxapi as gmx
     cmd = gmx.commandline_operation(gmx.commandline.cli_executable(), args, input_files, output_files)
     return cmd
+
+def run_gmxapi(args, input_files, output_files):
+    import gmxapi as gmx
+    cmd = gmx.commandline_operation(gmx.commandline.cli_executable(), args, input_files, output_files)
+    return cmd.output.file.result()
+
+async def run_gmxapi_async(args, input_files, output_files):
+    import gmxapi as gmx
+    cmd = gmx.commandline_operation(gmx.commandline.cli_executable(), args, input_files, output_files)
+    return cmd.output.file.result()
 
 class GmxApiRun:
     """Instance of a simulation Command."""
@@ -31,19 +42,10 @@ class GmxApiRun:
         label: str,
         datastore: scalems.store.FileStore,
     ):
-
         # TODO: Manage input file staging so we don't have to assume localhost.
-        args = (command_line_args, input_files, output_files,)
+        self.args = (command_line_args, input_files, output_files,)
         self.label = label
-        #self._call_handle: asyncio.Task[scalems.call._Subprocess] = asyncio.create_task(
-        self._call_handle =    scalems.call.function_call_to_subprocess(
-                func=self._func,
-                label=label,
-                args=args,
-                kwargs=None,
-                datastore=datastore,
-            )
-        #)
+        self.datastore = datastore
 
     @staticmethod
     def _func(*args):
@@ -54,8 +56,14 @@ class GmxApiRun:
 
     async def result(self, dispatcher: scalems.radical.runtime.RPDispatchingExecutor):
         """Deliver the results of the simulation Command."""
-        # Wait for input preparation
-        call_handle = await asyncio.create_task(self._call_handle)
+        self._call_handle = scalems.call.function_call_to_subprocess(
+            func=self._func,
+            label=self.label,
+            args=self.args,
+            kwargs=None,
+            datastore=self.datastore,
+        )
+        call_handle = await self._call_handle
         rp_task_result_future = asyncio.create_task(
             scalems.radical.task.subprocess_to_rp_task(call_handle, dispatcher=dispatcher)
         )
@@ -79,39 +87,6 @@ async def launch(runtime_config: scalems.radical.runtime_configuration.RuntimeCo
         for future in futures:
             future.add_done_callback(lambda x: print(f"Task done: {repr(x)}."))
         return await asyncio.gather(*futures)
-
-def run_grompp(input_dir: str, input_gro: str, verbose: bool = False):
-    import os
-    import gmxapi as gmx
-    input_top = os.path.join(input_dir, "topol.top")
-    input_mdp = os.path.join(input_dir, "grompp.mdp")
-    if not os.path.isfile(input_gro):
-        input_gro = os.path.join(input_dir, input_gro)
-    input_files={'-f': input_mdp, '-p': input_top, '-c': input_gro,},
-    tpr = "run.tpr"
-    output_files={'-o': tpr}
-    #grompp = prepare_gmxapi('grompp', input_files, output_files)
-    grompp = gmx.commandline_operation(gmx.commandline.cli_executable(), 'grompp', input_files, output_files)
-    #grompp.run()
-    #if verbose:
-    #    print(grompp.output.stderr.result())
-    #assert os.path.exists(grompp.output.file['-o'].result())
-    return grompp
-
-def run_mdrun(tpr_path: str, verbose: bool = False):
-    import os
-    import gmxapi as gmx
-    if not os.path.exists(tpr_path):
-        raise FileNotFoundError("You must supply a tpr file")
-
-    input_files={'-s': tpr_path}
-    output_files={'-x':'result.xtc', '-c': 'result.gro'}
-    md = gmx.commandline_operation(gmx.commandline.cli_executable(), 'mdrun', input_files, output_files)
-    md.run()
-    if verbose:
-        print(md.output.stderr.result())
-    assert os.path.exists(md.output.file['-c'].result())
-    return md.output.file['-c'].result()
 
 def get_gmxapi_outputs(gmxapi_futures_list, label: str):
     futures = list()
@@ -151,43 +126,72 @@ if __name__ == "__main__":
     script_config, argv = parser.parse_known_args()
     runtime_configuration = scalems.radical.runtime_configuration.configuration(argv)
 
+
     input_dir = script_config.input_dir
     input_top = os.path.join(input_dir, "topol.top")
     input_mdp = os.path.join(input_dir, "grompp.mdp")
     input_gro = os.path.join(input_dir, 'equil3.gro')
-    input_files={'-f': input_mdp, '-p': input_top, '-c': input_gro,},
+    input_files={'-f': input_mdp, '-p': input_top, '-c': input_gro,}
     tpr = "run.tpr"
     output_files={'-o': tpr}
 
-    manager = scalems.radical.workflow_manager(asyncio.get_event_loop())
-    simulations = tuple(
-    GmxApiRun(command_line_args='grompp',
+    loop=asyncio.get_event_loop()
+    manager = scalems.radical.workflow_manager(loop)
+    dispatcher=scalems.radical.runtime.executor_factory(manager, runtime_configuration)
+    from scalems.radical.executor import _launch_raptor
+    #raptor = scalems.radical._launch_raptor(dispatcher)
+
+    grompp = GmxApiRun(command_line_args='grompp',
               input_files=input_files,
               output_files=output_files,
-              label=f'run-{i}',
+              label=f'grompp-0',
               datastore=manager.datastore(),
               )
-    for i in range(2))
-    #import ipdb;ipdb.set_trace()
+
+    work_item0 = scalems.radical.raptor.ScalemsRaptorWorkItem(
+        func=simple.run_gmxapi_radical.__name__, module=simple.run_gmxapi_radical.__module__, args=['grompp', input_files, {'-o': 'run0.tpr'}], kwargs={}, comm_arg_name=None)
+    work_item1 = scalems.radical.raptor.ScalemsRaptorWorkItem(
+        func=simple.run_gmxapi_radical.__name__, module=simple.run_gmxapi_radical.__module__, args=['grompp', input_files, {'-o': 'run1.tpr'}], kwargs={}, comm_arg_name=None)
+    item_task_description = rp.TaskDescription()
+
+    #agrompp=run_gmxapi_async('grompp', input_files, output_files)
+    desc = simple.get_pilot_desc(script_config.resource)
+
+    sm = simple.SimpleManager(True)
+    sm.prepare_raptor(desc, script_config.venv)
+    item_list = [work_item0, work_item1]
+    #new_item=simple.run_in_worker(work_item=work_item)
+    tasks, outs = asyncio.run(sm.run_queue(item_list))
+    import radical.pilot.pytask as pytask
+    import ipdb;ipdb.set_trace()
     with scalems.workflow.scope(manager, close_on_exit=True):
-        md_outputs = asyncio.run(
+        grompp_outputs = asyncio.run(
             launch(
                 runtime_config=runtime_configuration,
-                simulations=simulations,
-                #datastore=manager.datastore(),
-                #args='grompp',
-                #input_files=input_files,
-                #output_files=output_files,
-                #ensemble_size=1,
+                simulations=tuple(grompp for i in range(1)),
             ),
             debug=False,
         )
 
+
+        mdrun_input_files={'-s': grompp_outputs[0]['result']['-o']}
+        mdrun_output_files={'-x':'result.xtc', '-c': 'result.gro'}
+        mdrun = GmxApiRun(command_line_args='mdrun',
+              input_files=mdrun_input_files,
+              output_files=mdrun_output_files,
+              label=f'mdrun-0',
+              datastore=manager.datastore(),
+              )
+        md_outputs = asyncio.run(
+            launch(
+                runtime_config=runtime_configuration,
+                simulations=tuple(mdrun for i in range(1)),
+            ),
+            debug=False,
+        )
+    import ipdb;ipdb.set_trace()
     """
-    desc = simple.get_pilot_desc(script_config.resource)
-    
-    simple_man = SimpleManager()
-    simple_man.prepare_raptor(desc, script_config.venv)
+
 
     max_cycles=2
     replicates=2

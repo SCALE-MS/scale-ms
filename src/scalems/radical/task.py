@@ -137,6 +137,15 @@ def _rp_callback(
     except Exception as e:
         logger.error(f"Exception encountered during rp.Task callback: {repr(e)}")
 
+def decode_task_function(task: rp.Task, json_dict_key: str = 'func'):
+    import radical.utils as ru
+    import json, dill
+    sand_path = ru.Url(task.sandbox).path
+    task_function_json = os.path.join(sand_path, task.description['arguments'][2])
+    with open(task_function_json, 'r') as data:
+        in_data=data.read()
+    in_obj=json.loads(in_data)
+    return dill.loads(bytes.fromhex(in_obj[json_dict_key]))()
 
 async def _rp_task_watcher(task: rp.Task, final: RPFinalTaskState, ready: asyncio.Event) -> rp.Task:  # noqa: C901
     """Manage the relationship between an RP.Task and a scalems Future.

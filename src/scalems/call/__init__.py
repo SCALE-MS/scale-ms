@@ -229,7 +229,7 @@ class _Subprocess:
 
 
 async def function_call_to_subprocess(
-    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager, requirements: dict = None
+    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, datastore, requirements: dict = None
 ) -> _Subprocess:
     """
     Wrap a function call in a command line based on `scalems.call`.
@@ -239,7 +239,7 @@ async def function_call_to_subprocess(
         label: Name (prefix) for identifying tasks and artifacts.
         args: Positional arguments for *func*.
         kwargs: Key word arguments for *func*.
-        manager: workflow manager instance.
+        datastore: managed data location
         requirements: run time requirements (passed through to execution backend).
 
     Returns:
@@ -272,7 +272,7 @@ async def function_call_to_subprocess(
         tmp_file.write(serialize_call(func=func, args=args, kwargs=kwargs, requirements=requirements))
         tmp_file.flush()
         # We can't release the temporary file until the file reference is obtained.
-        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=manager.datastore())
+        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=datastore)
 
     uid = str(label)
     input_filename = uid + "-input.json"

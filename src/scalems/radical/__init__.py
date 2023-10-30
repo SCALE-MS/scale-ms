@@ -51,7 +51,7 @@ logger.debug("Importing {}".format(__name__))
 parser = _make_parser(__package__, parents=[_runtime_parser()])
 
 
-def workflow_manager(loop: asyncio.AbstractEventLoop, directory=None):
+def workflow_manager(loop: asyncio.AbstractEventLoop = None, directory=None):
     """Manage a workflow context for RADICAL Pilot work loads.
 
     The rp.Session is created when the Python Context Manager is "entered",
@@ -69,4 +69,7 @@ def workflow_manager(loop: asyncio.AbstractEventLoop, directory=None):
         The importer of this module should be sure to import radical.pilot
         before importing the built-in logging module to avoid spurious warnings.
     """
+    if loop is None:
+        loop = asyncio.get_event_loop()
+        asyncio.set_event_loop(loop)
     return scalems.workflow.WorkflowManager(loop=loop, directory=directory)

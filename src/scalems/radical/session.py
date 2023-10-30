@@ -3,6 +3,7 @@ from __future__ import annotations
 __all__ = (
     "runtime_session",
     "RuntimeSession",
+    "rt_session",
 )
 
 import asyncio
@@ -102,7 +103,7 @@ class RuntimeSession:
 
         # De-initialize state: reset data members to class defaults.
         with self._new_pilot_lock:
-            if self.resources is not None and not self.resources.done():
+            if self.resources is not None and type(self.resources) is not dict and not self.resources.done():
                 if threading.main_thread() == threading.current_thread():
                     self.resources.cancel()
                 else:
@@ -264,6 +265,7 @@ class RuntimeSession:
         pilot_manager: rp.PilotManager,
         pilot_description: rp.PilotDescription,
         task_manager: rp.TaskManager,
+        target_venv: str,
     ):
         logger.debug(
             "Using resource config: {}".format(str(session.get_resource_config(pilot_description.resource).as_dict()))
@@ -276,6 +278,9 @@ class RuntimeSession:
 
             pilot = pilot_manager.submit_pilots([rp.PilotDescription(pilot_description)])[0]
             task_manager.add_pilots(pilot)
+            pilot.wait(rp.PMGR_ACTIVE)
+            env_spec = {"type": "venv", "path": target_venv, "setup": []}
+            pilot.prepare_env(env_name="scalems_env", env_spec=env_spec)
         return pilot
 
     def pilot(self) -> rp.Pilot:
@@ -317,13 +322,15 @@ class RuntimeSession:
                     pilot_manager=pilot_manager,
                     pilot_description=pilot_description,
                     task_manager=task_manager,
+                    target_venv=self._configuration.target_venv,
                 )
                 logger.debug(f"Got Pilot {pilot.uid}: {pilot.as_dict()}")
 
                 # Note: This could take hours or days depending on the queuing system.
                 # Can we report some more useful information, like job ID?
                 # self.resources = self._loop.create_task(pilot_resources(pilot), name="Pilot resources")
-                self.resources = asyncio.create_task(get_pilot_resources(pilot), name="Pilot resources")
+                #self.resources = asyncio.create_task(get_pilot_resources(pilot), name="Pilot resources")
+                self.resources = get_pilot_resources_sync(pilot)
 
                 self._pilot = pilot
         # Do some checking.
@@ -363,6 +370,31 @@ def _rp_session(*args, **kwargs) -> rp.Session:
         logger.info(f"Created {session.uid}")
     return session
 
+def rt_session(*, configuration: RuntimeConfiguration, loop) -> RuntimeSession:
+    """Start a new RADICAL Pilot Session."""
+    session: rp.Session = _rp_session()
+    runtime = RuntimeSession(session=session, loop=loop, configuration=configuration)
+
+    # At some point soon, we need to track Session ID for the workflow metadata.
+    session_id = runtime.session.uid
+    # Do we want to log this somewhere?
+    # session_config = copy.deepcopy(self.session.cfg.as_dict())
+    logger.debug("Acquired RP Session {}".format(session_id))
+
+    logger.debug("Launching PilotManager.")
+    pilot_manager = rp.PilotManager(session=runtime.session)
+    pilot_manager = runtime.pilot_manager(pilot_manager)
+    logger.debug("Got PilotManager {}.".format(pilot_manager.uid))
+
+    logger.debug("Launching TaskManager.")
+    task_manager = rp.TaskManager(session=runtime.session)
+    task_manager = runtime.task_manager(task_manager)
+    logger.debug("Got TaskManager {}".format(task_manager.uid))
+
+    pilot = runtime.pilot()
+    logger.debug("Added Pilot {} to task manager {}.".format(pilot.uid, runtime.task_manager().uid))
+
+    return runtime
 
 async def runtime_session(*, configuration: RuntimeConfiguration, loop=None) -> RuntimeSession:
     """Start a new RADICAL Pilot Session.
@@ -441,6 +473,19 @@ async def get_pilot_resources(pilot: rp.Pilot) -> RmInfo:
 
     pilot_state.add_done_callback(log_pilot_state)
     await pilot_state
+    rm_info: RmInfo = pilot.resource_details.get("rm_info")
+    logger.debug(f"Pilot {pilot.uid} resources: {str(rm_info)}")
+    if rm_info is not None:
+        assert "requested_cores" in rm_info and isinstance(rm_info["requested_cores"], int)
+        assert "requested_gpus" in rm_info and isinstance(rm_info["requested_gpus"], int)
+        return rm_info.copy()
+
+def get_pilot_resources_sync(pilot: rp.Pilot) -> RmInfo:
+    logger.info("Waiting for an active Pilot.")
+    # Wait for Pilot to be in state PMGR_ACTIVE. (There is no reasonable
+    # choice of a timeout because we are waiting for the HPC queuing system.)
+    # Then, query Pilot.resource_details['rm_info']['requested_cores'] and 'requested_gpus'.
+    pilot.wait(state=rp.PMGR_ACTIVE, timeout=None)
     rm_info: RmInfo = pilot.resource_details.get("rm_info")
     logger.debug(f"Pilot {pilot.uid} resources: {str(rm_info)}")
     if rm_info is not None:

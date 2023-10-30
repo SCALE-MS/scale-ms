@@ -426,8 +426,11 @@ async def subprocess_to_rp_task(
         raise ValueError("Invalid attribute for RP TaskDescription.") from e
 
     task_cores = subprocess_task_description.cores_per_rank * subprocess_task_description.cpu_processes
-    rm_info: RmInfo = await dispatcher.runtime.resources
-    pilot_cores = rm_info["requested_cores"]
+    if type(dispatcher.runtime.resources) is dict:
+        pilot_cores = dispatcher.runtime.resources["requested_cores"]
+    else:
+        rm_info: RmInfo = await dispatcher.runtime.resources
+        pilot_cores = rm_info["requested_cores"]
     # TODO: Account for Worker cores.
     if config.enable_raptor:
         raptor_task: rp.Task = dispatcher.raptor

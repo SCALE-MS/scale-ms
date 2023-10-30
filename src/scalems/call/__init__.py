@@ -229,7 +229,8 @@ class _Subprocess:
 
 
 async def function_call_to_subprocess(
-    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager, requirements: dict = None
+    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, datastore, requirements: dict = None,
+        venv: str = None,
 ) -> _Subprocess:
     """
     Wrap a function call in a command line based on `scalems.call`.
@@ -272,13 +273,16 @@ async def function_call_to_subprocess(
         tmp_file.write(serialize_call(func=func, args=args, kwargs=kwargs, requirements=requirements))
         tmp_file.flush()
         # We can't release the temporary file until the file reference is obtained.
-        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=manager.datastore())
+        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=datastore)
 
     uid = str(label)
     input_filename = uid + "-input.json"
     # TODO: Collaborate with scalems.call to agree on output filename.
     output_filename = uid + "-output.json"
-    executable = "python3"
+    if venv:
+        executable = os.path.join(venv, "bin", "python")
+    else:
+        executable = "python3"
     arguments = []
     for key, value in getattr(sys, "_xoptions", {}).items():
         if value is True:

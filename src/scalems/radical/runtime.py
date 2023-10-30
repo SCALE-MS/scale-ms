@@ -290,6 +290,44 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
         finally:
             _configuration.reset(token)
 
+    def rt_startup(self):
+        config: RuntimeConfiguration = self._runtime_configuration
+        self.runtime = scalems.radical.session.rt_session(loop=self._loop, configuration=config)
+        if config.enable_raptor:
+            pilot = self.runtime.pilot()
+            # TODO(#335): Separate Worker provisioning from Master provisioning.
+            config_file = scalems.radical.raptor.raptor_input_sync(filestore=self.datastore)
+            td = rp.TaskDescription()
+            master_identity = scalems.identifiers.EphemeralIdentifier()
+            td.uid = "scalems-rp-raptor." + str(master_identity)
+            td.mode = rp.RAPTOR_MASTER
+            td.pre_exec = list(get_pre_exec(config))
+
+            config_file_name = str(td.uid) + "-config.json"
+            td.input_staging = [
+                {
+                    "source": config_file.as_uri(),
+                    "target": f"task:///{config_file_name}",
+                    "action": rp.TRANSFER,
+                }
+            ]
+            td.arguments.append(config_file_name)
+            task_metadata = {"uid": td.uid, "pilot": pilot.uid}
+            filestore=self.datastore
+
+            logger.debug(f"Using {filestore}.")
+
+            filestore.add_task(master_identity, **task_metadata)
+
+            _task = pilot.submit_tasks([td])
+            self.raptor: rp.raptor_tasks.Raptor = _task[0]
+
+        #import ipdb;ipdb.set_trace()
+        #runner_task = scalems.execution.manage_execution_sync(self)
+        #return runner_task
+        #scalems.execution.Queuer(source=wfm, command_queue=asyncio.Queue)
+
+
     async def runtime_startup(self) -> asyncio.Task:
         """Establish the RP Session.
 
@@ -469,6 +507,9 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
             else:
                 logger.error(f"Session {session.uid} not closed!")
         logger.debug("RuntimeSession shut down.")
+
+    def close(self):
+        self.runtime_shutdown(self.runtime)
 
     def updater(self) -> "WorkflowUpdater":
         return WorkflowUpdater(executor=self)

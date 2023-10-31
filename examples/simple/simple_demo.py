@@ -14,6 +14,7 @@ from pathlib import Path
 
 import scalems.radical
 import radical.pilot as rp
+import radical.saga as rs
 
 
 def get_pilot_desc(resource: str = "local.localhost"):
@@ -44,16 +45,16 @@ class GmxApiRun:
         datastore: scalems.store.FileStore,
     ):
         # TODO: Manage input file staging so we don't have to assume localhost.
-        args = (
+        self.args = (
             command_line_args,
             input_files,
             output_files,
         )
         self.label = label
-        self._call_handle = scalems.call.function_call_to_subprocess(
+        self._subprocess_call = scalems.call.function_call_to_subprocess(
             func=self._func,
             label=label,
-            args=args,
+            args=self.args,
             kwargs=None,
             datastore=datastore,
             venv=venv,
@@ -70,7 +71,7 @@ class GmxApiRun:
     async def result(self, dispatcher: scalems.radical.runtime.RPDispatchingExecutor):
         """Deliver the results of the simulation Command."""
         # Wait for input preparation
-        call_handle = await asyncio.create_task(self._call_handle)
+        call_handle = await asyncio.create_task(self._subprocess_call)
         rp_task_result_future = asyncio.create_task(
             scalems.radical.task.subprocess_to_rp_task(call_handle, dispatcher=dispatcher)
         )
@@ -91,6 +92,38 @@ async def launch(dispatcher, simulations):
     for future in futures:
         future.add_done_callback(lambda x: print(f"Task done: {repr(x)}."))
     return await asyncio.gather(*futures)
+
+
+class DependencySubmitter:
+    def __init__(self, dispatcher, grompp_task, mdrun_task):
+        self.dispatcher = dispatcher
+        self.grompp = asyncio.Event()
+        self.mdrun = asyncio.Event()
+        self.grompp_task = grompp_task
+        self.mdrun_task = mdrun_task
+
+    async def grompp_exec(self):
+        print("submitting grompp task")
+        grompp_result = await asyncio.create_task(self.grompp_task.result(self.dispatcher), name=self.grompp_task.label)
+        self.grompp.set()
+        print("grompp task done")
+        return grompp_result
+
+    async def mdrun_exec(self):
+        print("waiting for grompp to finish")
+        await self.grompp.wait()
+        print("submitting mdrun task")
+        mdrun_result = await asyncio.create_task(self.mdrun_task.result(self.dispatcher), name=self.mdrun_task.label)
+        print("mdrun task done")
+        return mdrun_result
+
+    async def start(self):
+        return await asyncio.gather(self.grompp_exec(), self.mdrun_exec())
+
+
+async def dep_factory(grompp_task, mdrun_task, dispatcher):
+    dep_sub = DependencySubmitter(dispatcher, grompp_task, mdrun_task)
+    return await dep_sub.start()
 
 
 if __name__ == "__main__":
@@ -134,7 +167,8 @@ if __name__ == "__main__":
         rp_resource_params={"PilotDescription": pilot_description.as_dict()},
     )
 
-    workflow_manager = scalems.radical.workflow_manager()
+    loop = asyncio.get_event_loop()
+    workflow_manager = scalems.radical.workflow_manager(loop=loop)
 
     executor = scalems.radical.runtime.executor_factory(workflow_manager, runtime_config)
     executor.rt_startup()
@@ -147,18 +181,25 @@ if __name__ == "__main__":
         datastore=workflow_manager.datastore(),
         venv=script_config.venv,
     )
-    grompp_result = asyncio.run(launch(executor, [grompp_run]))
-    assert os.path.isfile(grompp_result[0]["outputs"]["-o"])
+
+    grompp_tpr = os.path.join(
+        rs.Url(executor._runtime_session._pilot.pilot_sandbox).path,
+        grompp_run.label,
+        "gmxapi.commandline.cli0_i0/run.tpr",
+    )
 
     mdrun_run = GmxApiRun(
         command_line_args=["mdrun", "-ntomp", "2"],
-        input_files={"-s": grompp_result[0]["outputs"]["-o"]},
+        input_files={"-s": grompp_tpr},
         output_files={"-x": "result.xtc", "-c": "result.gro"},
         label=f"run-mdrun-{0}",
         datastore=workflow_manager.datastore(),
         venv=script_config.venv,
     )
-    mdrun_result = asyncio.run(launch(executor, [mdrun_run]))
-    assert os.path.isfile(mdrun_result[0]["outputs"]["-x"])
+
+    grompp_result, mdrun_result = asyncio.run(dep_factory(grompp_run, mdrun_run, executor))
+
+    print(grompp_result["outputs"])
+    print(mdrun_result["outputs"])
 
     executor.close()

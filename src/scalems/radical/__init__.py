@@ -69,7 +69,4 @@ def workflow_manager(loop: asyncio.AbstractEventLoop = None, directory=None):
         The importer of this module should be sure to import radical.pilot
         before importing the built-in logging module to avoid spurious warnings.
     """
-    if loop is None:
-        loop = asyncio.get_event_loop()
-        asyncio.set_event_loop(loop)
     return scalems.workflow.WorkflowManager(loop=loop, directory=directory)

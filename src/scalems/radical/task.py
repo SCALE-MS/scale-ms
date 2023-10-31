@@ -6,6 +6,7 @@ __all__ = (
     "get_directory_archive",
     "rp_task",
     "submit",
+    "rp_task_description",
     "subprocess_to_rp_task",
     "wrapped_function_result_from_rp_task",
     "write_archive",
@@ -351,6 +352,90 @@ class RPTaskResult:
     TODO: In the next iteration, use a non-local FileReference or (TBD) DirectoryReference.
     """
 
+async def rp_task_description(
+    call_handle: scalems.call._Subprocess
+):
+    subprocess_dict = dict(
+        stage_on_error=True,
+        uid=call_handle.uid,
+        executable=call_handle.executable,
+        arguments=list(call_handle.arguments),
+        mode=rp.TASK_EXECUTABLE,
+    )
+    subprocess_dict["stdout"] = "_scalems_stdout.txt"
+    subprocess_dict["stderr"] = "_scalems_stderr.txt"
+
+    await asyncio.gather(*tuple(ref.localize() for ref in call_handle.input_filenames.values()))
+    subprocess_dict["input_staging"] = [
+        {
+            "source": ref.as_uri(),
+            "target": f"task:///{name}",
+            "action": rp.TRANSFER,
+        }
+        for name, ref in call_handle.input_filenames.items()
+    ]
+
+    for param, value in call_handle.requirements.items():
+        if param in subprocess_dict:
+            raise ValueError(f"Cannot overwrite {param}. Task['{param}'] is {subprocess_dict[param]}")
+        else:
+            subprocess_dict[param] = value
+
+    try:
+        subprocess_task_description = rp.TaskDescription(from_dict=subprocess_dict).verify()
+    except radical.utils.typeddict.TDKeyError as e:
+        raise ValueError("Invalid attribute for RP TaskDescription.") from e
+
+    return subprocess_task_description
+
+
+async def rp_task_launch(task_description, dispatcher):
+    config = dispatcher.configuration()
+    if config is None or dispatcher.runtime is None:
+        raise APIError("subprocess_to_rp_task() needs an active run time.")
+
+    task_cores = task_description.cores_per_rank * task_description.cpu_processes
+    if type(dispatcher.runtime.resources) is dict:
+        pilot_cores = dispatcher.runtime.resources["requested_cores"]
+    else:
+        rm_info: RmInfo = await dispatcher.runtime.resources
+        pilot_cores = rm_info["requested_cores"]
+    # TODO: Account for Worker cores.
+    if config.enable_raptor:
+        raptor_task: rp.Task = dispatcher.raptor
+        raptor_cores = raptor_task.description["ranks"] * raptor_task.description["cores_per_rank"]
+    else:
+        raptor_cores = 0
+    if task_cores > (available_cores := pilot_cores - raptor_cores):
+        raise ValueError(f"Requested {task_cores} for {task_description.uid}, but at most {available_cores} are available.")
+
+    task_manager = dispatcher.runtime.task_manager()
+    (submitted_task,) = await asyncio.to_thread(task_manager.submit_tasks, [task_description])
+    subprocess_task_future: asyncio.Task[rp.Task] = await rp_task(submitted_task)
+
+    subprocess_task: rp.Task = await subprocess_task_future
+
+    logger.debug(f"Task {subprocess_task.uid} sandbox: {subprocess_task.task_sandbox}.")
+
+    sandbox: radical.saga.Url = copy.deepcopy(subprocess_task.task_sandbox)
+    if not isinstance(sandbox, radical.saga.Url):
+        logger.debug(f"Converting {repr(sandbox)} to expected Url type.")
+        sandbox = radical.saga.Url(sandbox)
+
+    archive_future = asyncio.create_task(
+        get_directory_archive(sandbox, dispatcher=dispatcher),
+        name=f"archive-{subprocess_task.uid}",
+    )
+
+    result = RPTaskResult(
+        uid=subprocess_task.uid,
+        exit_code=subprocess_task.exit_code,
+        task_dict=subprocess_task.description,
+        directory=sandbox,
+        final_state=subprocess_task.state,
+        directory_archive=archive_future,
+    )
+    return result
 
 async def subprocess_to_rp_task(
     call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor

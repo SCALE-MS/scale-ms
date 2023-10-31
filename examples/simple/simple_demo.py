@@ -11,6 +11,8 @@ import os
 import sys
 
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Union
 
 import scalems.radical
 import radical.pilot as rp
@@ -87,43 +89,40 @@ class GmxApiRun:
         return {"outputs": result.return_value, "task_directory": result.directory}
 
 
-async def launch(dispatcher, simulations):
-    futures = tuple(asyncio.create_task(md.result(dispatcher), name=md.label) for md in simulations)
-    for future in futures:
-        future.add_done_callback(lambda x: print(f"Task done: {repr(x)}."))
-    return await asyncio.gather(*futures)
+@dataclass
+class Task:
+    task: GmxApiRun
+    dependencies: list[str]
+    event: Union[asyncio.Event, None] = None
 
 
 class DependencySubmitter:
-    def __init__(self, dispatcher, grompp_task, mdrun_task):
+    def __init__(self, dispatcher):
         self.dispatcher = dispatcher
-        self.grompp = asyncio.Event()
-        self.mdrun = asyncio.Event()
-        self.grompp_task = grompp_task
-        self.mdrun_task = mdrun_task
+        self.task_list = dict()
 
-    async def grompp_exec(self):
-        print("submitting grompp task")
-        grompp_result = await asyncio.create_task(self.grompp_task.result(self.dispatcher), name=self.grompp_task.label)
-        self.grompp.set()
-        print("grompp task done")
-        return grompp_result
+    def add_task(self, task: Task):
+        self.task_list[task.task.label] = task
 
-    async def mdrun_exec(self):
-        print("waiting for grompp to finish")
-        await self.grompp.wait()
-        print("submitting mdrun task")
-        mdrun_result = await asyncio.create_task(self.mdrun_task.result(self.dispatcher), name=self.mdrun_task.label)
-        print("mdrun task done")
-        return mdrun_result
+    def _create_events(self):
+        for task_label in self.task_list:
+            self.task_list[task_label].event = asyncio.Event()
+
+    async def exec(self, task_label: str):
+        task = self.task_list[task_label]
+        if task.dependencies:
+            for dependency in task.dependencies:
+                print(f"waiting for {dependency} before running {task_label}")
+                await self.task_list[dependency].event.wait()
+        print(f"submitting {task_label} task")
+        result = await asyncio.create_task(task.task.result(self.dispatcher), name=task_label)
+        task.event.set()
+        print(f"task {task_label} done")
+        return result
 
     async def start(self):
-        return await asyncio.gather(self.grompp_exec(), self.mdrun_exec())
-
-
-async def dep_factory(grompp_task, mdrun_task, dispatcher):
-    dep_sub = DependencySubmitter(dispatcher, grompp_task, mdrun_task)
-    return await dep_sub.start()
+        self._create_events()
+        return await asyncio.gather(*[self.exec(task_label) for task_label in self.task_list])
 
 
 if __name__ == "__main__":
@@ -197,7 +196,10 @@ if __name__ == "__main__":
         venv=script_config.venv,
     )
 
-    grompp_result, mdrun_result = asyncio.run(dep_factory(grompp_run, mdrun_run, executor))
+    dep_sub = DependencySubmitter(executor)
+    dep_sub.add_task(Task(grompp_run, []))
+    dep_sub.add_task(Task(mdrun_run, [grompp_run.label]))
+    grompp_result, mdrun_result = asyncio.run(dep_sub.start())
 
     print(grompp_result["outputs"])
     print(mdrun_result["outputs"])

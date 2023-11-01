@@ -13,6 +13,8 @@ import sys
 from pathlib import Path
 from dataclasses import dataclass
 from typing import Union
+import networkx as nx
+import matplotlib.pyplot as plt
 
 import scalems.radical
 import radical.pilot as rp
@@ -53,14 +55,18 @@ class GmxApiRun:
             output_files,
         )
         self.label = label
-        self._subprocess_call = scalems.call.function_call_to_subprocess(
+        self._subprocess_call = scalems.call.gmxapi_function_call_to_subprocess(
             func=self._func,
             label=label,
-            args=self.args,
-            kwargs=None,
+            command_line_args=command_line_args,
+            input_files=input_files,
+            output_files=output_files,
             datastore=datastore,
             venv=venv,
         )
+        self.output_files = {
+            flag: os.path.join(datastore.datastore.as_posix(), f"{label}.{name}") for flag, name in output_files.items()
+        }
 
     @staticmethod
     def _func(*args):
@@ -86,7 +92,7 @@ class GmxApiRun:
         result: scalems.call.CallResult = await result_future
         # Note that the return_value is the trajectory path in the RP-managed Task directory.
         # TODO: stage trajectory file, explicitly?
-        return {"outputs": result.return_value, "task_directory": result.directory}
+        return result
 
 
 @dataclass
@@ -107,6 +113,17 @@ class DependencySubmitter:
     def _create_events(self):
         for task_label in self.task_list:
             self.task_list[task_label].event = asyncio.Event()
+
+    def plot_graph(self):
+        graph = nx.DiGraph()
+        for task_label in self.task_list:
+            graph.add_node(task_label)
+        for task_label in self.task_list:
+            for dependency in self.task_list[task_label].dependencies:
+                graph.add_edge(dependency, task_label)
+
+        nx.draw(graph, with_labels=True)
+        plt.show()
 
     async def exec(self, task_label: str):
         task = self.task_list[task_label]
@@ -181,15 +198,9 @@ if __name__ == "__main__":
         venv=script_config.venv,
     )
 
-    grompp_tpr = os.path.join(
-        rs.Url(executor._runtime_session._pilot.pilot_sandbox).path,
-        grompp_run.label,
-        "gmxapi.commandline.cli0_i0/run.tpr",
-    )
-
     mdrun_run = GmxApiRun(
         command_line_args=["mdrun", "-ntomp", "2"],
-        input_files={"-s": grompp_tpr},
+        input_files={"-s": grompp_run.output_files["-o"]},
         output_files={"-x": "result.xtc", "-c": "result.gro"},
         label=f"run-mdrun-{0}",
         datastore=workflow_manager.datastore(),
@@ -201,7 +212,7 @@ if __name__ == "__main__":
     dep_sub.add_task(Task(mdrun_run, [grompp_run.label]))
     grompp_result, mdrun_result = asyncio.run(dep_sub.start())
 
-    print(grompp_result["outputs"])
-    print(mdrun_result["outputs"])
+    print(grompp_result.return_value)
+    print(mdrun_result.return_value)
 
     executor.close()

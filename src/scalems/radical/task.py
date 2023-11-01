@@ -470,7 +470,6 @@ async def subprocess_to_rp_task(
         uid=call_handle.uid,
         executable=call_handle.executable,
         arguments=list(call_handle.arguments),
-        pre_exec=list(get_pre_exec(dispatcher.configuration())),
         mode=rp.TASK_EXECUTABLE,
     )
     if config.enable_raptor:
@@ -495,6 +494,16 @@ async def subprocess_to_rp_task(
             "action": rp.TRANSFER,
         }
         for name, ref in call_handle.input_filenames.items()
+    ]
+
+    subprocess_dict["output_staging"] = [
+        {
+            "source": f"task:///gmxapi.commandline.cli0_i0/{name}",
+            # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
+            "target": os.path.join(dispatcher.datastore.datastore.as_uri(), f"{name}"),
+            "action": rp.TRANSFER,
+        }
+        for name in call_handle.output_file_locations.values()
     ]
 
     # We just pass the user-provided requirements through, but we have to reject

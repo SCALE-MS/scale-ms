@@ -227,6 +227,68 @@ class _Subprocess:
     arguments: tuple[str, ...]
     requirements: dict = dataclasses.field(default_factory=dict)
 
+@dataclasses.dataclass(frozen=True)
+class GmxApiSubprocess:
+    uid: str
+    input_filenames: typing.Mapping[str, _store.FileReference]
+    output_filenames: tuple
+    output_file_locations: list[str]
+    executable: str
+    arguments: tuple[str, ...]
+    requirements: dict = dataclasses.field(default_factory=dict)
+
+async def gmxapi_function_call_to_subprocess(
+    func: typing.Callable,
+    command_line_args,
+    input_files,
+    output_files,
+    label: str,
+    datastore: _store.FileStore,
+    requirements: dict = None,
+    venv: str = None,
+) -> GmxApiSubprocess:
+    output_files.update((flag, f"{label}.{name}") for flag, name in output_files.items())
+    args = (command_line_args, input_files, output_files,)
+    if requirements is None:
+        requirements = dict()
+    with tempfile.NamedTemporaryFile(mode="w", suffix="-input.json") as tmp_file:
+        tmp_file.write(serialize_call(func=func, args=args, kwargs={}, requirements=requirements))
+        tmp_file.flush()
+        # We can't release the temporary file until the file reference is obtained.
+        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=datastore)
+
+    uid = str(label)
+    input_filename = uid + "-input.json"
+    # TODO: Collaborate with scalems.call to agree on output filename.
+    output_filename = uid + "-output.json"
+    if venv:
+        executable = os.path.join(venv, "bin", "python")
+    else:
+        executable = "python3"
+    arguments = []
+    for key, value in getattr(sys, "_xoptions", {}).items():
+        if value is True:
+            arguments.append(f"-X{key}")
+        else:
+            assert isinstance(value, str)
+            arguments.append(f"-X{key}={value}")
+
+    # TODO: Validate with argparse, once scalems.call.__main__ has a real parser.
+    if "ranks" in requirements:
+        arguments.extend(("-m", "mpi4py"))
+    # If this wrapper doesn't go away soon, we should abstract this so path arguments
+    # can be generated at the execution site.
+    arguments.extend(("-m", "scalems.call", input_filename, output_filename))
+
+    return GmxApiSubprocess(
+        uid=uid,
+        input_filenames={input_filename: file_ref},
+        output_filenames=(output_filename,),
+        output_file_locations=output_files,
+        executable=executable,
+        arguments=tuple(arguments),
+        requirements=requirements.copy(),
+    )
 
 async def function_call_to_subprocess(
     func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, datastore, requirements: dict = None,

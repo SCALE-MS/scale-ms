@@ -629,7 +629,7 @@ async def wrapped_function_result_from_rp_task(
         os.path.join(rp_task_result.directory.path, rp_task_result.task_dict["stderr"])
     )
 
-    result = dataclasses.replace(partial_result, stdout=str(stdout), stderr=str(stderr), directory=archive_ref.as_uri())
+    result = dataclasses.replace(partial_result, stdout=str(stdout), stderr=str(stderr), directory=archive_ref.as_uri(), label=rp_task_result.uid)
     return result
 
 

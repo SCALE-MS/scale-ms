@@ -95,6 +95,9 @@ class _Call:
 class CallResult:
     """Result type (container) for a dispatched function call."""
 
+    label: str = None
+    """Label for the call. Used for indexing data."""
+
     return_value: typing.Optional[typing.Any] = None
     """Return value, if any.
 

@@ -4,6 +4,7 @@ import asyncio
 import os
 
 from dataclasses import dataclass
+from functools import partial
 from typing import Union
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -35,7 +36,8 @@ class SimpleManager:
         self.task_list = dict()
 
     def start_session(self):
-        self._executor.rt_startup()
+        if self._executor.runtime is None:
+            self._executor.rt_startup()
 
     def end_session(self):
         self._executor.close()
@@ -61,16 +63,19 @@ class SimpleManager:
         self.task_list[task.label] = managed
         return task
 
-    def plot_graph(self):
-        graph = nx.DiGraph()
-        for task_label in self.task_list:
-            graph.add_node(task_label)
-        for task_label in self.task_list:
-            for dependency in self.task_list[task_label].gmxapi.dependencies():
-                graph.add_edge(dependency, task_label)
-
-        nx.draw(graph, with_labels=True)
-        plt.show()
+    def add_task_graph(self, task_graph: dict):
+        gmxapi_sub = partial(scalems.call.gmxapi_function_call_to_subprocess,
+                             func=gmxapi_call, datastore=self._executor.datastore, venv=self.venv)
+        for task_label in task_graph:
+            task = task_graph[task_label]
+            call = gmxapi_sub(
+                label=task_label,
+                command_line_args=task.command_line_args,
+                input_files=task.input_files,
+                output_files=task.output_files,
+            )
+            managed = ManagedTask(call, task_label, task)
+            self.task_list[task.label] = managed
 
     def run_tasks(self):
         asyncio.run(self._start())
@@ -102,6 +107,33 @@ class SimpleManager:
         """Wrapper to make executable for submission."""
         pass
 
+class TaskGraph:
+    def __init__(self, manager: SimpleManager):
+        self.datastore = manager._executor.datastore.datastore
+        self.task_graph = dict()
+
+    def add_task(self, command_line_args, input_files, output_files, label: str):
+        task = GmxApiTask(
+            command_line_args=command_line_args,
+            input_files=input_files,
+            output_files=output_files,
+            label=label,
+            output_dir=self.datastore.as_posix(),
+        )
+        self.task_graph[task.label] = task
+        return task
+
+    def plot_graph(self):
+        graph = nx.DiGraph()
+        for task_label in self.task_graph:
+            graph.add_node(task_label)
+        for task_label in self.task_graph:
+            for dependency in self.task_graph[task_label].dependencies():
+                graph.add_edge(dependency, task_label)
+
+        nx.draw(graph, with_labels=True)
+        plt.show()
+
 
 def gmxapi_call(*args):
     """Task implementation."""
@@ -127,21 +159,28 @@ class GmxApiTask:
         output_dir,
         label: str,
     ):
-        self.args = (
-            command_line_args,
-            input_files,
-            output_files,
-        )
+        self.command_line_args = command_line_args
+        self.input_files = input_files
+        self.output_files = output_files
+        self._output_dir = output_dir
         self.label = label
 
-        self._output_files = {
-            flag: os.path.join(output_dir, f"{label}.{name}") for flag, name in output_files.items()
-        }
+        self.output_files_paths = output_files
+
+
         self._dependencies = []
         self._result = None
 
-    def output_files(self):
-        return self._output_files
+    @property
+    def output_files_paths(self):
+        return self.__output_files_paths
+
+    @output_files_paths.setter
+    def output_files_paths(self, output_files):
+        print("setting output files paths")
+        self.__output_files_paths = {
+            flag: os.path.join(self._output_dir, f"{self.label}.{name}") for flag, name in output_files.items()
+        }
 
     def add_dependency(self, task_label: str):
         self._dependencies.append(task_label)
@@ -160,10 +199,14 @@ class GmxApiTask:
         else:
             return "Unknown"
 
-    def outputs(self):
+    def done(self) -> bool:
+        """Returns True if the task is complete."""
+        return self.status() == "Complete"
+
+    def result(self):
         """Returns output variables and handles to files."""
-        if self.status() == "Complete":
-            return self._output_files
+        if self.done():
+            return self._result.return_value
         else:
             return self.status()
 

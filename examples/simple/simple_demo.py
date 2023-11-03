@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 import scalems.radical
-from scalems.simple import SimpleManager
+from scalems.simple import SimpleManager, TaskGraph
 
 
 if __name__ == "__main__":
@@ -49,21 +49,22 @@ if __name__ == "__main__":
     }
 
     manager = SimpleManager(script_config)
+    task_graph = TaskGraph(manager)
     manager.start_session()
-    grompp_task = manager.submit(command_line_args="grompp",
+
+    grompp_task = task_graph.add_task(command_line_args="grompp",
         input_files=input_files,
         output_files={"-o": "run.tpr"},
         label=f"run-grompp-{0}")
-
-    mdrun_task = manager.submit(command_line_args=["mdrun", "-ntomp", "2"],
-                                 input_files={"-s": grompp_task.output_files()["-o"]},
+    mdrun_task = task_graph.add_task(command_line_args=["mdrun", "-ntomp", "2"],
+                                 input_files={"-s": grompp_task.output_files_paths["-o"]},
         output_files={"-x": "result.xtc", "-c": "result.gro"},
         label=f"run-mdrun-{0}")
-
     mdrun_task.add_dependency(grompp_task.label)
 
+    manager.add_task_graph(task_graph.task_graph)
     manager.run_tasks()
 
-    print(f" Outputs from mdrun: {mdrun_task.outputs()}")
+    print(f" Outputs from mdrun: {mdrun_task.result()}")
 
     manager.end_session()

@@ -322,11 +322,6 @@ class RPDispatchingExecutor(scalems.execution.RuntimeManager[RuntimeConfiguratio
             _task = pilot.submit_tasks([td])
             self.raptor: rp.raptor_tasks.Raptor = _task[0]
 
-        #import ipdb;ipdb.set_trace()
-        #runner_task = scalems.execution.manage_execution_sync(self)
-        #return runner_task
-        #scalems.execution.Queuer(source=wfm, command_queue=asyncio.Queue)
-
 
     async def runtime_startup(self) -> asyncio.Task:
         """Establish the RP Session.

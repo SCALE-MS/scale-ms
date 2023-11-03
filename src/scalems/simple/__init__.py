@@ -42,27 +42,6 @@ class SimpleManager:
     def end_session(self):
         self._executor.close()
 
-    def submit(self, command_line_args, input_files, output_files, label: str):
-        call = scalems.call.gmxapi_function_call_to_subprocess(
-            func=gmxapi_call,
-            label=label,
-            command_line_args=command_line_args,
-            input_files=input_files,
-            output_files=output_files,
-            datastore=self._executor.datastore,
-            venv=self.venv,
-        )
-        task = GmxApiTask(
-            command_line_args=command_line_args,
-            input_files=input_files,
-            output_files=output_files,
-            label=label,
-            output_dir=self._executor.datastore.datastore.as_posix(),
-        )
-        managed = ManagedTask(call, label, task)
-        self.task_list[task.label] = managed
-        return task
-
     def add_task_graph(self, task_graph: dict):
         gmxapi_sub = partial(scalems.call.gmxapi_function_call_to_subprocess,
                              func=gmxapi_call, datastore=self._executor.datastore, venv=self.venv)

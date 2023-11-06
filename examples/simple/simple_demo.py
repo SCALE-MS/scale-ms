@@ -52,19 +52,24 @@ if __name__ == "__main__":
     task_graph = TaskGraph(manager)
     manager.start_session()
 
-    grompp_task = task_graph.add_task(command_line_args="grompp",
-        input_files=input_files,
-        output_files={"-o": "run.tpr"},
-        label=f"run-grompp-{0}")
-    mdrun_task = task_graph.add_task(command_line_args=["mdrun", "-ntomp", "2"],
-                                 input_files={"-s": grompp_task.output_files_paths["-o"]},
+    grompp_task_label = task_graph.add_task(
+        command_line_args="grompp", input_files=input_files, output_files={"-o": "run.tpr"}, label=f"run-grompp-{0}"
+    )
+
+    mdrun_task_label = task_graph.add_task(
+        command_line_args=["mdrun", "-ntomp", "2"],
+        input_files={"-s": task_graph.get_task(grompp_task_label).output_files_paths["-o"]},
         output_files={"-x": "result.xtc", "-c": "result.gro"},
-        label=f"run-mdrun-{0}")
-    mdrun_task.add_dependency(grompp_task.label)
+        label=f"run-mdrun-{0}",
+    )
+    task_graph.get_task(mdrun_task_label).add_dependency(grompp_task_label)
 
     manager.add_task_graph(task_graph.task_graph)
+
     manager.run_tasks()
 
-    print(f" Outputs from mdrun: {mdrun_task.result()}")
+    if task_graph.get_task(mdrun_task_label).done():
+        print(f" Outputs from mdrun:\n{task_graph.get_task(mdrun_task_label).result()}")
+        assert os.path.isfile(task_graph.get_task(mdrun_task_label).output_files_paths["-x"])
 
     manager.end_session()

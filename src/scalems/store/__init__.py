@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import pathlib
+import psutil
 import shutil
 import tempfile
 import threading
@@ -254,7 +255,8 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
                 # *directory*
 
                 for parent in self._directory.parents:
-                    if _lock.is_locked(parent) or parent.joinpath(_data_subdirectory).exists():
+                    # TODO: What was the reasoning behind not letting _data_subdirectory be a parent?
+                    if _lock.is_locked(parent): # or parent.joinpath(_data_subdirectory).exists():
                         raise _exceptions.ContextError(
                             f"Cannot establish scalems work directory {directory} "
                             f"because it is nested in work directory {parent}."
@@ -277,10 +279,15 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
                         metadata_dict = json.load(fp)
                     if metadata_dict["instance"] is not None:
                         # The metadata file has an owner.
-                        if metadata_dict["instance"] != instance_id:
-                            # This would be a good place to check a heart beat or
-                            # otherwise
-                            # try to confirm whether the previous owner is still active.
+                        pid_alive = psutil.pid_exists(metadata_dict["instance"])
+                        if not pid_alive:
+                            logger.warning(
+                                f"Previous owner of {self.filepath} (PID {metadata_dict['instance']}) "
+                                "is not alive. This may be due to a crash or an orphaned process."
+                            )
+                            assert metadata_dict["instance"] != instance_id
+                            metadata_dict["instance"] = instance_id
+                        elif metadata_dict["instance"] != instance_id and pid_alive:
                             raise _exceptions.ContextError("Context is already in use.")
                         else:
                             assert metadata_dict["instance"] == instance_id
@@ -541,6 +548,34 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
             raise StaleFileStore("FileStore is closed.")
         return FilesView(self._data.files)
 
+    def get_task(self, identity: _identifiers.Identifier) -> dict:
+        """Get the metadata for a task.
+
+        Raises:
+            KeyError: if the task is not in the metadata store.
+        """
+        if str(identity) in self._data.objects:
+            return self._data.objects[str(identity)]
+        else:
+            return {}
+
+    def remove_task(self, identity: _identifiers.Identifier):
+        """Remove a task from the metadata store.
+
+        Raises:
+            KeyError: if the task is not in the metadata store.
+        """
+        if str(identity) in self._data.objects:
+            del self._data.objects[str(identity)]
+        else:
+            raise KeyError(f"Task {identity} is not in the metadata store.")
+
+    def add_data_to_task(self, identity: _identifiers.Identifier, key, value):
+        if str(identity) in self._data.objects:
+            self._data.objects[str(identity)][key] = value
+        else:
+            raise KeyError(f"Task {identity} is not in the metadata store.")
+
     def add_task(self, identity: _identifiers.Identifier, **kwargs):
         """Add a new task entry to the metadata store.
 
@@ -555,7 +590,10 @@ class FileStore(typing.Mapping[_identifiers.ResourceIdentifier, "FileReference"]
             # TODO: It is not an error to add an item with the same key if it
             #  represents the same workflow object (potentially in a more or less
             #  advanced state).
-            raise _exceptions.DuplicateKeyError(f"Task {identity} is already in the metadata store.")
+            if kwargs==self._data.objects[str(identity)]:
+                pass
+            else:
+                raise _exceptions.DuplicateKeyError(f"Task {identity} is already in the metadata store.")
         else:
             # Note: we don't attempt to be thread-safe, and this is not (yet) an async
             # coroutine, so we don't bother with a lock at this point.

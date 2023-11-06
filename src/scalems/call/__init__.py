@@ -250,8 +250,9 @@ async def gmxapi_function_call_to_subprocess(
     requirements: dict = None,
     venv: str = None,
 ) -> GmxApiSubprocess:
-    output_files.update((flag, f"{label}.{name}") for flag, name in output_files.items())
-    args = (command_line_args, input_files, output_files,)
+    call_output_files = output_files.copy()
+    call_output_files.update((flag, f"{label}.{name}") for flag, name in call_output_files.items())
+    args = (command_line_args, input_files, call_output_files,)
     if requirements is None:
         requirements = dict()
     with tempfile.NamedTemporaryFile(mode="w", suffix="-input.json") as tmp_file:
@@ -287,7 +288,7 @@ async def gmxapi_function_call_to_subprocess(
         uid=uid,
         input_filenames={input_filename: file_ref},
         output_filenames=(output_filename,),
-        output_file_locations=output_files,
+        output_file_locations=call_output_files,
         executable=executable,
         arguments=tuple(arguments),
         requirements=requirements.copy(),

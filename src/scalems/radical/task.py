@@ -353,7 +353,7 @@ class RPTaskResult:
 
 
 async def subprocess_to_rp_task(
-    call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor
+    call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor, pad_string: str = ""
 ) -> RPTaskResult:
     """Dispatch a subprocess task through the `scalems.radical` execution backend.
 
@@ -385,7 +385,6 @@ async def subprocess_to_rp_task(
         uid=call_handle.uid,
         executable=call_handle.executable,
         arguments=list(call_handle.arguments),
-        pre_exec=list(get_pre_exec(dispatcher.configuration())),
         mode=rp.TASK_EXECUTABLE,
     )
     if config.enable_raptor:
@@ -412,6 +411,16 @@ async def subprocess_to_rp_task(
         for name, ref in call_handle.input_filenames.items()
     ]
 
+    subprocess_dict["output_staging"] = [
+        {
+            "source": f"task:///{pad_string}{name}",
+            # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
+            "target": os.path.join(dispatcher.datastore.datastore.as_uri(), f"{name}"),
+            "action": rp.TRANSFER,
+        }
+        for name in call_handle.output_file_locations.values()
+    ]
+
     # We just pass the user-provided requirements through, but we have to reject
     # any that collide with parameters we expect to generate.
     for param, value in call_handle.requirements.items():
@@ -426,8 +435,11 @@ async def subprocess_to_rp_task(
         raise ValueError("Invalid attribute for RP TaskDescription.") from e
 
     task_cores = subprocess_task_description.cores_per_rank * subprocess_task_description.cpu_processes
-    rm_info: RmInfo = await dispatcher.runtime.resources
-    pilot_cores = rm_info["requested_cores"]
+    if type(dispatcher.runtime.resources) is dict:
+        pilot_cores = dispatcher.runtime.resources["requested_cores"]
+    else:
+        rm_info: RmInfo = await dispatcher.runtime.resources
+        pilot_cores = rm_info["requested_cores"]
     # TODO: Account for Worker cores.
     if config.enable_raptor:
         raptor_task: rp.Task = dispatcher.raptor
@@ -532,7 +544,7 @@ async def wrapped_function_result_from_rp_task(
         os.path.join(rp_task_result.directory.path, rp_task_result.task_dict["stderr"])
     )
 
-    result = dataclasses.replace(partial_result, stdout=str(stdout), stderr=str(stderr), directory=archive_ref.as_uri())
+    result = dataclasses.replace(partial_result, stdout=str(stdout), stderr=str(stderr), directory=archive_ref.as_uri(), label=rp_task_result.uid)
     return result
 
 

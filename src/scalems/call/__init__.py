@@ -95,6 +95,9 @@ class _Call:
 class CallResult:
     """Result type (container) for a dispatched function call."""
 
+    label: str = None
+    """Label for the call. Used for indexing data."""
+
     return_value: typing.Optional[typing.Any] = None
     """Return value, if any.
 
@@ -227,9 +230,76 @@ class _Subprocess:
     arguments: tuple[str, ...]
     requirements: dict = dataclasses.field(default_factory=dict)
 
+@dataclasses.dataclass(frozen=True)
+class GmxApiSubprocess:
+    uid: str
+    input_filenames: typing.Mapping[str, _store.FileReference]
+    output_filenames: tuple
+    output_file_locations: list[str]
+    executable: str
+    arguments: tuple[str, ...]
+    requirements: dict = dataclasses.field(default_factory=dict)
+
+async def simple_function_call_to_subprocess(
+    func: typing.Union[typing.Callable, str],
+    command_line_args,
+    input_files,
+    output_files,
+    label: str,
+    datastore: _store.FileStore,
+    requirements: dict = None,
+    venv: str = None,
+) -> GmxApiSubprocess:
+    call_output_files = output_files.copy()
+    call_output_files.update((flag, f"{label}.{name}") for flag, name in call_output_files.items())
+    if command_line_args is None:
+        args = (input_files, call_output_files,)
+    else:
+        args = (command_line_args, input_files, call_output_files,)
+    if requirements is None:
+        requirements = dict()
+    with tempfile.NamedTemporaryFile(mode="w", suffix="-input.json") as tmp_file:
+        tmp_file.write(serialize_call(func=func, args=args, kwargs={}, requirements=requirements))
+        tmp_file.flush()
+        # We can't release the temporary file until the file reference is obtained.
+        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=datastore)
+
+    uid = str(label)
+    input_filename = uid + "-input.json"
+    # TODO: Collaborate with scalems.call to agree on output filename.
+    output_filename = uid + "-output.json"
+    if venv:
+        executable = os.path.join(venv, "bin", "python")
+    else:
+        executable = "python3"
+    arguments = []
+    for key, value in getattr(sys, "_xoptions", {}).items():
+        if value is True:
+            arguments.append(f"-X{key}")
+        else:
+            assert isinstance(value, str)
+            arguments.append(f"-X{key}={value}")
+
+    # TODO: Validate with argparse, once scalems.call.__main__ has a real parser.
+    if "ranks" in requirements:
+        arguments.extend(("-m", "mpi4py"))
+    # If this wrapper doesn't go away soon, we should abstract this so path arguments
+    # can be generated at the execution site.
+    arguments.extend(("-m", "scalems.call", input_filename, output_filename))
+
+    return GmxApiSubprocess(
+        uid=uid,
+        input_filenames={input_filename: file_ref},
+        output_filenames=(output_filename,),
+        output_file_locations=call_output_files,
+        executable=executable,
+        arguments=tuple(arguments),
+        requirements=requirements.copy(),
+    )
 
 async def function_call_to_subprocess(
-    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, manager, requirements: dict = None
+    func: typing.Callable, *, label: str, args: tuple = (), kwargs: dict = None, datastore, requirements: dict = None,
+        venv: str = None,
 ) -> _Subprocess:
     """
     Wrap a function call in a command line based on `scalems.call`.
@@ -272,13 +342,16 @@ async def function_call_to_subprocess(
         tmp_file.write(serialize_call(func=func, args=args, kwargs=kwargs, requirements=requirements))
         tmp_file.flush()
         # We can't release the temporary file until the file reference is obtained.
-        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=manager.datastore())
+        file_ref = await _store.get_file_reference(pathlib.Path(tmp_file.name), filestore=datastore)
 
     uid = str(label)
     input_filename = uid + "-input.json"
     # TODO: Collaborate with scalems.call to agree on output filename.
     output_filename = uid + "-output.json"
-    executable = "python3"
+    if venv:
+        executable = os.path.join(venv, "bin", "python")
+    else:
+        executable = "python3"
     arguments = []
     for key, value in getattr(sys, "_xoptions", {}).items():
         if value is True:
@@ -394,7 +467,7 @@ def from_hex(x: str):
     return dill.loads(bytes.fromhex(x))
 
 
-def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None, requirements: dict = None) -> str:
+def serialize_call(func: typing.Union[typing.Callable, str], *, args: tuple = (), kwargs: dict = None, requirements: dict = None) -> str:
     """Create a serialized representation of a function call.
 
     This utility function is provided for stability while the serialization
@@ -409,9 +482,12 @@ def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = No
     # Commands could be implemented for specific Runtime executors, or expressed in terms
     # of importable callables with similarly expressable Input and Result types.
     # Ref: https://github.com/SCALE-MS/scale-ms/issues/33
-    serialized_callable: bytes = to_bytes(func)
+    if isinstance(func, typing.Callable):
+        serialized_callable: bytes = to_bytes(func).hex()
+    else:
+        serialized_callable = func
     pack = CallPack(
-        func=serialized_callable.hex(),
+        func=serialized_callable,
         args=[to_bytes(arg).hex() for arg in args],
         kwargs={key: to_bytes(value).hex() for key, value in kwargs.items()},
         decoder="dill",

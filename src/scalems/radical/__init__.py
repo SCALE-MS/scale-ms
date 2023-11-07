@@ -51,7 +51,7 @@ logger.debug("Importing {}".format(__name__))
 parser = _make_parser(__package__, parents=[_runtime_parser()])
 
 
-def workflow_manager(loop: asyncio.AbstractEventLoop, directory=None):
+def workflow_manager(loop: asyncio.AbstractEventLoop = None, directory=None):
     """Manage a workflow context for RADICAL Pilot work loads.
 
     The rp.Session is created when the Python Context Manager is "entered",

@@ -45,17 +45,18 @@ class SimpleManager:
 
     def add_task_graph(self, task_graph: dict):
         gmxapi_sub = partial(
-            scalems.call.gmxapi_function_call_to_subprocess,
-            func=gmxapi_call,
+            scalems.call.simple_function_call_to_subprocess,
             datastore=self._executor.datastore,
             venv=self.venv,
         )
         for task_label in task_graph:
             task = task_graph[task_label]
             if task.done():
+                self.task_list[task_label] = FinishedTask(task_label)
                 continue
 
             call = gmxapi_sub(
+                func=task._func,
                 label=task_label,
                 command_line_args=task.command_line_args,
                 input_files=task.input_files,
@@ -73,17 +74,26 @@ class SimpleManager:
 
     async def _exec(self, task_label: str):
         task = self.task_list[task_label]
-        if task.gmxapi.dependencies:
-            for dependency in task.gmxapi.dependencies():
-                print(f"waiting for {dependency} before running {task_label}")
-                await self.task_list[dependency].event.wait()
-        print(f"submitting {task_label} task")
-        result = await asyncio.create_task(gmxapi_result(task.call, self._executor), name=task_label)
-        task.event.set()
-        print(f"task {task_label} done")
-        self.task_list[task_label].gmxapi._result = result
-        self._executor.datastore.add_data_to_task(task_label, "_result", result)
-        self._executor.datastore.flush()
+        if isinstance(task, FinishedTask):
+            pass
+        else:
+            if task.task.dependencies:
+                for dependency in task.task.dependencies():
+                    if isinstance(self.task_list[dependency], FinishedTask):
+                        print(f"dependency {dependency} for {task_label} already complete")
+                        continue
+                    else:
+                        print(f"waiting for {dependency} before running {task_label}")
+                        await self.task_list[dependency].event.wait()
+            print(f"submitting {task_label} task")
+            result = await asyncio.create_task(
+                gmxapi_result(task.call, self._executor, task.task._pad_string), name=task_label
+            )
+            task.event.set()
+            print(f"task {task_label} done")
+            self.task_list[task_label].task._result = result
+            self._executor.datastore.add_data_to_task(task_label, "_result", result)
+            self._executor.datastore.flush()
 
     async def _start(self):
         self._create_events()
@@ -99,12 +109,17 @@ class TaskGraph:
         self.datastore = manager._executor.datastore
         self.task_graph = dict()
 
-    def add_task(self, command_line_args, input_files, output_files, label: str):
+    def _check_task_status(self, label: str, task_type: str = "gmxapi"):
         fs = self.datastore
         task_in_fs = fs.get_task(label)
         if task_in_fs:
             task_in_fs = task_in_fs["task"]
-            task_in_fs = GmxApiTask.from_dict(task_in_fs)
+            if task_type == "gmxapi":
+                task_in_fs = GmxApiTask.from_dict(task_in_fs)
+            elif task_type == "python":
+                task_in_fs = PythonTask.from_dict(task_in_fs)
+            else:
+                raise ValueError(f"task_type must be 'gmxapi' or 'python', not {task_type}")
             if task_in_fs.done():
                 print(f"task {label} already complete")
                 self.task_graph[label] = task_in_fs
@@ -120,6 +135,19 @@ class TaskGraph:
                 else:
                     print(f"some output files missing, rerunning")
 
+    def _write_task_to_fs(self, task: Union[GmxApiTask, PythonTask]):
+        # We should only get here when the task still needs to be run
+        # Consider adding something like the following:
+        # assert task_in_fs is None or task_in_fs.result() != "Complete"
+        task_metadata = {"task": task.__dict__}
+        fs = self.datastore
+        fs.add_task(task.label, **task_metadata)
+        fs.flush()
+
+    def add_task_gmxapi(self, command_line_args, input_files, output_files, label: str):
+        check = self._check_task_status(label)
+        if check:
+            return check
         task = GmxApiTask(
             command_line_args=command_line_args,
             input_files=input_files,
@@ -127,12 +155,22 @@ class TaskGraph:
             label=label,
             output_dir=self.datastore.datastore.as_posix(),
         )
-        # We should only get here when the task still needs to be run
-        # Consider adding something like the following:
-        # assert task_in_fs is None or task_in_fs.result() != "Complete"
-        task_metadata = {"task": task.__dict__}
-        fs.add_task(label, **task_metadata)
-        fs.flush()
+        self._write_task_to_fs(task)
+        self.task_graph[task.label] = task
+        return task.label
+
+    def add_task_python(self, func, input_files, output_files, label: str):
+        check = self._check_task_status(label)
+        if check:
+            return check
+        task = PythonTask(
+            python_func=func,
+            input_files=input_files,
+            output_files=output_files,
+            label=label,
+            output_dir=self.datastore.datastore.as_posix(),
+        )
+        self._write_task_to_fs(task)
         self.task_graph[task.label] = task
         return task.label
 
@@ -168,8 +206,13 @@ def gmxapi_call(*args):
 class ManagedTask:
     call: scalems.call.GmxApiSubprocess
     label: str
-    gmxapi: GmxApiTask
+    task: Union[GmxApiTask, PythonTask]
     event: Union[asyncio.Event, None] = None
+
+
+@dataclass
+class FinishedTask:
+    label: str
 
 
 class GmxApiTask:
@@ -191,6 +234,8 @@ class GmxApiTask:
 
         self._dependencies = []
         self._result = None
+        self._func = scalems.call.to_bytes(gmxapi_call).hex()
+        self._pad_string = "gmxapi.commandline.cli0_i0/"
 
     @property
     def output_files_paths(self):
@@ -239,19 +284,54 @@ class GmxApiTask:
             dict_["_output_dir"],
             dict_["label"],
         )
+        if dict_["_func"]:
+            new_class._func = dict_["_func"]
         if dict_["_dependencies"]:
             new_class._dependencies = dict_["_dependencies"]
         if dict_["_result"]:
             new_class._result = scalems.call.CallResult(**dict_["_result"])
+        if dict_["_pad_string"]:
+            new_class._pad_string = dict_["_pad_string"]
         return new_class
 
 
-async def gmxapi_result(subprocess_call, dispatcher: scalems.radical.runtime.RPDispatchingExecutor):
+class PythonTask(GmxApiTask):
+    def __init__(
+        self,
+        python_func,
+        input_files,
+        output_files,
+        output_dir,
+        label: str,
+    ):
+        super().__init__(None, input_files, output_files, output_dir, label)
+        self._func = scalems.call.to_bytes(python_func).hex()
+        self._pad_string = ""
+
+    @classmethod
+    def from_dict(cls, dict_):
+        new_class = cls(
+            dict_["_func"],
+            dict_["input_files"],
+            dict_["output_files"],
+            dict_["_output_dir"],
+            dict_["label"],
+        )
+        if dict_["_dependencies"]:
+            new_class._dependencies = dict_["_dependencies"]
+        if dict_["_result"]:
+            new_class._result = scalems.call.CallResult(**dict_["_result"])
+        if dict_["_pad_string"]:
+            new_class._pad_string = dict_["_pad_string"]
+        return new_class
+
+
+async def gmxapi_result(subprocess_call, dispatcher: scalems.radical.runtime.RPDispatchingExecutor, pad_string=""):
     """Deliver the results of the simulation Command."""
     # Wait for input preparation
     call_handle = await asyncio.create_task(subprocess_call)
     rp_task_result_future = asyncio.create_task(
-        scalems.radical.task.subprocess_to_rp_task(call_handle, dispatcher=dispatcher)
+        scalems.radical.task.subprocess_to_rp_task(call_handle, dispatcher=dispatcher, pad_string=pad_string)
     )
     # Wait for submission and completion
     rp_task_result = await rp_task_result_future

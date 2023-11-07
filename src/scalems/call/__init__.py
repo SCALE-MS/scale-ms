@@ -240,8 +240,8 @@ class GmxApiSubprocess:
     arguments: tuple[str, ...]
     requirements: dict = dataclasses.field(default_factory=dict)
 
-async def gmxapi_function_call_to_subprocess(
-    func: typing.Callable,
+async def simple_function_call_to_subprocess(
+    func: typing.Union[typing.Callable, str],
     command_line_args,
     input_files,
     output_files,
@@ -252,7 +252,10 @@ async def gmxapi_function_call_to_subprocess(
 ) -> GmxApiSubprocess:
     call_output_files = output_files.copy()
     call_output_files.update((flag, f"{label}.{name}") for flag, name in call_output_files.items())
-    args = (command_line_args, input_files, call_output_files,)
+    if command_line_args is None:
+        args = (input_files, call_output_files,)
+    else:
+        args = (command_line_args, input_files, call_output_files,)
     if requirements is None:
         requirements = dict()
     with tempfile.NamedTemporaryFile(mode="w", suffix="-input.json") as tmp_file:
@@ -464,7 +467,7 @@ def from_hex(x: str):
     return dill.loads(bytes.fromhex(x))
 
 
-def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = None, requirements: dict = None) -> str:
+def serialize_call(func: typing.Union[typing.Callable, str], *, args: tuple = (), kwargs: dict = None, requirements: dict = None) -> str:
     """Create a serialized representation of a function call.
 
     This utility function is provided for stability while the serialization
@@ -479,9 +482,12 @@ def serialize_call(func: typing.Callable, *, args: tuple = (), kwargs: dict = No
     # Commands could be implemented for specific Runtime executors, or expressed in terms
     # of importable callables with similarly expressable Input and Result types.
     # Ref: https://github.com/SCALE-MS/scale-ms/issues/33
-    serialized_callable: bytes = to_bytes(func)
+    if isinstance(func, typing.Callable):
+        serialized_callable: bytes = to_bytes(func).hex()
+    else:
+        serialized_callable = func
     pack = CallPack(
-        func=serialized_callable.hex(),
+        func=serialized_callable,
         args=[to_bytes(arg).hex() for arg in args],
         kwargs={key: to_bytes(value).hex() for key, value in kwargs.items()},
         decoder="dill",

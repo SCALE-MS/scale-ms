@@ -353,7 +353,7 @@ class RPTaskResult:
 
 
 async def subprocess_to_rp_task(
-    call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor
+    call_handle: scalems.call._Subprocess, dispatcher: RPDispatchingExecutor, pad_string: str = ""
 ) -> RPTaskResult:
     """Dispatch a subprocess task through the `scalems.radical` execution backend.
 
@@ -413,7 +413,7 @@ async def subprocess_to_rp_task(
 
     subprocess_dict["output_staging"] = [
         {
-            "source": f"task:///gmxapi.commandline.cli0_i0/{name}",
+            "source": f"task:///{pad_string}{name}",
             # TODO: Find a programmatic mechanism to translate between URI and CLI arg for robustness.
             "target": os.path.join(dispatcher.datastore.datastore.as_uri(), f"{name}"),
             "action": rp.TRANSFER,
